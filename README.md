@@ -24,7 +24,7 @@ A Tauri-based desktop application for AI-powered email automation with Gmail int
 Install the required Python packages:
 
 ```bash
-pip3 install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
+pip3 install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client python-dotenv
 ```
 
 ## Environment Configuration
