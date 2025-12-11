@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth Demo - Aiden</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .demo-container {
+            background: white;
+            padding: 3rem;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 600px;
+            width: 90%;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 2rem;
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #4f46e5;
+        }
+
+        .logo .sparkle {
+            color: #10b981;
+            margin-left: 0.5rem;
+        }
+
+        h1 {
+            color: #1f2937;
+            margin-bottom: 1rem;
+            font-size: 1.8rem;
+        }
+
+        .description {
+            color: #6b7280;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .google-btn {
+            background: #4285f4;
+            color: white;
+            border: none;
+            padding: 0.875rem 2.5rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.75rem;
+            transition: all 0.2s;
+            margin-bottom: 2rem;
+        }
+
+        .google-btn:hover {
+            background: #3367d6;
+            transform: translateY(-1px);
+        }
+
+        .status {
+            background: #f3f4f6;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            text-align: left;
+            font-family: monospace;
+            font-size: 0.875rem;
+            color: #374151;
+            display: none;
+        }
+
+        .success {
+            background: #ecfdf5;
+            color: #059669;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+
+        .error {
+            background: #fef2f2;
+            color: #dc2626;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+
+        .step {
+            display: flex;
+            align-items: center;
+            margin: 0.5rem 0;
+        }
+
+        .step-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 0.75rem;
+            font-size: 0.75rem;
+        }
+
+        .step.complete .step-icon {
+            background: #10b981;
+            color: white;
+        }
+
+        .step.current .step-icon {
+            background: #3b82f6;
+            color: white;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <div class="logo">
+            📧 Aiden<span class="sparkle">✨</span>
+        </div>
+        <h1>Gmail OAuth Demo</h1>
+        <p class="description">
+            This demo shows the complete OAuth 2.0 flow for connecting Gmail to Aiden.
+            Click the button below to start the authentication process.
+        </p>
+
+        <button class="google-btn" onclick="startOAuth()">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M17.64 9.20455C17.64 8.56637 17.5827 7.95273 17.4764 7.36364H9V10.845H13.8436C13.675 11.97 13.1109 12.9914 12.2618 13.6745V15.9627H15.0809C16.5164 14.6573 17.64 12.6586 17.64 9.20455Z" fill="#4285F4"/>
+                <path d="M9 18C11.43 18 13.4673 17.1941 15.0809 15.9627L12.2618 13.6745C11.4618 14.2114 10.4364 14.525 9 14.525C6.65591 14.525 4.67182 13.0477 3.96409 10.9691H1.04636V13.3327C2.65227 16.4932 6.08591 18 9 18Z" fill="#34A853"/>
+                <path d="M3.96409 10.9691C3.78409 10.4323 3.68182 9.85682 3.68182 9.27273C3.68182 8.68864 3.78409 8.11318 3.96409 7.57636V5.21273H1.04636C0.378182 6.53455 0 8.03864 0 9.27273C0 10.5068 0.378182 12.0109 1.04636 13.3327L3.96409 10.9691Z" fill="#FBBC05"/>
+                <path d="M9 3.75C10.2477 3.75 11.3682 4.18727 12.2755 5.04091L14.7891 2.52727C13.4636 1.34545 11.43 0.545455 9 0.545455C6.08591 0.545455 2.65227 2.05227 1.04636 5.21273L3.96409 7.57636C4.67182 5.49773 6.65591 3.75 9 3.75Z" fill="#EA4335"/>
+            </svg>
+            Connect with Gmail
+        </button>
+
+        <div id="status"></div>
+
+        <div id="steps">
+            <div class="step" id="step1">
+                <div class="step-icon">1</div>
+                <span>Click "Connect with Gmail" to start OAuth flow</span>
+            </div>
+            <div class="step" id="step2">
+                <div class="step-icon">2</div>
+                <span>Sign in with your Google account</span>
+            </div>
+            <div class="step" id="step3">
+                <div class="step-icon">3</div>
+                <span>Grant permission to access Gmail</span>
+            </div>
+            <div class="step" id="step4">
+                <div class="step-icon">4</div>
+                <span>Receive authorization code</span>
+            </div>
+            <div class="step" id="step5">
+                <div class="step-icon">5</div>
+                <span>Exchange code for access token (demo mode)</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // OAuth configuration
+        const CLIENT_ID = '371357217343-ihm24nevjs05qijuebtrc7vdv33cpuuj.apps.googleusercontent.com';
+        const REDIRECT_URI = 'http://localhost:1420/demo.html';
+        const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
+
+        // Check for OAuth callback
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const error = urlParams.get('error');
+        const statusDiv = document.getElementById('status');
+
+        if (code || error) {
+            handleCallback();
+        }
+
+        function startOAuth() {
+            const btn = document.querySelector('.google-btn');
+            btn.style.display = 'none';
+            statusDiv.style.display = 'block';
+
+            updateStep(1, 'complete');
+            updateStep(2, 'current');
+
+            // Build OAuth URL
+            const authUrl = new URL('https://accounts.google.com/oauth/authorize');
+            authUrl.searchParams.set('client_id', CLIENT_ID);
+            authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
+            authUrl.searchParams.set('response_type', 'code');
+            authUrl.searchParams.set('scope', SCOPE);
+            authUrl.searchParams.set('state', Math.random().toString(36).substring(7));
+            authUrl.searchParams.set('access_type', 'offline');
+            authUrl.searchParams.set('prompt', 'consent');
+
+            statusDiv.innerHTML = `
+                <h3>🔗 Redirecting to Google...</h3>
+                <p>Opening OAuth URL: ${authUrl.toString()}</p>
+            `;
+
+            // Redirect to Google OAuth
+            window.location.href = authUrl.toString();
+        }
+
+        function handleCallback() {
+            statusDiv.style.display = 'block';
+
+            if (error) {
+                statusDiv.innerHTML = `
+                    <div class="error">
+                        <h3>❌ OAuth Error</h3>
+                        <p>Error: ${error}</p>
+                        <button onclick="window.location.href='/demo.html'" style="
+                            background: #4f46e5;
+                            color: white;
+                            padding: 0.5rem 1rem;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                        ">Try Again</button>
+                    </div>
+                `;
+                return;
+            }
+
+            updateStep(1, 'complete');
+            updateStep(2, 'complete');
+            updateStep(3, 'complete');
+            updateStep(4, 'complete');
+            updateStep(5, 'current');
+
+            statusDiv.innerHTML = `
+                <h3>✅ OAuth Flow Successful!</h3>
+                <p><strong>Authorization Code Received:</strong></p>
+                <code style="background: #f3f4f6; padding: 0.5rem; border-radius: 4px; display: block; margin: 0.5rem 0; word-break: break-all;">
+                    ${code}
+                </code>
+                <p><strong>Next Steps:</strong></p>
+                <ul style="text-align: left; margin-top: 0.5rem;">
+                    <li>In production: Exchange this code for access token using your backend server</li>
+                    <li>Store tokens securely</li>
+                    <li>Use the access token to call Gmail APIs</li>
+                </ul>
+                <div class="success">
+                    Demo complete! In a real application, this code would be exchanged for an access token on your server.
+                </div>
+                <button onclick="window.location.href='/demo.html'" style="
+                    background: #10b981;
+                    color: white;
+                    padding: 0.75rem 2rem;
+                    border: none;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    margin-top: 1rem;
+                ">Start Over</button>
+            `;
+
+            // Clear URL parameters
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        function updateStep(stepNum, status) {
+            const step = document.getElementById(`step${stepNum}`);
+            step.className = `step ${status}`;
+        }
+    </script>
+</body>
+</html>

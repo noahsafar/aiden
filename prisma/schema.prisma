@@ -1,0 +1,100 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./aiden.db"
+}
+
+model Email {
+  id                   String   @id
+  gmailId              String   @unique
+  threadId             String
+  subject              String
+  sender               String
+  recipients           String   // JSON array
+  date                 DateTime
+  bodyText             String
+  bodyHtml             String?
+  snippet              String
+  isRead               Boolean  @default(false)
+  isStarred            Boolean  @default(false)
+  hasAttachments       Boolean  @default(false)
+  status               EmailStatus @default(Unhandled)
+  category             EmailCategory @default(Normal)
+  summary              String?
+  keyPoints            String   // JSON array
+  requiresReply        Boolean  @default(false)
+  aiGeneratedReply     String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("emails")
+}
+
+model UserStyle {
+  userEmail            String   @id
+  tone                 String
+  formalityScore       Float
+  commonPhrases        String   // JSON array
+  avgSentenceLength    Float
+  avgResponseTimeMinutes Float
+  lastUpdated          DateTime @default(now())
+
+  @@map("user_styles")
+}
+
+model NotificationHistory {
+  id                   String   @id
+  emailId              String
+  sentAt               DateTime @default(now())
+  clickedAt            DateTime?
+  actionTaken          String?
+
+  @@map("notification_history")
+}
+
+model QueuedEmail {
+  id                   String   @id
+  gmailId              String
+  scheduledFor         DateTime
+  recipient            String
+  subject              String
+  body                 String
+  isDraft              Boolean  @default(false)
+
+  @@map("queued_emails")
+}
+
+model Settings {
+  key                  String   @id
+  value                String
+
+  @@map("settings")
+}
+
+enum EmailStatus {
+  Unhandled
+  Reviewed
+  Replied
+  Archived
+  Scheduled
+  AutoHandled
+}
+
+enum EmailCategory {
+  Urgent
+  Important
+  Normal
+  Low
+  Spam
+  Newsletter
+  Notification
+}

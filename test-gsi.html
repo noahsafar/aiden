@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google OAuth Test</title>
+    <meta name="google-signin-client_id" content="371357217343-oo4u891dmvek1pjo1ovmbjuna72epmms.apps.googleusercontent.com">
+</head>
+<body>
+    <h1>Google OAuth Test</h1>
+    <div id="g_id_onload"
+         data-client_id="371357217343-oo4u891dmvek1pjo1ovmbjuna72epmms.apps.googleusercontent.com"
+         data-callback="handleSignIn">
+    </div>
+    <div class="g_id_signin" data-type="standard"></div>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script>
+        function handleSignIn(response) {
+            console.log('Google Sign-In Response:', response);
+
+            // Decode JWT token
+            const payload = JSON.parse(atob(response.credential.split('.')[1]));
+            console.log('User Info:', payload);
+
+            document.getElementById('result').innerHTML = `
+                <h2>Sign-In Successful!</h2>
+                <p>Email: ${payload.email}</p>
+                <p>Name: ${payload.name}</p>
+                <p>Picture: <img src="${payload.picture}" alt="Profile"></p>
+            `;
+        }
+    </script>
+
+    <div id="result"></div>
+</body>
+</html>

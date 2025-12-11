@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OAuth Callback Test</title>
+</head>
+<body>
+    <h1>OAuth Callback Test Page</h1>
+    <p>If you see this page, the /callback route is working!</p>
+    <p>URL Parameters:</p>
+    <div id="params"></div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        let html = '<ul>';
+        for (const [key, value] of params) {
+            html += `<li><strong>${key}:</strong> ${value}</li>`;
+        }
+        html += '</ul>';
+        document.getElementById('params').innerHTML = html;
+
+        // Test for OAuth parameters
+        if (params.get('code')) {
+            document.body.style.backgroundColor = '#e8f5e9';
+            document.body.innerHTML += '<h2 style="color: #2e7d32;">✅ OAuth Authorization Code received!</h2>';
+        }
+        if (params.get('error')) {
+            document.body.style.backgroundColor = '#ffebee';
+            document.body.innerHTML += '<h2 style="color: #c62828;">❌ OAuth Error: ' + params.get('error') + '</h2>';
+        }
+    </script>
+</body>
+</html>
