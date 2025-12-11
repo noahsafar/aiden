@@ -27,14 +27,64 @@ Install the required Python packages:
 pip3 install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
 ```
 
-### Setup Gmail API
+## Environment Configuration
+
+The application uses environment variables to securely manage OAuth credentials and API keys.
+
+### 1. Set up Environment Variables
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit the `.env` file with your actual credentials:
+   ```env
+   # Google OAuth Configuration
+   GOOGLE_CLIENT_ID=your-google-client-id-here.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=your-google-client-secret-here
+   GOOGLE_CLIENT_SECRET_HTML=your-google-client-secret-here  # For HTML OAuth flows
+
+   # Claude/Anthropic Configuration
+   ANTHROPIC_API_KEY=your-anthropic-api-key-here
+   ```
+
+   **Important**: The `.env` file is included in `.gitignore` and will never be committed to version control.
+
+### 2. Managing OAuth Secrets in HTML Files
+
+The HTML OAuth files (`simple.html`, `callback.html`, `test-oauth.html`) use placeholders to keep secrets out of version control. To run the application:
+
+#### For Development:
+```bash
+# Inject actual secrets from .env into HTML files
+npm run inject-secrets
+
+# Run the application normally
+# (see "Running the Application" section)
+```
+
+#### Before Committing:
+```bash
+# Restore placeholders to avoid committing secrets
+npm run restore-placeholders
+
+# Now you can safely commit
+git add .
+git commit -m "Your commit message"
+```
+
+### 3. Setup Gmail API
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project or select an existing one
 3. Enable the Gmail API
-4. Create OAuth 2.0 credentials (Desktop app)
-5. Download the credentials file and rename it to `gmail_credentials.json`
-6. Place it in the root directory of the project
+4. Create OAuth 2.0 credentials:
+   - **For the Python OAuth Server**: Create a "Desktop app" client ID
+   - **For the HTML OAuth flow**: You can use the same credentials or create a "Web application" client ID
+5. Copy the Client ID and Client Secret to your `.env` file
+
+Note: The project no longer uses a separate `gmail_credentials.json` file. All credentials are managed through environment variables.
 
 ## Installation
 
@@ -57,6 +107,15 @@ pip3 install google-auth google-auth-oauthlib google-auth-httplib2 google-api-py
    ```
 
 ## Running the Application
+
+### Prerequisites
+
+Before running the application, ensure you've:
+1. Set up your `.env` file with proper credentials
+2. Injected secrets into HTML files (required for OAuth):
+   ```bash
+   npm run inject-secrets
+   ```
 
 ### Method 1: Manual (3 Terminal Windows)
 
@@ -192,8 +251,19 @@ aiden-cp/
 │   ├── src/           # Source code
 │   └── Cargo.toml     # Rust dependencies
 ├── oauth_server.py     # Python OAuth server
-└── gmail_credentials.json # Gmail API credentials (DO NOT COMMIT)
+├── simple.html         # OAuth login page (with placeholders)
+├── callback.html       # OAuth callback handler (with placeholders)
+├── test-oauth.html     # OAuth test page (with placeholders)
+├── build-secrets.js    # Script to inject secrets into HTML files
+├── restore-placeholders.js # Script to restore placeholders
+├── .env                # Environment variables (DO NOT COMMIT)
+└── .env.example        # Example environment variables
 ```
+
+### Available Scripts
+
+- `npm run inject-secrets` - Replace placeholders in HTML files with actual secrets from `.env`
+- `npm run restore-placeholders` - Restore placeholders in HTML files for safe committing
 
 ### Build for Production
 

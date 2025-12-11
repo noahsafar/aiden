@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "inject-secrets": "node build-secrets.js",
+    "restore-placeholders": "node restore-placeholders.js"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
