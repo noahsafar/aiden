@@ -26,6 +26,10 @@ chrono = { version = "0.4", features = ["serde"] }
 lettre = "0.11"
 dotenv = "0.15"
 
+# REQUIRED FOR TAURI 2.0 !!!
+[package.metadata.tauri]
+bundle.identifier = "com.example.aiden"
+
 [lib]
 name = "aiden_lib"
 crate-type = ["cdylib"]
