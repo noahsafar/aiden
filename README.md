@@ -1,0 +1,226 @@
+# Aiden AI Email Automation
+
+A Tauri-based desktop application for AI-powered email automation with Gmail integration.
+
+## Features
+
+- 📧 Gmail integration with OAuth2 authentication
+- 🤖 AI-powered email processing and automation
+- 💾 Local SQLite database for storing email data
+- 🖥️ Cross-platform desktop app (macOS, Windows, Linux)
+- 🔐 Secure token storage
+
+## Prerequisites
+
+### Required Software
+
+1. **Node.js** (v18 or higher) - [Download here](https://nodejs.org/)
+2. **Rust** - [Install here](https://rustup.rs/)
+3. **Python 3** - Usually pre-installed on most systems
+4. **Google Cloud Project** with Gmail API enabled
+
+### Python Dependencies
+
+Install the required Python packages:
+
+```bash
+pip3 install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
+```
+
+### Setup Gmail API
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Enable the Gmail API
+4. Create OAuth 2.0 credentials (Desktop app)
+5. Download the credentials file and rename it to `gmail_credentials.json`
+6. Place it in the root directory of the project
+
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd aiden-cp
+   ```
+
+2. Install Node.js dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Install Rust dependencies (automatic with Tauri):
+   ```bash
+   cd src-tauri
+   cargo build
+   cd ..
+   ```
+
+## Running the Application
+
+### Method 1: Manual (3 Terminal Windows)
+
+You need to run all three commands simultaneously in separate terminals:
+
+**Terminal 1 - Frontend (Vite Dev Server):**
+```bash
+npm run dev
+```
+
+**Terminal 2 - Backend (Tauri):**
+```bash
+npm run tauri dev
+```
+
+**Terminal 3 - OAuth Server:**
+```bash
+python3 oauth_server.py
+```
+
+### Method 2: Using a Script
+
+Create a script to run all services at once:
+
+**macOS/Linux:** (`run.sh`)
+```bash
+#!/bin/bash
+echo "Starting Aiden Email Automation..."
+
+# Start frontend
+npm run dev &
+FRONTEND_PID=$!
+
+# Start backend
+npm run tauri dev &
+BACKEND_PID=$!
+
+# Start OAuth server
+python3 oauth_server.py &
+OAUTH_PID=$!
+
+echo "All services started!"
+echo "Frontend: http://localhost:1420"
+echo "OAuth Server: http://localhost:8081"
+echo ""
+echo "Press Ctrl+C to stop all services"
+
+# Wait for Ctrl+C
+trap "kill $FRONTEND_PID $BACKEND_PID $OAUTH_PID" EXIT
+wait
+```
+
+**Windows:** (`run.bat`)
+```batch
+@echo off
+echo Starting Aiden Email Automation...
+
+start "Frontend" cmd /k "npm run dev"
+start "Backend" cmd /k "npm run tauri dev"
+start "OAuth Server" cmd /k "python3 oauth_server.py"
+
+echo All services started!
+echo Frontend: http://localhost:1420
+echo OAuth Server: http://localhost:8081
+pause
+```
+
+Make the script executable (macOS/Linux):
+```bash
+chmod +x run.sh
+```
+
+Then run:
+```bash
+./run.sh
+```
+
+## Accessing the Application
+
+- **Web Interface**: http://localhost:1420
+- **Desktop App**: Will open automatically when Tauri starts
+- **OAuth Server**: http://localhost:8081 (for authentication)
+
+## First Time Setup
+
+1. Run all three services as described above
+2. Open the application (web or desktop)
+3. Click "Sign in with Google"
+4. A browser window will open for Google authentication
+5. Approve the requested permissions
+6. The app will save your credentials locally
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Port already in use**
+   - Kill existing processes on ports 1420, 1421, or 8081
+   - Or change the ports in the configuration files
+
+2. **Authentication fails**
+   - Ensure `gmail_credentials.json` is in the root directory
+   - Check that the Gmail API is enabled in your Google Cloud Console
+   - Verify the OAuth redirect URIs include `http://localhost:8081`
+
+3. **Build errors**
+   - Run `npm install` to refresh Node dependencies
+   - Run `cargo clean` then rebuild Rust code
+   - Ensure all prerequisites are installed
+
+4. **Python OAuth server not working**
+   - Check if Python 3 is installed: `python3 --version`
+   - Install required packages: `pip3 install google-auth google-auth-oauthlib google-api-python-client`
+
+### Reset Authentication
+
+To reset Gmail authentication:
+```bash
+rm -f token.json
+```
+
+## Development
+
+### Project Structure
+
+```
+aiden-cp/
+├── src/                # React frontend
+│   ├── components/     # UI components
+│   ├── stores/         # State management
+│   └── services/       # API services
+├── src-tauri/          # Rust backend
+│   ├── src/           # Source code
+│   └── Cargo.toml     # Rust dependencies
+├── oauth_server.py     # Python OAuth server
+└── gmail_credentials.json # Gmail API credentials (DO NOT COMMIT)
+```
+
+### Build for Production
+
+```bash
+# Build frontend
+npm run build
+
+# Build Tauri app
+npm run tauri build
+```
+
+The built application will be in `src-tauri/target/release/bundle/`.
+
+## License
+
+[Add your license here]
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## Support
+
+For issues and questions:
+- Create an issue on GitHub
+- Check the troubleshooting section above
