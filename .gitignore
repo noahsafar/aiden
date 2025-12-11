@@ -56,3 +56,8 @@ src-tauri/target/
 
 # Claude
 .claude/
+
+# OAuth credentials
+gmail_credentials.json
+credentials.json
+*.pickle
