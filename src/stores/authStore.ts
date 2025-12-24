@@ -151,7 +151,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
       const storedToken = localStorage.getItem('aiden_access_token');
       const storedUser = localStorage.getItem('aiden_user');
 
-      if (storedToken && storedUser) {
+      if (storedToken && storedUser && storedToken !== 'mock_access_token_dev') {
         const userInfo = JSON.parse(storedUser);
         set({
           isAuthenticated: true,
@@ -173,7 +173,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
       }
 
       // Use Python OAuth server for authentication
-      console.log('Starting OAuth with Python server...');
+      console.log('Using Python OAuth server for authentication...');
 
       try {
         // Call Python OAuth server to trigger the OAuth flow
@@ -224,40 +224,18 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
       } catch (fetchError) {
         console.error('Python OAuth server error:', fetchError);
 
-        // For development, create mock credentials if server is not responding
+        // Check if server is running
         if (fetchError instanceof TypeError && fetchError.message.includes('Failed to fetch')) {
-          console.log('OAuth server not reachable, using mock credentials for development');
-
-          const mockData = {
-            credentials: {
-              access_token: 'mock_access_token_dev',
-              refresh_token: 'mock_refresh_token_dev',
-              expires_in: 3600
-            },
-            user: {
-              email: 'developer@test.com',
-              name: 'Development User',
-              picture: 'https://lh3.googleusercontent.com/a/default-user'
-            }
-          };
-
-          localStorage.setItem('aiden_access_token', mockData.credentials.access_token);
-          localStorage.setItem('aiden_refresh_token', mockData.credentials.refresh_token);
-          localStorage.setItem('aiden_user', JSON.stringify(mockData.user));
-
           set({
-            isAuthenticated: true,
-            token: mockData.credentials,
-            user: mockData.user,
             isLoading: false,
-            error: null,
+            error: 'OAuth server not running. Please start the Python OAuth server with: python3 oauth_server.py',
           });
-
-          console.log('Using mock authentication for development');
-          return;
+        } else {
+          set({
+            isLoading: false,
+            error: fetchError instanceof Error ? fetchError.message : 'Authentication failed - please try again',
+          });
         }
-
-        throw new Error('Authentication failed - please try again');
       }
 
     } catch (error) {

@@ -84,7 +84,8 @@ struct GmailListResponse {
 #[derive(Debug, Deserialize)]
 struct GmailMessage {
     id: String,
-    thread_id: String,
+    #[serde(default)]
+    thread_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

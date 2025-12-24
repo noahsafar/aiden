@@ -55,7 +55,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
         if self.path.startswith('/auth'):
             self.handle_auth()
@@ -70,12 +70,24 @@ class OAuthHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def do_POST(self):
+        # Add CORS headers to all responses
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
+        if self.path.startswith('/send-email'):
+            self.handle_send_email()
+        else:
+            self.send_error(404)
+
     def do_OPTIONS(self):
         # Handle preflight requests
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         self.end_headers()
 
     def handle_auth(self):
@@ -269,6 +281,77 @@ class OAuthHandler(BaseHTTPRequestHandler):
             response = {
                 'success': False,
                 'error': f'Failed to fetch emails: {str(e)}'
+            }
+            self.wfile.write(json.dumps(response).encode())
+
+    def handle_send_email(self):
+        """Handle sending email via Gmail API"""
+        try:
+            self.send_header('Content-type', 'application/json')
+
+            # Get stored credentials
+            creds = get_stored_credentials()
+
+            if not creds:
+                self.end_headers()
+                response = {
+                    'success': False,
+                    'error': 'Not authenticated. Please sign in first.'
+                }
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Get request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            to = data.get('to')
+            subject = data.get('subject')
+            body = data.get('body')
+
+            if not all([to, subject, body]):
+                self.end_headers()
+                response = {
+                    'success': False,
+                    'error': 'Missing required fields: to, subject, body'
+                }
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Build Gmail service
+            service = build('gmail', 'v1', credentials=creds)
+
+            # Create RFC 2822 formatted email
+            import email.message
+            message = email.message.EmailMessage()
+            message.set_content(body)
+            message['To'] = to
+            message['Subject'] = subject
+
+            # Send message
+            import base64
+            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+            sent_message = service.users().messages().send(
+                userId='me',
+                body={'raw': raw_message}
+            ).execute()
+
+            self.end_headers()
+            response = {
+                'success': True,
+                'message': 'Email sent successfully',
+                'id': sent_message['id']
+            }
+            self.wfile.write(json.dumps(response).encode())
+
+        except Exception as e:
+            print(f"Error sending email: {e}")
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {
+                'success': False,
+                'error': f'Failed to send email: {str(e)}'
             }
             self.wfile.write(json.dumps(response).encode())
 
