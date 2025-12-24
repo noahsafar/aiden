@@ -68,6 +68,18 @@ export function EmailDetail() {
     }
   };
 
+  const handleSendAIReply = async () => {
+    const aiReply = selectedEmail.ai_generated_reply;
+    if (!aiReply?.trim()) return;
+
+    try {
+      await sendEmail(selectedEmail.sender, `Re: ${selectedEmail.subject}`, aiReply);
+      updateEmailStatus(selectedEmail.id, 'Replied');
+    } catch (error) {
+      console.error('Failed to send AI reply:', error);
+    }
+  };
+
   const getCategoryBadge = (category: Email['category']) => {
     const styles = {
       Urgent: 'bg-red-100 text-red-800',
@@ -149,6 +161,15 @@ export function EmailDetail() {
               <ArrowUTurnLeftIcon className="h-4 w-4 mr-2" />
             )}
             Generate AI Reply
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSendAIReply}
+            disabled={!selectedEmail.ai_generated_reply}
+          >
+            <PaperAirplaneIcon className="h-4 w-4 mr-2" />
+            Send AI Reply
           </Button>
           <Button variant="outline" size="sm">
             <ArrowUTurnRightIcon className="h-4 w-4 mr-2" />

@@ -18,6 +18,7 @@ export interface GmailEmail {
   isRead: boolean;
   labels: string[];
   sizeEstimate: number;
+  bodyText?: string;
 }
 
 export interface EmailResponse {
@@ -50,6 +51,34 @@ export async function initGmailAPI(): Promise<gapi.client.gmail> {
   });
 }
 
+// Set OAuth token for Gmail API
+export function setGmailAuthToken(accessToken: string) {
+  const tokenObject = {
+    access_token: accessToken,
+    expires_in: 3600,
+    token_type: 'Bearer'
+  };
+  gapi.auth.setToken(tokenObject);
+}
+
+// Extract email body from Gmail message parts
+function extractEmailBody(parts: any[]): string {
+  for (const part of parts) {
+    if (part.mimeType === 'text/plain' && !part.attachmentId) {
+      return atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+    }
+    if (part.mimeType === 'text/html' && !part.attachmentId && parts.length === 1) {
+      // If only HTML is available, return it (can be improved with HTML to text conversion)
+      return atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+    }
+    if (part.parts) {
+      const body = extractEmailBody(part.parts);
+      if (body) return body;
+    }
+  }
+  return '';
+}
+
 // Fetch emails from Gmail API
 export async function fetchGmailEmails(
   accessToken: string,
@@ -59,6 +88,9 @@ export async function fetchGmailEmails(
   try {
     // First, initialize the Gmail API
     const gmail = await initGmailAPI();
+
+    // Set the OAuth token
+    setGmailAuthToken(accessToken);
 
     // List messages
     const response = await gmail.users.messages.list({
@@ -76,8 +108,7 @@ export async function fetchGmailEmails(
         const fullMessage = await gmail.users.messages.get({
           userId: 'me',
           id: message.id!,
-          format: 'metadata',
-          metadataHeaders: ['From', 'To', 'Subject', 'Date', 'Snippet'],
+          format: 'full',
         });
 
         const msg = fullMessage.result;
@@ -103,6 +134,14 @@ export async function fetchGmailEmails(
           }
         }
 
+        // Extract email body
+        let bodyText = '';
+        if (msg.payload?.parts) {
+          bodyText = extractEmailBody(msg.payload.parts);
+        } else if (msg.payload?.body?.data) {
+          bodyText = atob(msg.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+        }
+
         const email: GmailEmail = {
           id: msg.id!,
           threadId: msg.threadId!,
@@ -115,6 +154,7 @@ export async function fetchGmailEmails(
           isRead: !msg.labelIds?.includes('UNREAD'),
           labels: msg.labelIds || [],
           sizeEstimate: msg.sizeEstimate || 0,
+          bodyText,
         };
 
         emails.push(email);
@@ -157,7 +197,7 @@ export function convertGmailEmailToApp(gmailEmail: GmailEmail) {
     sender: gmailEmail.from,
     recipients: gmailEmail.to,
     date: gmailEmail.date,
-    body_text: gmailEmail.snippet, // For now, use snippet as body text
+    body_text: gmailEmail.bodyText || gmailEmail.snippet,
     snippet: gmailEmail.snippet,
     is_read: gmailEmail.isRead,
     is_starred: gmailEmail.labels.includes('STARRED'),
@@ -165,6 +205,7 @@ export function convertGmailEmailToApp(gmailEmail: GmailEmail) {
     status: 'Unhandled' as const,
     category: 'Normal' as const, // Default category
     requires_reply: !gmailEmail.isRead && !gmailEmail.from.toLowerCase().includes('me'),
+    ai_generated_reply: 'Test response',
   };
 }
 
