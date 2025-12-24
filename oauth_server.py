@@ -48,6 +48,7 @@ if not CLIENT_ID or not CLIENT_SECRET:
 TOKEN_DIR = Path.home() / '.aiden'
 TOKEN_FILE = TOKEN_DIR / 'token.pickle'
 CREDENTIALS_FILE = TOKEN_DIR / 'credentials.json'
+USER_INFO_FILE = TOKEN_DIR / 'user_info.json'
 
 # AI API Keys
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
@@ -139,6 +140,11 @@ class OAuthHandler(BaseHTTPRequestHandler):
 
             # Get user info
             user_info = self.get_user_info(creds)
+
+            # Save user info for later use (email signature)
+            if user_info:
+                with open(USER_INFO_FILE, 'w') as f:
+                    json.dump(user_info, f, indent=2)
 
             # Return success response
             self.end_headers()
@@ -380,13 +386,35 @@ class OAuthHandler(BaseHTTPRequestHandler):
             subject = data.get('subject', '')
             body_text = data.get('body_text', '') or ''
 
+            # Load user's name from saved user info
+            user_name = None
+            if USER_INFO_FILE.exists():
+                try:
+                    with open(USER_INFO_FILE, 'r') as f:
+                        user_info = json.load(f)
+                        user_name = user_info.get('name') or user_info.get('given_name')
+                except Exception as e:
+                    print(f"Error loading user info: {e}")
+
             print(f"Generating reply for: sender={sender[:30]}, subject={subject[:30]}")
 
             # Call OpenAI API
             import requests
             api_key = OPENAI_API_KEY.strip()
 
-            prompt = f"""Generate a short, professional reply to this email:
+            # Build prompt with user's name
+            if user_name:
+                prompt = f"""Generate a short, professional reply to this email. Your name is {user_name} - sign the email with this name.
+
+From: {sender}
+Subject: {subject}
+
+Email body:
+{body_text[:1000]}
+
+Write a concise reply (under 100 words). Be professional and helpful. Sign off with "{user_name}". Do not include any preamble - just provide the reply email text directly."""
+            else:
+                prompt = f"""Generate a short, professional reply to this email:
 
 From: {sender}
 Subject: {subject}
