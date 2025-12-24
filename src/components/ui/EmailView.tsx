@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 
@@ -17,20 +17,60 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onDelete = () => {},
   onAction = () => {}
 }) => {
-  const { sendEmail, updateEmailStatus } = useEmailStore();
+  const { sendEmail, updateEmailStatus, emails } = useEmailStore();
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedReply, setGeneratedReply] = useState<string | null>(null);
 
-  const handleSendAIReply = async () => {
-    if (!email) return;
+  // Get the full email data from store (includes body_text)
+  const fullEmail = email ? emails.find(e => e.id === email.id) : null;
+
+  const handleGenerateReply = async () => {
+    // Use email prop if fullEmail is not available
+    const emailData = fullEmail || {
+      sender: email?.from?.email || email?.from?.name || email?.sender || '',
+      subject: email?.subject || '',
+      body_text: email?.content || '',
+      id: email?.id || ''
+    };
+
+    setIsGenerating(true);
+    try {
+      const response = await fetch('http://localhost:8081/generate-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender: emailData.sender,
+          subject: emailData.subject,
+          body_text: emailData.body_text,
+        }),
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        setGeneratedReply(result.reply);
+      } else {
+        alert('Failed to generate reply: ' + result.error);
+      }
+    } catch (error) {
+      console.error('Failed to generate AI reply:', error);
+      alert('Failed to generate reply');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleSendReply = async () => {
+    if (!email || !generatedReply) return;
 
     const senderEmail = email.from?.email || email.from?.name || email.sender;
-    const aiReply = 'Test response';
 
     try {
-      await sendEmail(senderEmail, `Re: ${email.subject}`, aiReply);
+      await sendEmail(senderEmail, `Re: ${email.subject}`, generatedReply);
       updateEmailStatus(email.id, 'Replied');
+      setGeneratedReply(null);
       alert('Reply sent!');
     } catch (error) {
-      console.error('Failed to send AI reply:', error);
+      console.error('Failed to send reply:', error);
       alert('Failed to send reply');
     }
   };
@@ -50,9 +90,28 @@ export const EmailView: React.FC<EmailViewProps> = ({
     <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
       {/* Action Bar */}
       <div className="border-b border-gray-200 dark:border-gray-700 p-4">
-        <Button onClick={handleSendAIReply}>
-          Send AI Reply
-        </Button>
+        <div className="flex items-center gap-3">
+          {!generatedReply ? (
+            <Button onClick={handleGenerateReply} disabled={isGenerating}>
+              {isGenerating ? 'Generating...' : 'Generate AI Reply'}
+            </Button>
+          ) : (
+            <>
+              <Button onClick={handleSendReply}>
+                Send AI Reply
+              </Button>
+              <Button variant="outline" onClick={() => setGeneratedReply(null)}>
+                Discard
+              </Button>
+            </>
+          )}
+        </div>
+
+        {generatedReply && (
+          <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{generatedReply}</p>
+          </div>
+        )}
       </div>
 
       {/* Email Content */}

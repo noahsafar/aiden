@@ -49,6 +49,9 @@ TOKEN_DIR = Path.home() / '.aiden'
 TOKEN_FILE = TOKEN_DIR / 'token.pickle'
 CREDENTIALS_FILE = TOKEN_DIR / 'credentials.json'
 
+# AI API Keys
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+
 class OAuthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Add CORS headers to all responses
@@ -79,6 +82,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
 
         if self.path.startswith('/send-email'):
             self.handle_send_email()
+        elif self.path.startswith('/generate-reply'):
+            self.handle_generate_reply()
         else:
             self.send_error(404)
 
@@ -353,6 +358,85 @@ class OAuthHandler(BaseHTTPRequestHandler):
                 'success': False,
                 'error': f'Failed to send email: {str(e)}'
             }
+            self.wfile.write(json.dumps(response).encode())
+
+    def handle_generate_reply(self):
+        """Generate email reply using OpenAI API"""
+        try:
+            self.send_header('Content-type', 'application/json')
+
+            if not OPENAI_API_KEY:
+                self.end_headers()
+                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Get request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            sender = data.get('sender', '')
+            subject = data.get('subject', '')
+            body_text = data.get('body_text', '') or ''
+
+            print(f"Generating reply for: sender={sender[:30]}, subject={subject[:30]}")
+
+            # Call OpenAI API
+            import requests
+            api_key = OPENAI_API_KEY.strip()
+
+            prompt = f"""Generate a short, professional reply to this email:
+
+From: {sender}
+Subject: {subject}
+
+Email body:
+{body_text[:1000]}
+
+Write a concise reply (under 100 words). Be professional and helpful. Do not include any preamble - just provide the reply email text directly."""
+
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+
+            body = {
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 300,
+                "temperature": 0.7
+            }
+
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=body,
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                reply = result['choices'][0]['message']['content'].strip()
+                print(f"AI reply generated successfully!")
+                self.end_headers()
+                resp = {'success': True, 'reply': reply}
+                self.wfile.write(json.dumps(resp).encode())
+            else:
+                print(f"OpenAI API error {response.status_code}: {response.text[:200]}")
+                self.end_headers()
+                resp = {'success': False, 'error': f'API error: {response.text[:200]}'}
+                self.wfile.write(json.dumps(resp).encode())
+
+        except Exception as e:
+            print(f"Error generating reply: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {'success': False, 'error': f'Failed to generate reply: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
 
     def log_message(self, format_str, *args):

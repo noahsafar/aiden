@@ -47,6 +47,9 @@ The application uses environment variables to securely manage OAuth credentials 
 
    # Claude/Anthropic Configuration
    ANTHROPIC_API_KEY=your-anthropic-api-key-here
+
+   # OpenAI Configuration (for AI email reply generation)
+   OPENAI_API_KEY=your-openai-api-key-here
    ```
 
    **Important**: The `.env` file is included in `.gitignore` and will never be committed to version control.
