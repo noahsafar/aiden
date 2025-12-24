@@ -10,6 +10,7 @@ import { TestPage } from '@/components/TestPage';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useAuthStore } from '@/stores/authStore';
+import { useEmailStore } from '@/stores/emailStore';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -58,159 +59,83 @@ interface Email {
 }
 
 function App() {
-  const [selectedEmailId, setSelectedEmailId] = useState<string | null>('1');
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [emails, setEmails] = useState<Email[]>([]);
+  const [appStartTime] = useState(Date.now());
   const { signOut, isAuthenticated, isLoading, initialize, setState, user } = useAuthStore();
+  const { emails, fetchEmails, isLoading: emailsLoading } = useEmailStore();
 
-  // Mock emails data
-  const mockEmails: Email[] = [
-    {
-      id: '1',
+  // Convert email store format to UI format
+  const convertToUIEmail = (email: any): Email => {
+    const fromMatch = email.sender.match(/^(?:"?([^"]*)"?\s)?(?:<?([^>]+)>?)$/);
+    const fromName = fromMatch?.[1] || email.sender.split('<')[0].trim() || 'Unknown';
+    const fromEmail = fromMatch?.[2] || email.sender.split('<')[1]?.replace('>', '').trim() || email.sender;
+
+    // Convert recipients
+    const toRecipients = email.recipients.split(',').map((r: string) => {
+      const match = r.trim().match(/^(?:"?([^"]*)"?\s)?(?:<?([^>]+)>?)$/);
+      const name = match?.[1] || r.trim().split('<')[0].trim() || 'Unknown';
+      const emailAddr = match?.[2] || r.trim().split('<')[1]?.replace('>', '').trim() || r.trim();
+      return { name, email: emailAddr };
+    });
+
+    return {
+      id: email.id,
       from: {
-        name: 'Sarah Chen',
-        email: 'sarah.chen@acme.com',
-        status: 'online'
+        name: fromName,
+        email: fromEmail,
+        status: 'offline' as const
       },
-      to: [{ name: 'You', email: 'you@company.com' }],
-      subject: 'Q4 Revenue Projections - Review Request',
-      preview: 'Hi team, I\'ve attached the Q4 revenue projections for your review. The AI analysis suggests...',
-      content: `Hi team,
-
-I've attached the Q4 revenue projections for your review. The AI analysis suggests we're on track to exceed our targets by 12-15%, driven primarily by the success of our new AI-powered email management features.
-
-Key highlights:
-• Subscription revenue up 25% from Q3
-• Enterprise adoption exceeding expectations
-• Customer retention rate at 94%
-• New AI features driving 40% of new signups
-
-The model suggests we should consider scaling our marketing spend in Q1 to capitalize on this momentum.
-
-Would love to get your thoughts on these projections before our board presentation next week.
-
-Best regards,
-Sarah`,
-      timestamp: '2:34 PM',
-      isRead: false,
-      isStarred: true,
-      hasAttachments: true,
+      to: toRecipients,
+      subject: email.subject,
+      preview: email.snippet,
+      content: email.body_text || email.snippet,
+      timestamp: new Date(email.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isRead: email.is_read,
+      isStarred: email.is_starred,
+      hasAttachments: email.has_attachments,
       labels: [
-        { id: '1', name: 'Important', color: 'error' },
-        { id: '2', name: 'Finance', color: 'primary' }
+        { id: '1', name: email.status, color: email.category === 'Urgent' ? 'error' : email.category === 'Important' ? 'warning' : 'primary' as const }
       ],
       isAIProcessed: true,
-      aiCategory: 'Financial Analysis',
-      aiSummary: 'Q4 revenue projections show 12-15% growth above targets, driven by AI features success with 25% subscription revenue increase.',
-      aiActionItems: [
-        'Review projections before board presentation',
-        'Consider scaling marketing spend for Q1'
-      ],
-      aiPriority: 'high',
-      attachments: [
-        { id: '1', name: 'Q4_Revenue_Projections.pdf', size: '2.4 MB', type: 'application/pdf' }
-      ]
-    },
-    {
-      id: '2',
-      from: {
-        name: 'Marcus Johnson',
-        email: 'marcus@design.co',
-        status: 'away'
-      },
-      to: [{ name: 'You', email: 'you@company.com' }],
-      subject: 'New UI Mockups Ready',
-      preview: 'The latest mockups are ready for review. I\'ve incorporated the Apple-inspired design...',
-      content: 'The Apple-inspired design system has been implemented with premium components...',
-      timestamp: '11:22 AM',
-      isRead: true,
-      isStarred: false,
-      hasAttachments: false,
-      labels: [
-        { id: '3', name: 'Design', color: 'ai' }
-      ],
-      isAIProcessed: true,
-      aiCategory: 'Design Review',
-      aiPriority: 'medium'
-    },
-    {
-      id: '3',
-      from: {
-        name: 'Emily Rodriguez',
-        email: 'emily.r@techcorp.io',
-        status: 'offline'
-      },
-      to: [{ name: 'You', email: 'you@company.com' }],
-      subject: 'AI Model Performance Update',
-      preview: 'Our latest AI model training shows 94% accuracy in email categorization...',
-      content: 'AI model performance metrics and improvements...',
-      timestamp: 'Yesterday',
-      isRead: false,
-      isStarred: false,
-      hasAttachments: true,
-      labels: [
-        { id: '4', name: 'AI/ML', color: 'ai' },
-        { id: '5', name: 'Reports', color: 'success' }
-      ],
-      isAIProcessed: true,
-      aiCategory: 'Performance Metrics',
-      aiPriority: 'high'
-    },
-    {
-      id: '4',
-      from: {
-        name: 'David Kim',
-        email: 'david.kim@startup.com',
-        status: 'online'
-      },
-      to: [{ name: 'You', email: 'you@company.com' }],
-      subject: 'Partnership Opportunity',
-      preview: 'I came across your AI email manager and believe we could create synergies...',
-      content: 'Potential partnership discussion...',
-      timestamp: 'Yesterday',
-      isRead: true,
-      isStarred: true,
-      hasAttachments: false,
-      labels: [
-        { id: '6', name: 'Business', color: 'primary' }
-      ],
-      isAIProcessed: true,
-      aiCategory: 'Business Development',
-      aiPriority: 'medium'
-    },
-    {
-      id: '5',
-      from: {
-        name: 'Lisa Thompson',
-        email: 'lisa.t@enterprise.com',
-        status: 'online'
-      },
-      to: [{ name: 'You', email: 'you@company.com' }],
-      subject: 'Team Meeting Notes - Action Items',
-      preview: 'Here are the key takeaways from today\'s team meeting. AI has automatically extracted...',
-      content: 'Meeting summary and action items...',
-      timestamp: '2 days ago',
-      isRead: false,
-      isStarred: false,
-      hasAttachments: false,
-      labels: [
-        { id: '7', name: 'Internal', color: 'secondary' }
-      ],
-      isAIProcessed: true,
-      aiCategory: 'Meeting Summary',
-      aiPriority: 'low'
-    }
-  ];
+      aiCategory: email.category,
+      aiSummary: email.summary,
+      aiActionItems: email.key_points || [],
+      aiPriority: email.category === 'Urgent' ? 'high' : email.category === 'Important' ? 'medium' : 'low' as const
+    };
+  };
+
+  // Filter emails to show only those received after app start time
+  const filteredEmails = emails
+    .filter(email => {
+      const emailTime = new Date(email.date).getTime();
+      return emailTime >= appStartTime;
+    })
+    .map(convertToUIEmail);
 
   useEffect(() => {
     // Initialize authentication state on app load
     const initAuth = async () => {
       await initialize();
-      setEmails(mockEmails);
+      // After auth is initialized, start fetching emails
+      if (isAuthenticated) {
+        fetchEmails();
+      }
     };
 
     initAuth();
-  }, [initialize]);
+  }, [initialize, isAuthenticated]);
+
+  // Set up polling for new emails every 10 seconds
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const interval = setInterval(() => {
+      fetchEmails();
+    }, 10000); // Poll every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, fetchEmails]);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -220,7 +145,7 @@ Sarah`,
     }
   }, [isDarkMode]);
 
-  const selectedEmail = emails.find(email => email.id === selectedEmailId);
+  const selectedEmail = filteredEmails.find(email => email.id === selectedEmailId);
 
   const handleEmailAction = (emailId: string, action: string) => {
     console.log(`Email ${emailId}: ${action}`);
@@ -349,23 +274,50 @@ Sarah`,
 
                 {/* Email List */}
                 <div className="w-96 border-r border-gray-200/60 dark:border-gray-700/60">
-                  <EmailList
-                    emails={emails}
-                    selectedEmailId={selectedEmailId}
-                    onEmailSelect={setSelectedEmailId}
-                    onEmailAction={handleEmailAction}
-                  />
+                  {filteredEmails.length === 0 && !emailsLoading ? (
+                    <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+                      <Mail className="h-12 w-12 text-gray-400 mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                        No new emails yet
+                      </h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        Emails that arrive after you logged in will appear here automatically.
+                      </p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                        Checking for new emails every 10 seconds...
+                      </p>
+                    </div>
+                  ) : (
+                    <EmailList
+                      emails={filteredEmails}
+                      selectedEmailId={selectedEmailId}
+                      onEmailSelect={setSelectedEmailId}
+                      onEmailAction={handleEmailAction}
+                    />
+                  )}
                 </div>
 
                 {/* Email Content */}
                 <div className="flex-1">
-                  <EmailView
-                    email={selectedEmail}
-                    onReply={() => console.log('Reply to email')}
-                    onForward={() => console.log('Forward email')}
-                    onDelete={() => console.log('Delete email')}
-                    onAction={handleEmailAction}
-                  />
+                  {selectedEmail ? (
+                    <EmailView
+                      email={selectedEmail}
+                      onReply={() => console.log('Reply to email')}
+                      onForward={() => console.log('Forward email')}
+                      onDelete={() => console.log('Delete email')}
+                      onAction={handleEmailAction}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+                      <Mail className="h-12 w-12 text-gray-400 mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                        Select an email to read
+                      </h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        Choose an email from the list to view its contents.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 

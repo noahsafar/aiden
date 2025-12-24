@@ -16,7 +16,7 @@ export const EmailList: React.FC<EmailListProps> = ({
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="p-4 space-y-2">
-        {emails.length > 0 ? emails.map((email: any) => (
+        {emails.map((email: any) => (
           <div
             key={email.id}
             className={`p-4 bg-surface dark:bg-gray-800 border rounded-lg hover:shadow-md transition-shadow cursor-pointer ${
@@ -32,17 +32,7 @@ export const EmailList: React.FC<EmailListProps> = ({
               <span className="text-xs text-muted">{email.timestamp}</span>
             </div>
           </div>
-        )) : (
-          <div className="p-4 bg-surface dark:bg-gray-800 border rounded-lg border-border">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <h3 className="font-semibold text-foreground">Sample Email</h3>
-                <p className="text-sm text-muted mt-1">This is a preview of an email...</p>
-              </div>
-              <span className="text-xs text-muted">2:30 PM</span>
-            </div>
-          </div>
-        )}
+        ))}
       </div>
     </div>
   );

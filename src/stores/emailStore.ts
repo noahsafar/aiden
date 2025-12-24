@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { fetchGmailEmails, convertGmailEmailToApp } from '@/api/gmail';
-import '@/types/gmail-api';
+import { useAuthStore } from '@/stores/authStore';
 
 export interface Email {
   id: string;
@@ -56,24 +56,89 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   fetchEmails: async () => {
     try {
-      set({ isLoading: true, error: null });
+      // Don't set isLoading for background refreshes - keeps UI stable
+      set({ error: null });
 
-      // Check if Google API is loaded
-      if (!window.gapi) {
-        throw new Error('Google API not loaded. Please refresh the page.');
+      // Get access token from auth store or localStorage
+      const authStore = useAuthStore.getState();
+      const accessToken = authStore.token?.access_token || localStorage.getItem('aiden_access_token');
+
+      if (!accessToken || accessToken === 'mock_access_token_dev') {
+        // Don't try to fetch emails with mock token
+        set({
+          emails: [],
+          isLoading: false,
+          error: accessToken === 'mock_access_token_dev'
+            ? 'Cannot fetch emails with mock credentials. Please sign in with a real Google account.'
+            : 'Not authenticated. Please sign in again.'
+        });
+        return;
       }
 
-      // Fetch emails directly from Gmail API
-      const emailResponse = await fetchGmailEmails('', 10, 'in:inbox');
+      // Use Python OAuth server to fetch emails
+      try {
+        const response = await fetch('http://localhost:8081/emails', {
+          method: 'GET',
+          mode: 'cors',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/json',
+          }
+        });
 
-      if (!emailResponse.success) {
-        throw new Error(emailResponse.error || 'Failed to fetch emails');
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to fetch emails');
+        }
+
+        // Convert Python server emails to app format
+        const emails = data.emails.map((email: any) => ({
+          id: email.id,
+          gmail_id: email.id,
+          thread_id: email.threadId || email.id,
+          subject: email.subject || '(No Subject)',
+          sender: email.from || 'Unknown Sender',
+          recipients: email.to || '',
+          date: email.date || new Date().toISOString(),
+          body_text: email.bodyText || email.snippet || email.content || '',
+          snippet: email.snippet || email.content?.substring(0, 100) || '',
+          is_read: email.isRead !== false,
+          is_starred: email.labels?.includes('STARRED') || false,
+          has_attachments: email.labels?.includes('ATTACHMENT') || false,
+          status: 'Unhandled' as const,
+          category: 'Normal' as const,
+          requires_reply: !email.isRead && !email.from?.toLowerCase().includes('me'),
+          ai_generated_reply: 'Test response',
+        }));
+
+        set({ emails, isLoading: false });
+      } catch (pythonError) {
+        console.error('Python OAuth server error:', pythonError);
+
+        // Fall back to frontend Gmail API
+        if (!window.gapi) {
+          throw new Error('Neither Python OAuth server nor Gmail API is available. Please ensure the OAuth server is running.');
+        }
+
+        console.warn('Falling back to frontend Gmail API...');
+
+        // Fetch emails directly from Gmail API
+        const emailResponse = await fetchGmailEmails(accessToken, 10, 'in:inbox');
+
+        if (!emailResponse.success) {
+          throw new Error(emailResponse.error || 'Failed to fetch emails');
+        }
+
+        // Convert Gmail emails to app format
+        const emails = emailResponse.emails.map(convertGmailEmailToApp);
+
+        set({ emails, isLoading: false });
       }
-
-      // Convert Gmail emails to app format
-      const emails = emailResponse.emails.map(convertGmailEmailToApp);
-
-      set({ emails, isLoading: false });
     } catch (error) {
       console.error('Failed to fetch emails:', error);
       set({
@@ -128,16 +193,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   updateEmailStatus: async (emailId, status) => {
     try {
-      const token = await invoke<string>('get_stored_token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-
-      await invoke('update_email_status', {
-        accessToken: token,
-        emailId,
-        status
-      });
+      // For now, just update local state
+      // TODO: Implement backend update via OAuth server if needed
+      console.log(`Updating email ${emailId} status to ${status}`);
 
       // Update local state
       set((state) => ({
@@ -155,24 +213,27 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   classifyEmail: async (emailId) => {
     try {
-      const token = await invoke<string>('get_stored_token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-
       const email = get().emails.find(e => e.id === emailId);
       if (!email) return;
 
-      const classification = await invoke<{
-        category: Email['category'];
-        confidence: number;
-        requires_reply: boolean;
-      }>('classify_email', {
-        accessToken: token,
-        emailContent: email.body_text,
-        sender: email.sender,
-        subject: email.subject,
-      });
+      // Simple classification logic for now
+      // TODO: Implement AI classification via backend
+      const subject = email.subject.toLowerCase();
+      const body = email.body_text.toLowerCase();
+
+      let category: Email['category'] = 'Normal';
+      let requires_reply = false;
+
+      // Simple classification rules
+      if (subject.includes('urgent') || body.includes('urgent')) {
+        category = 'Urgent';
+        requires_reply = true;
+      } else if (subject.includes('important') || email.from.includes('boss') || email.from.includes('manager')) {
+        category = 'Important';
+        requires_reply = true;
+      } else if (subject.includes('newsletter') || subject.includes('promotion')) {
+        category = 'Low';
+      }
 
       // Update local state
       set((state) => ({
@@ -180,16 +241,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           e.id === emailId
             ? {
                 ...e,
-                category: classification.category,
-                requires_reply: classification.requires_reply,
+                category,
+                requires_reply,
               }
             : e
         ),
         selectedEmail: state.selectedEmail?.id === emailId
           ? {
               ...state.selectedEmail,
-              category: classification.category,
-              requires_reply: classification.requires_reply,
+              category,
+              requires_reply,
             }
           : state.selectedEmail,
       }));
@@ -200,42 +261,23 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   generateReply: async (emailId) => {
     try {
-      const token = await invoke<string>('get_stored_token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-
       const email = get().emails.find(e => e.id === emailId);
       if (!email) return;
 
-      // Get user's writing style (placeholder for now)
-      const userStyle = {
-        tone: 'professional',
-        formality: 0.7,
-        common_phrases: ['Thank you for reaching out', 'Best regards', 'Looking forward to hearing from you'],
-        avg_sentence_length: 15.0,
-      };
-
-      const reply = await invoke<{
-        reply: string;
-        tone: string;
-        confidence: number;
-      }>('generate_reply', {
-        accessToken: token,
-        originalEmail: email.body_text,
-        userStyle,
-        replyType: 'professional',
-      });
+      // Simple reply generation for now
+      // TODO: Implement AI reply generation via backend
+      const senderName = email.sender.split('<')[0].trim() || 'there';
+      const generatedReply = `Dear ${senderName},\n\nThank you for your email. I have received your message and will respond as soon as possible.\n\nBest regards,\n[Your name]`;
 
       // Update local state
       set((state) => ({
         emails: state.emails.map(e =>
           e.id === emailId
-            ? { ...e, ai_generated_reply: reply.reply }
+            ? { ...e, ai_generated_reply: generatedReply }
             : e
         ),
         selectedEmail: state.selectedEmail?.id === emailId
-          ? { ...state.selectedEmail, ai_generated_reply: reply.reply }
+          ? { ...state.selectedEmail, ai_generated_reply: generatedReply }
           : state.selectedEmail,
       }));
     } catch (error) {
@@ -245,17 +287,37 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   sendEmail: async (to, subject, body) => {
     try {
-      const token = await invoke<string>('get_stored_token');
-      if (!token) {
-        throw new Error('No authentication token found');
+      console.log('Sending email via OAuth server...');
+
+      // Get auth token from store
+      const authStore = useAuthStore.getState();
+      const accessToken = authStore.token?.access_token || localStorage.getItem('aiden_access_token');
+
+      if (!accessToken) {
+        throw new Error('Not authenticated');
       }
 
-      await invoke('send_email', {
-        accessToken: token,
-        to,
-        subject,
-        body,
+      // Use Python OAuth server to send email
+      const response = await fetch('http://localhost:8081/send-email', {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ to, subject, body })
       });
+
+      if (!response.ok) {
+        throw new Error(`Failed to send email: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to send email');
+      }
+
+      console.log('Email sent successfully');
     } catch (error) {
       console.error('Failed to send email:', error);
       throw error;
