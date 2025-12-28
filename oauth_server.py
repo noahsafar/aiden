@@ -272,6 +272,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_send_email()
         elif self.path.startswith('/generate-reply'):
             self.handle_generate_reply()
+        elif self.path.startswith('/edit-reply'):
+            self.handle_edit_reply()
         else:
             self.send_error(404)
 
@@ -635,27 +637,29 @@ class OAuthHandler(BaseHTTPRequestHandler):
 
                 recipient_name_note = f"\n- Address them as '{recipient_first_name}' or by their preferred name" if recipient_first_name else ""
 
-                prompt = f"""You are writing an email reply. STUDY the examples below which are YOUR past emails to THIS SAME PERSON. Copy the exact same tone, style, salutation, and signature format.
+                prompt = f"""You are {user_name} writing an email reply. STUDY the examples below which are YOUR past emails to THIS SAME PERSON.
 
-INCOMING EMAIL:
+CRITICAL: You are {user_name}. The email is FROM them, TO you. Sign with YOUR name ({user_name}), NOT theirs.
+
+INCOMING EMAIL (from them to you):
 From: {sender}
 Subject: {subject}
 
 {body_text[:1500]}
 
-YOUR PAST EMAILS TO THIS PERSON (study these carefully - match how you address them, your tone, and your signature):
+YOUR PAST EMAILS TO THIS PERSON (your writing style - study tone and format):
 {examples}
 
 INSTRUCTIONS:
-1. {style_instruction}
-2. Match the EXACT same writing style, tone, and signature format from your past emails to them
-3. {f'Use the same salutation (e.g., "Hi {recipient_first_name}," "Dear {recipient_first_name}," etc.)' if recipient_first_name else 'Use the same salutation style'}
-4. Sign with the SAME name and format used in the examples{recipient_name_note}
+1. You are {user_name} - sign the email with YOUR NAME, never the recipient's name
+2. {style_instruction}
+3. Match the writing style from your past emails, but ALWAYS sign as "{user_name}"
+4. {f'Address them as "{recipient_first_name}"' if recipient_first_name else 'Use the same salutation style'}
 5. NEVER use placeholders like [Your Name], [Your Position], etc.
 6. Keep it under 100 words
 7. Output ONLY the email reply - no preamble
 
-Now write the reply:"""
+Now write the reply as {user_name}:"""
             elif user_name:
                 prompt = f"""Generate a short, professional reply to this email. Your name is {user_name} - sign the email with this name.
 
@@ -718,6 +722,90 @@ Write a concise reply (under 100 words). Be professional and helpful. Do not inc
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             response = {'success': False, 'error': f'Failed to generate reply: {str(e)}'}
+            self.wfile.write(json.dumps(response).encode())
+
+    def handle_edit_reply(self):
+        """Edit an email reply using AI based on user's edit prompt"""
+        try:
+            self.send_header('Content-type', 'application/json')
+
+            if not OPENAI_API_KEY:
+                self.end_headers()
+                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Get request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            current_reply = data.get('current_reply', '')
+            edit_prompt = data.get('edit_prompt', '')
+
+            if not current_reply or not edit_prompt:
+                self.end_headers()
+                response = {'success': False, 'error': 'Missing current_reply or edit_prompt'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            print(f"AI editing reply with prompt: {edit_prompt[:50]}...")
+
+            # Call OpenAI API
+            import requests
+            api_key = OPENAI_API_KEY.strip()
+
+            prompt = f"""You are editing an email draft based on the user's instructions.
+
+CURRENT EMAIL DRAFT:
+{current_reply}
+
+USER'S EDIT INSTRUCTIONS:
+{edit_prompt}
+
+Edit the email draft according to the user's instructions. Keep the same general meaning but apply the requested changes. Output ONLY the edited email text - no preamble, no explanations."""
+
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+
+            body = {
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 500,
+                "temperature": 0.7
+            }
+
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=body,
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                edited_reply = result['choices'][0]['message']['content'].strip()
+                print(f"AI edit completed successfully!")
+                self.end_headers()
+                resp = {'success': True, 'edited_reply': edited_reply}
+                self.wfile.write(json.dumps(resp).encode())
+            else:
+                print(f"OpenAI API error {response.status_code}: {response.text[:200]}")
+                self.end_headers()
+                resp = {'success': False, 'error': f'API error: {response.text[:200]}'}
+                self.wfile.write(json.dumps(resp).encode())
+
+        except Exception as e:
+            print(f"Error editing reply: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {'success': False, 'error': f'Failed to edit reply: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
 
     def log_message(self, format_str, *args):
