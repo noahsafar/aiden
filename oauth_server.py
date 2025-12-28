@@ -147,6 +147,99 @@ def load_cached_sent_emails():
             print(f"Error loading sent emails cache: {e}")
     return []
 
+
+def get_emails_with_recipient(creds, recipient_email, count=5):
+    """Fetch past emails sent to a specific recipient for context-aware style"""
+    try:
+        service = build('gmail', 'v1', credentials=creds)
+
+        # Search for emails to this recipient
+        results = service.users().messages().list(
+            userId='me',
+            maxResults=count,
+            q=f'to:{recipient_email} in:sent'
+        ).execute()
+
+        messages = results.get('messages', [])
+        recipient_emails = []
+
+        for message in messages[:count]:
+            try:
+                msg = service.users().messages().get(
+                    userId='me',
+                    id=message['id'],
+                    format='full'
+                ).execute()
+
+                # Extract email body
+                body = extract_email_body(msg)
+                if body and len(body.strip()) > 20:
+                    recipient_emails.append(body.strip())
+            except Exception as e:
+                print(f"Error parsing message: {e}")
+                continue
+
+        return recipient_emails
+    except Exception as e:
+        print(f"Error fetching recipient emails: {e}")
+        return []
+
+
+def extract_name_from_email(sender_string):
+    """Extract name from email sender string (e.g., 'John Smith <john@email.com>' -> 'John')"""
+    import re
+    # Match name in quotes or before angle bracket
+    if '<' in sender_string:
+        name_part = sender_string.split('<')[0].strip()
+        # Remove quotes if present
+        name_part = name_part.strip('"').strip("'")
+        if name_part:
+            # Get first name for casual addressing
+            parts = name_part.split()
+            if parts:
+                return parts[0]  # Return first name
+    # Try to extract from email (first.part of email)
+    email_match = re.search(r'[\w.]+@', sender_string)
+    if email_match:
+        email_local = email_match.group(0).rstrip('@')
+        # If it's first.last format, get first name
+        if '.' in email_local:
+            return email_local.split('.')[0].capitalize()
+    return None
+
+
+def detect_relationship_type(sender_string, past_emails):
+    """Detect if relationship is formal (professor, business) or casual (friend)"""
+    # Check sender name/email for formal indicators
+    sender_lower = sender_string.lower()
+
+    # Formal indicators
+    formal_titles = ['prof', 'dr.', 'doctor', 'professor', 'mr.', 'mrs.', 'ms.', 'dean', 'president', 'ceo', 'hr', 'recruiter']
+    if any(title in sender_lower for title in formal_titles):
+        return 'formal'
+
+    # Check email domain for formal organizations
+    if any(x in sender_lower for x in ['@yale.edu', '@harvard.edu', '@stanford.edu', '@mit.edu']):
+        # Could still be casual, but lean formal for academic
+        if 'prof' in sender_lower or 'dean' in sender_lower:
+            return 'formal'
+
+    # Check past email patterns
+    if past_emails:
+        # Look for formal patterns in past emails
+        formal_signoffs = ['sincerely', 'respectfully', 'best regards', 'yours truly']
+        casual_signoffs = ['best,', 'thanks', 'cheers', 'talk soon', 'see you']
+
+        formal_count = sum(1 for email in past_emails if any(word in email.lower() for word in formal_signoffs))
+        casual_count = sum(1 for email in past_emails if any(word in email.lower() for word in casual_signoffs))
+
+        if formal_count > casual_count:
+            return 'formal'
+        elif casual_count > formal_count:
+            return 'casual'
+
+    return 'neutral'
+
 class OAuthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Add CORS headers to all responses
@@ -494,36 +587,73 @@ class OAuthHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     print(f"Error loading user info: {e}")
 
-            # Load cached sent emails for writing style
-            sent_samples = load_cached_sent_emails()
+            # Extract recipient's first name for personalized salutation
+            recipient_first_name = extract_name_from_email(sender)
 
-            print(f"Generating reply for: sender={sender[:30]}, subject={subject[:30]}")
+            # Get credentials for fetching recipient-specific emails
+            creds = get_stored_credentials()
+
+            # Try to get past emails with this specific recipient first
+            recipient_emails = []
+            relationship_type = 'neutral'
+
+            if creds:
+                # Extract email address from sender string
+                import re
+                email_match = re.search(r'[\w.+-]+@[\w.-]+\.[a-z]+', sender.lower())
+                if email_match:
+                    recipient_email = email_match.group(0)
+                    recipient_emails = get_emails_with_recipient(creds, recipient_email, count=5)
+                    if recipient_emails:
+                        print(f"Found {len(recipient_emails)} past emails with {recipient_email}")
+
+                # Detect relationship type
+                relationship_type = detect_relationship_type(sender, recipient_emails)
+
+            # Fall back to general sent emails if no recipient-specific ones
+            if not recipient_emails:
+                recipient_emails = load_cached_sent_emails()
+
+            print(f"Generating reply for: sender={sender[:30]}, subject={subject[:30]}, relationship={relationship_type}")
 
             # Call OpenAI API
             import requests
             api_key = OPENAI_API_KEY.strip()
 
-            # Build prompt with user's name and writing style examples
-            if sent_samples:
-                # Use up to 4 sent email samples as style examples
-                examples = "\n\n---\n\n".join(sent_samples[:4])
-                prompt = f"""You are writing an email reply. STUDY the writing style examples below VERY CAREFULLY. Copy the exact same tone, style, and especially the signature format.
+            # Build context-aware prompt
+            if recipient_emails:
+                # Use recipient-specific emails as primary examples
+                examples = "\n\n---\n\n".join(recipient_emails[:4])
 
-INCOMING EMAIL TO REPLY TO:
+                # Customize instructions based on relationship
+                if relationship_type == 'formal':
+                    style_instruction = "Use a formal, respectful tone appropriate for academic or professional contexts."
+                elif relationship_type == 'casual':
+                    style_instruction = "Use a friendly, casual tone - be relaxed and informal."
+                else:
+                    style_instruction = "Use a professional but approachable tone."
+
+                recipient_name_note = f"\n- Address them as '{recipient_first_name}' or by their preferred name" if recipient_first_name else ""
+
+                prompt = f"""You are writing an email reply. STUDY the examples below which are YOUR past emails to THIS SAME PERSON. Copy the exact same tone, style, salutation, and signature format.
+
+INCOMING EMAIL:
 From: {sender}
 Subject: {subject}
 
 {body_text[:1500]}
 
-YOUR WRITING STYLE EXAMPLES (study these, especially how you sign off):
+YOUR PAST EMAILS TO THIS PERSON (study these carefully - match how you address them, your tone, and your signature):
 {examples}
 
 INSTRUCTIONS:
-1. Write a short, professional reply (under 100 words)
-2. Copy the EXACT same writing style, tone, and signature format from the examples above
-3. Sign with the SAME name and format used in the examples
-4. NEVER use placeholder text like [Your Name], [Your Position], [Your Company], etc.
-5. Output ONLY the email reply text - no preamble, no explanations
+1. {style_instruction}
+2. Match the EXACT same writing style, tone, and signature format from your past emails to them
+3. {f'Use the same salutation (e.g., "Hi {recipient_first_name}," "Dear {recipient_first_name}," etc.)' if recipient_first_name else 'Use the same salutation style'}
+4. Sign with the SAME name and format used in the examples{recipient_name_note}
+5. NEVER use placeholders like [Your Name], [Your Position], etc.
+6. Keep it under 100 words
+7. Output ONLY the email reply - no preamble
 
 Now write the reply:"""
             elif user_name:
