@@ -49,9 +49,103 @@ TOKEN_DIR = Path.home() / '.aiden'
 TOKEN_FILE = TOKEN_DIR / 'token.pickle'
 CREDENTIALS_FILE = TOKEN_DIR / 'credentials.json'
 USER_INFO_FILE = TOKEN_DIR / 'user_info.json'
+SENT_EMAILS_CACHE_FILE = TOKEN_DIR / 'sent_emails_cache.json'
 
 # AI API Keys
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+
+
+def extract_email_body(message):
+    """Extract plain text body from Gmail message"""
+    try:
+        payload = message.get('payload', {})
+
+        def find_text(part):
+            if part.get('mimeType') == 'text/plain':
+                data = part.get('body', {}).get('data', '')
+                if data:
+                    import base64
+                    return base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+            for subpart in part.get('parts', []):
+                result = find_text(subpart)
+                if result:
+                    return result
+            return None
+
+        # Check main body first
+        body_data = payload.get('body', {}).get('data', '')
+        if body_data:
+            import base64
+            return base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
+
+        # Check parts
+        parts = payload.get('parts', [])
+        for part in parts:
+            result = find_text(part)
+            if result:
+                return result
+
+        return None
+    except Exception as e:
+        print(f"Error extracting body: {e}")
+        return None
+
+
+def fetch_and_cache_sent_emails(creds, count=10):
+    """Fetch recent sent emails and cache them for writing style analysis"""
+    try:
+        service = build('gmail', 'v1', credentials=creds)
+
+        # Fetch sent emails
+        results = service.users().messages().list(
+            userId='me',
+            maxResults=count,
+            q='in:sent'
+        ).execute()
+
+        messages = results.get('messages', [])
+        sent_samples = []
+
+        for message in messages[:count]:
+            try:
+                msg = service.users().messages().get(
+                    userId='me',
+                    id=message['id'],
+                    format='full'
+                ).execute()
+
+                # Extract email body
+                body = extract_email_body(msg)
+                if body and len(body.strip()) > 30:  # Only substantial emails
+                    sent_samples.append(body.strip())
+            except Exception as e:
+                print(f"Error parsing sent message: {e}")
+                continue
+
+        # Save to cache
+        if sent_samples:
+            with open(SENT_EMAILS_CACHE_FILE, 'w') as f:
+                json.dump({'samples': sent_samples}, f, indent=2)
+            print(f"Cached {len(sent_samples)} sent email samples for writing style")
+        else:
+            print("No sent emails found to cache")
+
+        return sent_samples
+    except Exception as e:
+        print(f"Error fetching sent emails: {e}")
+        return []
+
+
+def load_cached_sent_emails():
+    """Load cached sent emails for writing style analysis"""
+    if SENT_EMAILS_CACHE_FILE.exists():
+        try:
+            with open(SENT_EMAILS_CACHE_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get('samples', [])
+        except Exception as e:
+            print(f"Error loading sent emails cache: {e}")
+    return []
 
 class OAuthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -145,6 +239,10 @@ class OAuthHandler(BaseHTTPRequestHandler):
             if user_info:
                 with open(USER_INFO_FILE, 'w') as f:
                     json.dump(user_info, f, indent=2)
+
+            # Fetch and cache sent emails for writing style
+            print("Fetching sent emails to learn your writing style...")
+            fetch_and_cache_sent_emails(creds)
 
             # Return success response
             self.end_headers()
@@ -396,14 +494,39 @@ class OAuthHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     print(f"Error loading user info: {e}")
 
+            # Load cached sent emails for writing style
+            sent_samples = load_cached_sent_emails()
+
             print(f"Generating reply for: sender={sender[:30]}, subject={subject[:30]}")
 
             # Call OpenAI API
             import requests
             api_key = OPENAI_API_KEY.strip()
 
-            # Build prompt with user's name
-            if user_name:
+            # Build prompt with user's name and writing style examples
+            if sent_samples:
+                # Use up to 4 sent email samples as style examples
+                examples = "\n\n---\n\n".join(sent_samples[:4])
+                prompt = f"""You are writing an email reply. STUDY the writing style examples below VERY CAREFULLY. Copy the exact same tone, style, and especially the signature format.
+
+INCOMING EMAIL TO REPLY TO:
+From: {sender}
+Subject: {subject}
+
+{body_text[:1500]}
+
+YOUR WRITING STYLE EXAMPLES (study these, especially how you sign off):
+{examples}
+
+INSTRUCTIONS:
+1. Write a short, professional reply (under 100 words)
+2. Copy the EXACT same writing style, tone, and signature format from the examples above
+3. Sign with the SAME name and format used in the examples
+4. NEVER use placeholder text like [Your Name], [Your Position], [Your Company], etc.
+5. Output ONLY the email reply text - no preamble, no explanations
+
+Now write the reply:"""
+            elif user_name:
                 prompt = f"""Generate a short, professional reply to this email. Your name is {user_name} - sign the email with this name.
 
 From: {sender}
