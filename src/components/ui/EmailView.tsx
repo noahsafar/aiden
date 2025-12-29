@@ -299,7 +299,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
               </div>
 
               {/* Original Email (Incoming) */}
-              <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 border-l-4 border-gray-400">
+              <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center space-x-2">
                     <div className="w-8 h-8 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center text-sm font-medium text-gray-600 dark:text-gray-300">
@@ -334,7 +334,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
               </div>
 
               {/* Your Reply (Outgoing) */}
-              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border-l-4 border-blue-500">
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center space-x-2">
                     <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-sm font-medium text-white">
