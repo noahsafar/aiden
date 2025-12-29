@@ -106,7 +106,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         }
 
         // Convert Python server emails to app format
-        const emails = data.emails.map((email: any) => ({
+        const newEmails = data.emails.map((email: any) => ({
           id: email.id,
           gmail_id: email.id,
           thread_id: email.threadId || email.id,
@@ -125,6 +125,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           ai_generated_reply: 'Test response',
           summary: email.summary || undefined,
         }));
+
+        // Preserve status from existing emails
+        const existingEmails = get().emails;
+        const emails = newEmails.map((newEmail: Email) => {
+          const existing = existingEmails.find(e => e.id === newEmail.id);
+          if (existing) {
+            // Preserve the status from existing email
+            return { ...newEmail, status: existing.status, summary: existing.summary || newEmail.summary };
+          }
+          return newEmail;
+        });
 
         set({ emails, isLoading: false });
       } catch (pythonError) {

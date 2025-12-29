@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
+import { Bookmark } from 'lucide-react';
 
 interface EmailViewProps {
   email?: any;
@@ -17,7 +18,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onDelete = () => {},
   onAction = () => {}
 }) => {
-  const { sendEmail, updateEmailStatus, emails, summarizeEmail, sentEmails } = useEmailStore();
+  const { sendEmail, updateEmailStatus, emails, summarizeEmail, sentEmails, saveEmail, unsaveEmail } = useEmailStore();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summary, setSummary] = useState<string>('');
@@ -383,7 +384,23 @@ export const EmailView: React.FC<EmailViewProps> = ({
             // Regular email view
             <>
               <div className="mb-6">
-                <h2 className="text-2xl font-bold text-foreground mb-2">{email.subject}</h2>
+                <div className="flex items-start justify-between">
+                  <h2 className="text-2xl font-bold text-foreground mb-2">{email.subject}</h2>
+                  <button
+                    onClick={() => {
+                      if (fullEmail?.status === 'Saved') {
+                        unsaveEmail(email.id);
+                      } else {
+                        saveEmail(email.id);
+                      }
+                    }}
+                    className="flex-shrink-0"
+                  >
+                    <Bookmark
+                      className={`w-5 h-5 ${fullEmail?.status === 'Saved' ? 'fill-purple-500 text-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
+                    />
+                  </button>
+                </div>
                 <div className="flex items-center space-x-4 text-sm text-muted">
                   <span>From: {email.from?.name} &lt;{email.from?.email}&gt;</span>
                   <span>{email.timestamp}</span>
