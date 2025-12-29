@@ -212,11 +212,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
     <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
       {/* Action Bar */}
       <div className={isSentEmail ? 'px-4 pb-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'}>
-        {!isSentEmail && !generatedReply && !isGenerating && (
-          <Button onClick={handleGenerateReply}>
-            Generate AI Reply
-          </Button>
-        )}
 
         {/* Summary Display - shown first above reply */}
         {isSummarizing ? (
@@ -237,10 +232,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
         {/* Generating reply indicator */}
         {isGenerating && (
-          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <p className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">AI Response</p>
             <div className="flex items-center gap-2">
               <div className="h-4 w-4 animate-spin rounded-full border border-blue-500 border-t-transparent" />
-              <p className="text-sm text-blue-700 dark:text-blue-300">Generating reply...</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">Generating...</p>
             </div>
           </div>
         )}
