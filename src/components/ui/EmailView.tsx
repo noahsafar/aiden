@@ -212,38 +212,22 @@ export const EmailView: React.FC<EmailViewProps> = ({
     <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
       {/* Action Bar */}
       <div className={isSentEmail ? 'px-4 pb-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'}>
-        {!isSentEmail && (
-          <div className="flex items-center gap-3">
-            {!generatedReply ? (
-              <Button onClick={handleGenerateReply} disabled={isGenerating}>
-                {isGenerating ? 'Generating...' : 'Generate AI Reply'}
-              </Button>
-            ) : (
-              <>
-                <Button onClick={handleSendReply}>
-                  Send Reply
-                </Button>
-                <Button variant="outline" onClick={() => { setGeneratedReply(null); setEditedReply(''); setIsEditing(false); setAiEditPrompt(''); }}>
-                  Discard
-                </Button>
-                <Button variant="outline" onClick={() => setIsEditing(!isEditing)}>
-                  {isEditing ? 'Done Editing' : 'Edit'}
-                </Button>
-              </>
-            )}
-          </div>
+        {!isSentEmail && !generatedReply && !isGenerating && (
+          <Button onClick={handleGenerateReply}>
+            Generate AI Reply
+          </Button>
         )}
 
         {/* Summary Display - shown first above reply */}
         {isSummarizing ? (
-          <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+          <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
             <div className="flex items-center gap-2">
               <div className="h-4 w-4 animate-spin rounded-full border border-purple-500 border-t-transparent" />
               <p className="text-sm text-purple-700 dark:text-purple-300">Generating summary...</p>
             </div>
           </div>
         ) : summary && (
-          <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+          <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
             <div>
               <p className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">AI Summary</p>
               <p className="text-sm text-gray-700 dark:text-gray-300">{summary}</p>
@@ -276,6 +260,17 @@ export const EmailView: React.FC<EmailViewProps> = ({
               ) : (
                 <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{editedReply}</p>
               )}
+              <div className="flex items-center gap-2 mt-5">
+                <Button size="sm" onClick={handleSendReply}>
+                  Send
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setIsEditing(!isEditing)}>
+                  {isEditing ? 'Done' : 'Edit'}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => { setGeneratedReply(null); setEditedReply(''); setIsEditing(false); setAiEditPrompt(''); }}>
+                  Discard
+                </Button>
+              </div>
             </div>
 
             {/* AI Edit Section */}
