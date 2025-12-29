@@ -54,6 +54,78 @@ SENT_EMAILS_CACHE_FILE = TOKEN_DIR / 'sent_emails_cache.json'
 # AI API Keys
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
+# Rate limiting retry configuration
+MAX_RETRIES = 5
+INITIAL_RETRY_DELAY = 5  # seconds
+
+
+def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=15):
+    """Call OpenAI API with exponential backoff retry on rate limit (429) errors"""
+    import requests
+
+    if not OPENAI_API_KEY:
+        return None, "OPENAI_API_KEY not configured"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {OPENAI_API_KEY.strip()}"
+    }
+
+    body = {
+        "model": "gpt-4o-mini",
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature
+    }
+
+    retry_count = 0
+    delay = INITIAL_RETRY_DELAY
+
+    while retry_count <= MAX_RETRIES:
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=body,
+            timeout=timeout
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            return result['choices'][0]['message']['content'].strip(), None
+        elif response.status_code == 429:
+            retry_count += 1
+            if retry_count > MAX_RETRIES:
+                error_msg = response.text
+                # Extract retry-after from error if available
+                try:
+                    error_json = response.json()
+                    if 'retry_after' in error_json.get('error', {}):
+                        delay = int(error_json['error']['retry_after'])
+                except:
+                    pass
+                return None, f"Rate limit exceeded after {MAX_RETRIES} retries"
+
+            # Extract suggested retry time if available
+            try:
+                error_json = response.json()
+                error_text = error_json.get('error', {}).get('message', '')
+                print(f"OpenAI rate limit hit (attempt {retry_count}/{MAX_RETRIES}): {error_text[:100]}")
+                # Try to extract retry time from message like "Please try again in 20s"
+                import re
+                retry_match = re.search(r'try again in (\d+)s', error_text.lower())
+                if retry_match:
+                    delay = int(retry_match.group(1)) + 1
+            except:
+                pass
+
+            print(f"Retrying in {delay} seconds...")
+            time.sleep(delay)
+            delay *= 2  # Exponential backoff
+        else:
+            return None, f"API error {response.status_code}: {response.text[:200]}"
+
+    return None, "Max retries exceeded"
+
 
 def extract_email_body(message):
     """Extract plain text body from Gmail message"""
@@ -154,10 +226,6 @@ def summarize_email(subject, sender, body_text, snippet=""):
         return None
 
     try:
-        import requests
-        import time
-        api_key = OPENAI_API_KEY.strip()
-
         # Use snippet if body is too short, otherwise use body
         content = body_text if body_text else snippet
 
@@ -179,40 +247,14 @@ Examples of good summaries:
 
 Summary:"""
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
+        messages = [{"role": "user", "content": prompt}]
+        summary, error = call_openai_with_retry(messages, max_tokens=100, temperature=0.3, timeout=10)
 
-        body = {
-            "model": "gpt-4o-mini",
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 100,
-            "temperature": 0.3
-        }
-
-        # Add small delay to avoid rate limiting
-        time.sleep(0.2)
-
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=body,
-            timeout=10
-        )
-
-        if response.status_code == 200:
-            result = response.json()
-            summary = result['choices'][0]['message']['content'].strip()
+        if summary:
             print(f"Email summary generated: {summary[:50]}...")
             return summary
-        elif response.status_code == 429:
-            print(f"OpenAI rate limit hit, skipping summary")
-            return None
         else:
-            print(f"OpenAI API error for summary: {response.status_code}")
+            print(f"Failed to generate summary: {error}")
             return None
 
     except Exception as e:
@@ -707,10 +749,6 @@ class OAuthHandler(BaseHTTPRequestHandler):
 
             print(f"Generating reply for: sender={sender[:30]}, subject={subject[:30]}, relationship={relationship_type}")
 
-            # Call OpenAI API
-            import requests
-            api_key = OPENAI_API_KEY.strip()
-
             # Build context-aware prompt
             if recipient_emails:
                 # Use recipient-specific emails as primary examples
@@ -770,38 +808,18 @@ Email body:
 
 Write a concise reply (under 100 words). Be professional and helpful. Do not include any preamble - just provide the reply email text directly."""
 
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            }
+            messages = [{"role": "user", "content": prompt}]
+            reply, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=15)
 
-            body = {
-                "model": "gpt-4o-mini",
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "max_tokens": 300,
-                "temperature": 0.7
-            }
-
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=body,
-                timeout=15
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                reply = result['choices'][0]['message']['content'].strip()
+            if reply:
                 print(f"AI reply generated successfully!")
                 self.end_headers()
                 resp = {'success': True, 'reply': reply}
                 self.wfile.write(json.dumps(resp).encode())
             else:
-                print(f"OpenAI API error {response.status_code}: {response.text[:200]}")
+                print(f"Failed to generate reply: {error}")
                 self.end_headers()
-                resp = {'success': False, 'error': f'API error: {response.text[:200]}'}
+                resp = {'success': False, 'error': f'Failed to generate reply: {error}'}
                 self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:
@@ -840,10 +858,6 @@ Write a concise reply (under 100 words). Be professional and helpful. Do not inc
 
             print(f"AI editing reply with prompt: {edit_prompt[:50]}...")
 
-            # Call OpenAI API
-            import requests
-            api_key = OPENAI_API_KEY.strip()
-
             prompt = f"""You are editing an email draft based on the user's instructions.
 
 CURRENT EMAIL DRAFT:
@@ -854,38 +868,18 @@ USER'S EDIT INSTRUCTIONS:
 
 Edit the email draft according to the user's instructions. Keep the same general meaning but apply the requested changes. Output ONLY the edited email text - no preamble, no explanations."""
 
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            }
+            messages = [{"role": "user", "content": prompt}]
+            edited_reply, error = call_openai_with_retry(messages, max_tokens=500, temperature=0.7, timeout=15)
 
-            body = {
-                "model": "gpt-4o-mini",
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "max_tokens": 500,
-                "temperature": 0.7
-            }
-
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=body,
-                timeout=15
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                edited_reply = result['choices'][0]['message']['content'].strip()
+            if edited_reply:
                 print(f"AI edit completed successfully!")
                 self.end_headers()
                 resp = {'success': True, 'edited_reply': edited_reply}
                 self.wfile.write(json.dumps(resp).encode())
             else:
-                print(f"OpenAI API error {response.status_code}: {response.text[:200]}")
+                print(f"Failed to edit reply: {error}")
                 self.end_headers()
-                resp = {'success': False, 'error': f'API error: {response.text[:200]}'}
+                resp = {'success': False, 'error': f'Failed to edit reply: {error}'}
                 self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:
