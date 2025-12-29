@@ -265,6 +265,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
           <div className="mt-4 space-y-3">
             {/* Reply Display/Edit Area */}
             <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <p className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-2">AI Response</p>
               {isEditing ? (
                 <textarea
                   value={editedReply}
