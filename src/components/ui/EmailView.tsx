@@ -191,7 +191,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   return (
     <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
       {/* Action Bar */}
-      <div className={`${isSentEmail ? 'pt-2 pb-4' : 'border-b border-gray-200 dark:border-gray-700'} p-4`}>
+      <div className={isSentEmail ? 'px-4 pb-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'}>
         {!isSentEmail && (
           <div className="flex items-center gap-3">
             {!generatedReply ? (
@@ -292,7 +292,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         <div className="max-w-4xl mx-auto">
           {isSentEmail && originalEmail ? (
             // Conversation view for sent emails
-            <div className="space-y-6">
+            <div className="-mt-4 space-y-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Conversation</h2>
                 <span className="text-sm text-gray-500">{new Date(sentEmail!.date).toLocaleString()}</span>
