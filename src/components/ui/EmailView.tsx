@@ -27,8 +27,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [aiEditPrompt, setAiEditPrompt] = useState<string>('');
   const [isAiEditing, setIsAiEditing] = useState(false);
 
-  // Track which email we're currently summarizing to avoid duplicates
+  // Track which email we're currently summarizing/generating reply to avoid duplicates
   const summarizingEmailId = useRef<string | null>(null);
+  const generatingReplyEmailId = useRef<string | null>(null);
 
   // Get the full email data from store (includes body_text)
   const fullEmail = email ? emails.find(e => e.id === email.id) : null;
@@ -75,7 +76,25 @@ export const EmailView: React.FC<EmailViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email?.id]);
 
+  // Auto-generate reply after summary is done
+  useEffect(() => {
+    if (!isSentEmail && email?.id && summary && !generatedReply && !isGenerating && generatingReplyEmailId.current !== email.id) {
+      // Summary is ready, now generate reply
+      handleGenerateReply();
+    } else if (!email?.id || isSentEmail) {
+      // No email selected or it's a sent email, clear reply
+      setGeneratedReply(null);
+      setEditedReply('');
+      setIsEditing(false);
+      setAiEditPrompt('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email?.id, summary, isSentEmail]);
+
   const handleGenerateReply = async () => {
+    if (!email?.id || generatingReplyEmailId.current === email.id) return;
+
+    generatingReplyEmailId.current = email.id;
     // Use email prop if fullEmail is not available
     const emailData = fullEmail || {
       sender: email?.from?.email || email?.from?.name || email?.sender || '',
@@ -108,6 +127,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       alert('Failed to generate reply');
     } finally {
       setIsGenerating(false);
+      generatingReplyEmailId.current = null;
     }
   };
 
@@ -214,6 +234,33 @@ export const EmailView: React.FC<EmailViewProps> = ({
           </div>
         )}
 
+        {/* Summary Display - shown first above reply */}
+        {isSummarizing ? (
+          <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-4 animate-spin rounded-full border border-purple-500 border-t-transparent" />
+              <p className="text-sm text-purple-700 dark:text-purple-300">Generating summary...</p>
+            </div>
+          </div>
+        ) : summary && (
+          <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+            <div>
+              <p className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">AI Summary</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300">{summary}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Generating reply indicator */}
+        {isGenerating && (
+          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-4 animate-spin rounded-full border border-blue-500 border-t-transparent" />
+              <p className="text-sm text-blue-700 dark:text-blue-300">Generating reply...</p>
+            </div>
+          </div>
+        )}
+
         {generatedReply && (
           <div className="mt-4 space-y-3">
             {/* Reply Display/Edit Area */}
@@ -266,23 +313,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 </div>
               </div>
             )}
-          </div>
-        )}
-
-        {/* Summary Display */}
-        {isSummarizing ? (
-          <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-            <div className="flex items-center gap-2">
-              <div className="h-4 w-4 animate-spin rounded-full border border-purple-500 border-t-transparent" />
-              <p className="text-sm text-purple-700 dark:text-purple-300">Generating summary...</p>
-            </div>
-          </div>
-        ) : summary && (
-          <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-            <div>
-              <p className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">AI Summary</p>
-              <p className="text-sm text-gray-700 dark:text-gray-300">{summary}</p>
-            </div>
           </div>
         )}
       </div>
