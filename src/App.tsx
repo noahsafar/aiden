@@ -62,7 +62,7 @@ function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [appStartTime] = useState(Date.now());
   const { signOut, isAuthenticated, isLoading, initialize, setState, user } = useAuthStore();
-  const { emails, fetchEmails, isLoading: emailsLoading } = useEmailStore();
+  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter } = useEmailStore();
 
   // Convert email store format to UI format
   const convertToUIEmail = (email: any): Email => {
@@ -104,13 +104,50 @@ function App() {
     };
   };
 
-  // Filter emails to show only those received after app start time
-  const filteredEmails = emails
-    .filter(email => {
-      const emailTime = new Date(email.date).getTime();
-      return emailTime >= appStartTime;
-    })
-    .map(convertToUIEmail);
+  // Convert sent email to UI format
+  const convertSentEmailToUI = (email: any): Email => {
+    const toRecipients = email.recipients ? email.recipients.split(',').map((r: string) => {
+      const match = r.trim().match(/^(?:"?([^"]*)"?\s)?(?:<?([^>]+)>?)$/);
+      const name = match?.[1] || r.trim().split('<')[0].trim() || 'Unknown';
+      const emailAddr = match?.[2] || r.trim().split('<')[1]?.replace('>', '').trim() || r.trim();
+      return { name, email: emailAddr };
+    }) : [{ name: 'Unknown', email: email.recipients || '' }];
+
+    return {
+      id: email.id,
+      from: {
+        name: 'You',
+        email: email.sender || 'me',
+        status: 'offline' as const
+      },
+      to: toRecipients,
+      subject: email.subject,
+      preview: email.snippet,
+      content: email.body_text || email.snippet,
+      timestamp: new Date(email.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isRead: email.is_read,
+      isStarred: email.is_starred,
+      hasAttachments: email.has_attachments,
+      labels: [
+        { id: '1', name: 'Sent', color: 'primary' as const }
+      ],
+      isAIProcessed: true,
+      aiCategory: email.category,
+      aiSummary: email.summary,
+      aiActionItems: email.key_points || [],
+      aiPriority: 'low' as const
+    };
+  };
+
+  // Filter emails based on current filter
+  const filteredEmails = currentFilter === 'sent'
+    ? sentEmails.map(convertSentEmailToUI)
+    : emails
+        .filter(email => {
+          const emailTime = new Date(email.date).getTime();
+          return emailTime >= appStartTime;
+        })
+        .map(convertToUIEmail);
 
   useEffect(() => {
     // Initialize authentication state on app load
@@ -277,14 +314,18 @@ function App() {
                     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                       <Mail className="h-12 w-12 text-gray-400 mb-4" />
                       <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                        No new emails yet
+                        {currentFilter === 'sent' ? 'No sent emails yet' : 'No new emails yet'}
                       </h3>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Emails that arrive after you logged in will appear here automatically.
+                        {currentFilter === 'sent'
+                          ? 'Emails you send will appear here.'
+                          : 'Emails that arrive after you logged in will appear here automatically.'}
                       </p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                        Checking for new emails every 10 seconds...
-                      </p>
+                      {currentFilter !== 'sent' && (
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                          Checking for new emails every 10 seconds...
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <EmailList

@@ -22,6 +22,9 @@ export interface Email {
   key_points?: string[];
   requires_reply: boolean;
   ai_generated_reply?: string;
+  // For sent emails: reference to the original email being replied to
+  inReplyTo?: string;  // original email ID
+  originalEmail?: Email;  // full original email data (populated when viewing sent emails)
 }
 
 export interface EmailState {
@@ -42,7 +45,7 @@ export interface EmailState {
   classifyEmail: (emailId: string) => Promise<void>;
   generateReply: (emailId: string) => Promise<void>;
   summarizeEmail: (emailId: string) => Promise<string | null>;
-  sendEmail: (to: string, subject: string, body: string) => Promise<void>;
+  sendEmail: (to: string, subject: string, body: string, inReplyTo?: string, originalEmailData?: Email) => Promise<void>;
   saveEmail: (emailId: string) => void;
   unsaveEmail: (emailId: string) => void;
   setSearchQuery: (query: string) => void;
@@ -340,7 +343,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
   },
 
-  sendEmail: async (to, subject, body) => {
+  sendEmail: async (to, subject, body, inReplyTo, originalEmailData) => {
     try {
       console.log('Sending email via OAuth server...');
 
@@ -375,7 +378,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
       console.log('Email sent successfully');
 
-      // Add to sent emails
+      // Add to sent emails with reference to original email
       const sentEmail: Email = {
         id: result.id || `sent-${Date.now()}`,
         gmail_id: result.id || `sent-${Date.now()}`,
@@ -392,6 +395,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         status: 'Replied',
         category: 'Normal',
         requires_reply: false,
+        inReplyTo: inReplyTo,
+        originalEmail: originalEmailData,
       };
 
       set((state) => ({
