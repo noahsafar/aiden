@@ -145,6 +145,10 @@ function App() {
     : emails
         .filter(email => {
           const emailTime = new Date(email.date).getTime();
+          // For Saved category, only show saved emails. For inbox, exclude saved/archived.
+          if (currentFilter === 'saved') {
+            return emailTime >= appStartTime && email.status === 'Saved';
+          }
           return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved';
         })
         .map(convertToUIEmail);
