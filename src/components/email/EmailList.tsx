@@ -5,7 +5,8 @@ import {
   ArchiveBoxIcon,
   ArrowUTurnLeftIcon,
   ClockIcon,
-  SparklesIcon
+  BookmarkIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 import { Button } from '@/components/ui/Button';
 import { useEmailStore, Email } from '@/stores/emailStore';
@@ -22,34 +23,24 @@ export function EmailList() {
     selectEmail,
     markAsStarred,
     updateEmailStatus,
+    saveEmail,
+    unsaveEmail,
     fetchEmails,
     setCurrentFilter,
+    getFilteredEmails,
+    setSearchQuery,
   } = useEmailStore();
 
   useEffect(() => {
     fetchEmails();
   }, [fetchEmails]);
 
-  const filteredEmails = emails.filter((email) => {
-    // Filter by current category
-    if (currentFilter === 'unhandled' && email.status !== 'Unhandled') return false;
-    if (currentFilter === 'urgent' && email.category !== 'Urgent') return false;
-    if (currentFilter === 'important' && email.category !== 'Important') return false;
-    if (currentFilter === 'normal' && email.category !== 'Normal') return false;
-    if (currentFilter === 'low' && email.category !== 'Low') return false;
+  // Update store when local search query changes
+  useEffect(() => {
+    setSearchQuery(searchQuery);
+  }, [searchQuery, setSearchQuery]);
 
-    // Filter by search query
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return (
-        email.subject.toLowerCase().includes(query) ||
-        email.sender.toLowerCase().includes(query) ||
-        email.snippet.toLowerCase().includes(query)
-      );
-    }
-
-    return true;
-  });
+  const filteredEmails = getFilteredEmails();
 
   const getCategoryColor = (category: Email['category']) => {
     switch (category) {
@@ -155,6 +146,18 @@ export function EmailList() {
 
                 <div className="flex items-center justify-between mt-2">
                   <div className="flex space-x-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        email.status === 'Saved' ? unsaveEmail(email.id) : saveEmail(email.id);
+                      }}
+                      title={email.status === 'Saved' ? 'Unsave' : 'Save for later'}
+                    >
+                      <BookmarkIcon className={`h-3 w-3 ${email.status === 'Saved' ? 'fill-current text-purple-500' : ''}`} />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

@@ -12,6 +12,7 @@
     "restore-placeholders": "node restore-placeholders.js"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
     "@tanstack/react-query": "^4.24.4",
     "@tauri-apps/api": "^2.9.1",
     "axios": "^1.3.4",

@@ -26,10 +26,11 @@ export interface Email {
 
 export interface EmailState {
   emails: Email[];
+  sentEmails: Email[];  // Track emails sent through Aiden
   selectedEmail: Email | null;
   isLoading: boolean;
   error: string | null;
-  currentFilter: 'all' | 'unhandled' | 'urgent' | 'important' | 'normal' | 'low';
+  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'urgent' | 'important' | 'normal' | 'low';
   searchQuery: string;
 
   // Actions
@@ -40,19 +41,23 @@ export interface EmailState {
   updateEmailStatus: (emailId: string, status: Email['status']) => Promise<void>;
   classifyEmail: (emailId: string) => Promise<void>;
   generateReply: (emailId: string) => Promise<void>;
-  summarizeEmail: (emailId: string) => Promise<void>;
+  summarizeEmail: (emailId: string) => Promise<string | null>;
   sendEmail: (to: string, subject: string, body: string) => Promise<void>;
+  saveEmail: (emailId: string) => void;
+  unsaveEmail: (emailId: string) => void;
   setSearchQuery: (query: string) => void;
   setCurrentFilter: (filter: EmailState['currentFilter']) => void;
   refreshEmails: () => Promise<void>;
+  getFilteredEmails: () => Email[];
 }
 
 export const useEmailStore = create<EmailState>((set, get) => ({
   emails: [],
+  sentEmails: [],
   selectedEmail: null,
   isLoading: false,
   error: null,
-  currentFilter: 'all',
+  currentFilter: 'inbox',
   searchQuery: '',
 
   fetchEmails: async () => {
@@ -342,6 +347,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       // Get auth token from store
       const authStore = useAuthStore.getState();
       const accessToken = authStore.token?.access_token || localStorage.getItem('aiden_access_token');
+      const userInfo = authStore.user;
 
       if (!accessToken) {
         throw new Error('Not authenticated');
@@ -368,6 +374,29 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       }
 
       console.log('Email sent successfully');
+
+      // Add to sent emails
+      const sentEmail: Email = {
+        id: result.id || `sent-${Date.now()}`,
+        gmail_id: result.id || `sent-${Date.now()}`,
+        thread_id: result.id || `sent-${Date.now()}`,
+        subject,
+        sender: userInfo?.email || 'me',
+        recipients: to,
+        date: new Date().toISOString(),
+        body_text: body,
+        snippet: body.substring(0, 100),
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Replied',
+        category: 'Normal',
+        requires_reply: false,
+      };
+
+      set((state) => ({
+        sentEmails: [sentEmail, ...state.sentEmails],
+      }));
     } catch (error) {
       console.error('Failed to send email:', error);
       throw error;
@@ -384,5 +413,75 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   refreshEmails: async () => {
     await get().fetchEmails();
+  },
+
+  saveEmail: (emailId) => {
+    set((state) => ({
+      emails: state.emails.map(e =>
+        e.id === emailId ? { ...e, status: 'Saved' } : e
+      ),
+      selectedEmail: state.selectedEmail?.id === emailId
+        ? { ...state.selectedEmail, status: 'Saved' }
+        : state.selectedEmail,
+    }));
+  },
+
+  unsaveEmail: (emailId) => {
+    set((state) => ({
+      emails: state.emails.map(e =>
+        e.id === emailId ? { ...e, status: 'Unhandled' } : e
+      ),
+      selectedEmail: state.selectedEmail?.id === emailId
+        ? { ...state.selectedEmail, status: 'Unhandled' }
+        : state.selectedEmail,
+    }));
+  },
+
+  getFilteredEmails: () => {
+    const state = get();
+    const { emails, sentEmails, currentFilter, searchQuery } = state;
+
+    let filtered: Email[] = [];
+
+    switch (currentFilter) {
+      case 'inbox':
+        filtered = emails.filter(e => e.status !== 'Archived' && e.status !== 'Saved');
+        break;
+      case 'unhandled':
+        filtered = emails.filter(e => e.status === 'Unhandled');
+        break;
+      case 'saved':
+        filtered = emails.filter(e => e.status === 'Saved');
+        break;
+      case 'sent':
+        filtered = sentEmails;
+        break;
+      case 'urgent':
+        filtered = emails.filter(e => e.category === 'Urgent');
+        break;
+      case 'important':
+        filtered = emails.filter(e => e.category === 'Important');
+        break;
+      case 'normal':
+        filtered = emails.filter(e => e.category === 'Normal');
+        break;
+      case 'low':
+        filtered = emails.filter(e => e.category === 'Low');
+        break;
+      default:
+        filtered = emails;
+    }
+
+    // Apply search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(e =>
+        e.subject.toLowerCase().includes(query) ||
+        e.sender.toLowerCase().includes(query) ||
+        e.snippet.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
   },
 }));

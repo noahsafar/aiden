@@ -3,7 +3,6 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Sidebar } from '@/components/ui/Sidebar';
 import { EmailList } from '@/components/ui/EmailList';
 import { EmailView } from '@/components/ui/EmailView';
-import { FloatingAction } from '@/components/ui/FloatingAction';
 import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
 import { TestPage } from '@/components/TestPage';
@@ -320,14 +319,6 @@ function App() {
                   )}
                 </div>
               </div>
-
-              {/* Floating Action Button */}
-              <FloatingAction
-                onCompose={handleCompose}
-                onAICompose={handleAICompose}
-                onQuickSearch={handleQuickSearch}
-                onVoiceCompose={handleVoiceCompose}
-              />
             </div>
           ) : (
             <Navigate to="/login" replace />
