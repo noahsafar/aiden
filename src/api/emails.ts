@@ -12,6 +12,7 @@ export interface GmailEmail {
   isRead: boolean;
   labels: string[];
   sizeEstimate: number;
+  summary?: string;
 }
 
 export interface EmailResponse {
@@ -23,13 +24,25 @@ export interface EmailResponse {
   error?: string;
 }
 
+export interface SummarizeResponse {
+  success: boolean;
+  summary?: string;
+  error?: string;
+}
+
 const OAUTH_SERVER_URL = 'http://localhost:8082';
 
-export async function fetchEmails(accessToken: string, maxResults: number = 10, query: string = 'in:inbox'): Promise<EmailResponse> {
+export async function fetchEmails(
+  accessToken: string,
+  maxResults: number = 10,
+  query: string = 'in:inbox',
+  includeSummaries: boolean = true
+): Promise<EmailResponse> {
   try {
     const url = new URL(`${OAUTH_SERVER_URL}/emails`);
     url.searchParams.append('maxResults', maxResults.toString());
     url.searchParams.append('q', query);
+    url.searchParams.append('includeSummaries', includeSummaries.toString());
 
     const response = await fetch(url.toString(), {
       method: 'GET',
@@ -58,6 +71,43 @@ export async function fetchEmails(accessToken: string, maxResults: number = 10, 
   }
 }
 
+// Generate a summary for a single email
+export async function summarizeEmail(
+  sender: string,
+  subject: string,
+  bodyText: string,
+  snippet: string
+): Promise<SummarizeResponse> {
+  try {
+    const response = await fetch('http://localhost:8082/summarize', {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender,
+        subject,
+        body_text: bodyText,
+        snippet,
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data: SummarizeResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Failed to summarize email:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to generate summary'
+    };
+  }
+}
+
 // Helper function to convert Gmail email format to app's Email format
 export function convertGmailEmail(gmailEmail: GmailEmail): any {
   return {
@@ -76,5 +126,6 @@ export function convertGmailEmail(gmailEmail: GmailEmail): any {
     status: 'Unhandled' as const,
     category: 'Normal' as const, // Default category
     requires_reply: !gmailEmail.isRead && !gmailEmail.from.includes('me'),
+    summary: gmailEmail.summary,
   };
 }

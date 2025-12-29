@@ -148,6 +148,78 @@ def load_cached_sent_emails():
     return []
 
 
+def summarize_email(subject, sender, body_text, snippet=""):
+    """Generate a concise summary of an email using OpenAI"""
+    if not OPENAI_API_KEY:
+        return None
+
+    try:
+        import requests
+        import time
+        api_key = OPENAI_API_KEY.strip()
+
+        # Use snippet if body is too short, otherwise use body
+        content = body_text if body_text else snippet
+
+        # Extract sender's first name for more natural summary
+        sender_name = extract_name_from_email(sender) or "Sender"
+
+        prompt = f"""Summarize this email in ONE concise sentence. Start with the sender's name and describe what they're saying or asking for.
+
+From: {sender}
+Subject: {subject}
+
+Email:
+{content[:2000]}
+
+Examples of good summaries:
+- "John is asking to meet later today"
+- "Sarah wants to reschedule tomorrow's meeting to 3pm"
+- "Mike is requesting the quarterly report by Friday"
+
+Summary:"""
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+
+        body = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 100,
+            "temperature": 0.3
+        }
+
+        # Add small delay to avoid rate limiting
+        time.sleep(0.2)
+
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=body,
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            summary = result['choices'][0]['message']['content'].strip()
+            print(f"Email summary generated: {summary[:50]}...")
+            return summary
+        elif response.status_code == 429:
+            print(f"OpenAI rate limit hit, skipping summary")
+            return None
+        else:
+            print(f"OpenAI API error for summary: {response.status_code}")
+            return None
+
+    except Exception as e:
+        print(f"Error summarizing email: {e}")
+        return None
+
+
 def get_emails_with_recipient(creds, recipient_email, count=5):
     """Fetch past emails sent to a specific recipient for context-aware style"""
     try:
@@ -274,6 +346,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_generate_reply()
         elif self.path.startswith('/edit-reply'):
             self.handle_edit_reply()
+        elif self.path.startswith('/summarize'):
+            self.handle_summarize()
         else:
             self.send_error(404)
 
@@ -407,6 +481,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
             # Set default values
             max_results = 10  # Limit to 10 recent emails
             query = 'in:inbox'  # Only inbox emails
+            include_summaries = query_params.get('includeSummaries', ['false'])[0].lower() == 'true'
 
             # Override with query params if provided
             if 'maxResults' in query_params:
@@ -426,12 +501,15 @@ class OAuthHandler(BaseHTTPRequestHandler):
             emails = []
             for message in messages:
                 try:
-                    # Get full message details
+                    # Get full message details with body if summaries are requested
+                    msg_format = 'full' if include_summaries else 'metadata'
+                    metadata_headers = ['From', 'To', 'Subject', 'Date', 'Snippet']
+
                     msg = service.users().messages().get(
                         userId='me',
                         id=message['id'],
-                        format='metadata',
-                        metadataHeaders=['From', 'To', 'Subject', 'Date', 'Snippet']
+                        format=msg_format,
+                        metadataHeaders=metadata_headers
                     ).execute()
 
                     # Extract headers
@@ -446,19 +524,30 @@ class OAuthHandler(BaseHTTPRequestHandler):
                     except:
                         timestamp = int(msg.get('internalDate', 0))
 
+                    sender = headers.get('From', '')
+                    subject = headers.get('Subject', '(No Subject)')
+                    snippet = msg.get('snippet', '')
+
                     email_data = {
                         'id': msg['id'],
                         'threadId': msg.get('threadId', ''),
-                        'snippet': msg.get('snippet', ''),
-                        'from': headers.get('From', ''),
+                        'snippet': snippet,
+                        'from': sender,
                         'to': headers.get('To', ''),
-                        'subject': headers.get('Subject', '(No Subject)'),
+                        'subject': subject,
                         'date': date_str,
                         'timestamp': timestamp,
                         'isRead': not msg.get('labelIds', []) or 'UNREAD' not in msg.get('labelIds', []),
                         'labels': msg.get('labelIds', []),
                         'sizeEstimate': msg.get('sizeEstimate', 0)
                     }
+
+                    # Generate summary if requested
+                    if include_summaries:
+                        body_text = extract_email_body(msg) or ''
+                        summary = summarize_email(subject, sender, body_text, snippet)
+                        email_data['summary'] = summary
+
                     emails.append(email_data)
 
                 except Exception as e:
@@ -806,6 +895,50 @@ Edit the email draft according to the user's instructions. Keep the same general
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             response = {'success': False, 'error': f'Failed to edit reply: {str(e)}'}
+            self.wfile.write(json.dumps(response).encode())
+
+    def handle_summarize(self):
+        """Generate email summary using OpenAI API"""
+        try:
+            self.send_header('Content-type', 'application/json')
+
+            if not OPENAI_API_KEY:
+                self.end_headers()
+                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Get request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            sender = data.get('sender', '')
+            subject = data.get('subject', '')
+            body_text = data.get('body_text', '')
+            snippet = data.get('snippet', '')
+
+            print(f"Generating summary for email from {sender[:30]}...")
+
+            # Generate summary
+            summary = summarize_email(subject, sender, body_text, snippet)
+
+            if summary:
+                self.end_headers()
+                resp = {'success': True, 'summary': summary}
+                self.wfile.write(json.dumps(resp).encode())
+            else:
+                self.end_headers()
+                resp = {'success': False, 'error': 'Failed to generate summary'}
+                self.wfile.write(json.dumps(resp).encode())
+
+        except Exception as e:
+            print(f"Error generating summary: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {'success': False, 'error': f'Failed to generate summary: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
 
     def log_message(self, format_str, *args):

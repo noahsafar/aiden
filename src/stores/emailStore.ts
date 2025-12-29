@@ -40,6 +40,7 @@ export interface EmailState {
   updateEmailStatus: (emailId: string, status: Email['status']) => Promise<void>;
   classifyEmail: (emailId: string) => Promise<void>;
   generateReply: (emailId: string) => Promise<void>;
+  summarizeEmail: (emailId: string) => Promise<void>;
   sendEmail: (to: string, subject: string, body: string) => Promise<void>;
   setSearchQuery: (query: string) => void;
   setCurrentFilter: (filter: EmailState['currentFilter']) => void;
@@ -114,6 +115,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           category: 'Normal' as const,
           requires_reply: !email.isRead && !email.from?.toLowerCase().includes('me'),
           ai_generated_reply: 'Test response',
+          summary: email.summary || undefined,
         }));
 
         set({ emails, isLoading: false });
@@ -282,6 +284,54 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       }));
     } catch (error) {
       console.error('Failed to generate reply:', error);
+    }
+  },
+
+  summarizeEmail: async (emailId) => {
+    try {
+      const email = get().emails.find(e => e.id === emailId);
+      if (!email) return null;
+
+      // Call OAuth server to generate summary
+      const response = await fetch('http://localhost:8081/summarize', {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: email.sender,
+          subject: email.subject,
+          body_text: email.body_text,
+          snippet: email.snippet,
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to summarize: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      if (result.success && result.summary) {
+        // Update local state with summary
+        set((state) => ({
+          emails: state.emails.map(e =>
+            e.id === emailId
+              ? { ...e, summary: result.summary }
+              : e
+          ),
+          selectedEmail: state.selectedEmail?.id === emailId
+            ? { ...state.selectedEmail, summary: result.summary }
+            : state.selectedEmail,
+        }));
+        return result.summary;
+      } else {
+        throw new Error(result.error || 'Failed to generate summary');
+      }
+    } catch (error) {
+      console.error('Failed to summarize email:', error);
+      throw error;
     }
   },
 

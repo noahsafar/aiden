@@ -4,7 +4,8 @@ import {
   StarIcon,
   ArchiveBoxIcon,
   ArrowUTurnLeftIcon,
-  ClockIcon
+  ClockIcon,
+  SparklesIcon
 } from '@heroicons/react/24/outline';
 import { Button } from '@/components/ui/Button';
 import { useEmailStore, Email } from '@/stores/emailStore';
@@ -138,9 +139,19 @@ export function EmailList() {
                   {email.subject || 'No Subject'}
                 </h3>
 
-                <p className="text-sm text-gray-600 truncate">
-                  {email.snippet}
-                </p>
+                {/* Show AI summary if available, otherwise show snippet */}
+                {email.summary ? (
+                  <div className="flex items-start gap-2">
+                    <SparklesIcon className="h-3 w-3 text-purple-500 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-gray-700 line-clamp-2">
+                      {email.summary}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-600 truncate">
+                    {email.snippet}
+                  </p>
+                )}
 
                 <div className="flex items-center justify-between mt-2">
                   <div className="flex space-x-2">

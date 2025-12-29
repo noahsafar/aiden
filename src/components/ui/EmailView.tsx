@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 
@@ -17,16 +17,56 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onDelete = () => {},
   onAction = () => {}
 }) => {
-  const { sendEmail, updateEmailStatus, emails } = useEmailStore();
+  const { sendEmail, updateEmailStatus, emails, summarizeEmail } = useEmailStore();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summary, setSummary] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
   const [generatedReply, setGeneratedReply] = useState<string | null>(null);
   const [editedReply, setEditedReply] = useState<string>('');
   const [aiEditPrompt, setAiEditPrompt] = useState<string>('');
   const [isAiEditing, setIsAiEditing] = useState(false);
 
+  // Track which email we're currently summarizing to avoid duplicates
+  const summarizingEmailId = useRef<string | null>(null);
+
   // Get the full email data from store (includes body_text)
   const fullEmail = email ? emails.find(e => e.id === email.id) : null;
+
+  const handleSummarize = async () => {
+    if (!email?.id || summarizingEmailId.current === email.id) return;
+
+    summarizingEmailId.current = email.id;
+    setIsSummarizing(true);
+    try {
+      const summaryText = await summarizeEmail(email.id);
+      if (summaryText) {
+        setSummary(summaryText);
+      }
+      setIsSummarizing(false);
+      summarizingEmailId.current = null;
+    } catch (error) {
+      console.error('Failed to summarize:', error);
+      setIsSummarizing(false);
+      summarizingEmailId.current = null;
+    }
+  };
+
+  // Auto-generate summary when email changes
+  useEffect(() => {
+    if (email?.id && fullEmail?.summary) {
+      // Already has summary, use it
+      setSummary(fullEmail.summary);
+    } else if (email?.id && !fullEmail?.summary && !isSummarizing && summarizingEmailId.current !== email.id) {
+      // No summary yet, generate it
+      setSummary('');
+      handleSummarize();
+    } else if (!email?.id) {
+      // No email selected, clear summary
+      setSummary('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email?.id]);
 
   const handleGenerateReply = async () => {
     // Use email prop if fullEmail is not available
@@ -198,6 +238,23 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Summary Display */}
+        {isSummarizing ? (
+          <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-4 animate-spin rounded-full border border-purple-500 border-t-transparent" />
+              <p className="text-sm text-purple-700 dark:text-purple-300">Generating summary...</p>
+            </div>
+          </div>
+        ) : summary && (
+          <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+            <div>
+              <p className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">AI Summary</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300">{summary}</p>
+            </div>
           </div>
         )}
       </div>
