@@ -149,6 +149,12 @@ function App() {
         })
         .map(convertToUIEmail);
 
+  // Calculate actual inbox count (emails after app start, not archived/saved)
+  const inboxCount = emails.filter(email => {
+    const emailTime = new Date(email.date).getTime();
+    return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved';
+  }).length;
+
   useEffect(() => {
     // Initialize authentication state on app load
     const initAuth = async () => {
@@ -306,6 +312,7 @@ function App() {
                 <Sidebar
                   isDarkMode={isDarkMode}
                   onThemeToggle={handleThemeToggle}
+                  inboxCount={inboxCount}
                 />
 
                 {/* Email List */}

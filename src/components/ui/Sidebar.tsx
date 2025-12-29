@@ -11,13 +11,15 @@ interface SidebarProps {
   children?: React.ReactNode;
   isDarkMode?: boolean;
   onThemeToggle?: () => void;
+  inboxCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   className = '',
   children,
   isDarkMode = false,
-  onThemeToggle = () => {}
+  onThemeToggle = () => {},
+  inboxCount
 }) => {
   const { currentFilter, setCurrentFilter, emails, sentEmails } = useEmailStore();
 
@@ -30,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const getFilterCount = (filterId: string) => {
     switch (filterId) {
       case 'inbox':
-        return emails.filter(e => e.status !== 'Archived' && e.status !== 'Saved').length;
+        return inboxCount !== undefined ? inboxCount : emails.filter(e => e.status !== 'Archived' && e.status !== 'Saved').length;
       case 'saved':
         return emails.filter(e => e.status === 'Saved').length;
       case 'sent':
