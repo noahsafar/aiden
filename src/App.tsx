@@ -145,7 +145,7 @@ function App() {
     : emails
         .filter(email => {
           const emailTime = new Date(email.date).getTime();
-          return emailTime >= appStartTime;
+          return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved';
         })
         .map(convertToUIEmail);
 
