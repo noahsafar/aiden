@@ -205,7 +205,6 @@ export function convertGmailEmailToApp(gmailEmail: GmailEmail) {
     status: 'Unhandled' as const,
     category: 'Normal' as const, // Default category
     requires_reply: !gmailEmail.isRead && !gmailEmail.from.toLowerCase().includes('me'),
-    ai_generated_reply: 'Test response',
   };
 }
 

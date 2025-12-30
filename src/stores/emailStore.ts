@@ -48,6 +48,7 @@ export interface EmailState {
   sendEmail: (to: string, subject: string, body: string, inReplyTo?: string, originalEmailData?: Email) => Promise<void>;
   saveEmail: (emailId: string) => void;
   unsaveEmail: (emailId: string) => void;
+  saveGeneratedReply: (emailId: string, reply: string) => void;
   setSearchQuery: (query: string) => void;
   setCurrentFilter: (filter: EmailState['currentFilter']) => void;
   refreshEmails: () => Promise<void>;
@@ -122,7 +123,6 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           status: 'Unhandled' as const,
           category: 'Normal' as const,
           requires_reply: !email.isRead && !email.from?.toLowerCase().includes('me'),
-          ai_generated_reply: 'Test response',
           summary: email.summary || undefined,
         }));
 
@@ -449,6 +449,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       ),
       selectedEmail: state.selectedEmail?.id === emailId
         ? { ...state.selectedEmail, status: 'Unhandled' }
+        : state.selectedEmail,
+    }));
+  },
+
+  saveGeneratedReply: (emailId, reply) => {
+    set((state) => ({
+      emails: state.emails.map(e =>
+        e.id === emailId ? { ...e, ai_generated_reply: reply } : e
+      ),
+      selectedEmail: state.selectedEmail?.id === emailId
+        ? { ...state.selectedEmail, ai_generated_reply: reply }
         : state.selectedEmail,
     }));
   },

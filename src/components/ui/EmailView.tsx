@@ -18,7 +18,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onDelete = () => {},
   onAction = () => {}
 }) => {
-  const { sendEmail, updateEmailStatus, emails, summarizeEmail, sentEmails, saveEmail, unsaveEmail } = useEmailStore();
+  const { sendEmail, updateEmailStatus, emails, summarizeEmail, sentEmails, saveEmail, unsaveEmail, saveGeneratedReply } = useEmailStore();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summary, setSummary] = useState<string>('');
@@ -77,6 +77,22 @@ export const EmailView: React.FC<EmailViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email?.id]);
 
+  // Load saved reply when email changes
+  useEffect(() => {
+    if (email?.id && fullEmail?.ai_generated_reply) {
+      // Already has generated reply, use it
+      setGeneratedReply(fullEmail.ai_generated_reply);
+      setEditedReply(fullEmail.ai_generated_reply);
+    } else if (!email?.id || isSentEmail) {
+      // No email selected or it's a sent email, clear reply
+      setGeneratedReply(null);
+      setEditedReply('');
+      setIsEditing(false);
+      setAiEditPrompt('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email?.id, isSentEmail]);
+
   // Auto-generate reply after summary is done
   useEffect(() => {
     if (!isSentEmail && email?.id && summary && !generatedReply && !isGenerating && generatingReplyEmailId.current !== email.id) {
@@ -120,6 +136,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       if (result.success) {
         setGeneratedReply(result.reply);
         setEditedReply(result.reply);
+        // Save to store so it persists when navigating away
+        saveGeneratedReply(email.id, result.reply);
       } else {
         alert('Failed to generate reply: ' + result.error);
       }
@@ -233,7 +251,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
         {/* Generating reply indicator */}
         {isGenerating && (
-          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
             <p className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">AI Response</p>
             <div className="flex items-center gap-2">
               <div className="h-4 w-4 animate-spin rounded-full border border-blue-500 border-t-transparent" />
