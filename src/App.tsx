@@ -325,14 +325,16 @@ function App() {
                     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                       <Mail className="h-12 w-12 text-gray-400 mb-4" />
                       <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                        {currentFilter === 'sent' ? 'No sent emails yet' : 'No new emails yet'}
+                        {currentFilter === 'sent' ? 'No sent emails yet' : currentFilter === 'saved' ? 'No saved emails yet' : 'No new emails yet'}
                       </h3>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
                         {currentFilter === 'sent'
                           ? 'Emails you send will appear here.'
+                          : currentFilter === 'saved'
+                          ? 'Emails you bookmark will appear here.'
                           : 'Emails that arrive after you logged in will appear here automatically.'}
                       </p>
-                      {currentFilter !== 'sent' && (
+                      {currentFilter !== 'sent' && currentFilter !== 'saved' && (
                         <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
                           Checking for new emails every 10 seconds...
                         </p>
