@@ -26,8 +26,6 @@ declare global {
       };
     };
   }
-
-  }
 }
 
 interface GoogleSignInResponse {
