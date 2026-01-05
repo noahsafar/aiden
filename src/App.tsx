@@ -191,6 +191,42 @@ function App() {
     }
   }, [isDarkMode]);
 
+  // Set up notification click handler to focus window
+  useEffect(() => {
+    const setupNotificationListener = async () => {
+      if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__) {
+        try {
+          const { getCurrentWindow } = await import('@tauri-apps/api/window');
+          const { listen } = await import('@tauri-apps/api/event');
+          const { isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification');
+
+          // Request notification permission
+          const permitted = await isPermissionGranted();
+          if (!permitted) {
+            await requestPermission();
+          }
+
+          // Listen for notification clicks
+          const unlisten = await listen('notification-clicked', () => {
+            getCurrentWindow().setFocus(true);
+            getCurrentWindow().unminimize();
+          });
+
+          return () => {
+            unlisten.then(fn => fn());
+          };
+        } catch (e) {
+          console.error('Failed to set up notification listener:', e);
+        }
+      }
+    };
+
+    const cleanupPromise = setupNotificationListener();
+    return () => {
+      cleanupPromise.then(cleanup => cleanup?.());
+    };
+  }, []);
+
   const selectedEmail = filteredEmails.find(email => email.id === selectedEmailId);
 
   const handleEmailAction = (emailId: string, action: string) => {

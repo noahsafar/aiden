@@ -2,6 +2,24 @@ import { create } from 'zustand';
 import { fetchGmailEmails, convertGmailEmailToApp } from '@/api/gmail';
 import { useAuthStore } from '@/stores/authStore';
 
+// Check if running in Tauri
+const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
+
+// Lazy load notification API only in Tauri
+let sendTauriNotification: any = null;
+async function sendNotification(title: string, body: string): Promise<void> {
+  if (!isTauri) return;
+  try {
+    if (!sendTauriNotification) {
+      const plugin = await import('@tauri-apps/plugin-notification');
+      sendTauriNotification = plugin.sendNotification;
+    }
+    await sendTauriNotification({ title, body, icon: '/icons/icon.png' });
+  } catch (e) {
+    console.error('Notification error:', e);
+  }
+}
+
 export interface Email {
   id: string;
   gmail_id: string;
@@ -35,6 +53,9 @@ export interface EmailState {
   error: string | null;
   currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'urgent' | 'important' | 'normal' | 'low';
   searchQuery: string;
+  notifiedEmailIds: Set<string>;  // Track which emails we've sent notifications for
+  initialEmailIds: Set<string>;   // Track emails that existed at app startup
+  hasInitialized: boolean;        // Whether initial fetch has completed
 
   // Actions
   fetchEmails: () => Promise<void>;
@@ -49,10 +70,67 @@ export interface EmailState {
   saveEmail: (emailId: string) => void;
   unsaveEmail: (emailId: string) => void;
   saveGeneratedReply: (emailId: string, reply: string) => void;
+  sendEmailNotification: (emailId: string, summary: string, reply: string) => void;
   setSearchQuery: (query: string) => void;
   setCurrentFilter: (filter: EmailState['currentFilter']) => void;
   refreshEmails: () => Promise<void>;
   getFilteredEmails: () => Email[];
+}
+
+// Background processor for new emails - generates summary, reply, then notifies
+// Defined outside store to access it via get() during async operations
+let processingEmails = new Set<string>();
+async function processNewEmail(emailId: string) {
+  if (processingEmails.has(emailId)) return;
+  processingEmails.add(emailId);
+
+  try {
+    // Wait a bit to let the email settle in the store
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Get the store instance
+    const store = useEmailStore.getState();
+
+    // Step 1: Generate summary
+    let summary: string | null = null;
+    try {
+      summary = await store.summarizeEmail(emailId);
+    } catch (e) {
+      console.error('Failed to generate summary:', e);
+    }
+
+    // Step 2: Generate reply
+    let reply: string | null = null;
+    try {
+      const email = store.emails.find(e => e.id === emailId);
+      if (!email) return;
+
+      const response = await fetch('http://localhost:8081/generate-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender: email.sender,
+          subject: email.subject,
+          body_text: email.body_text,
+        }),
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        reply = result.reply;
+        store.saveGeneratedReply(emailId, reply);
+      }
+    } catch (e) {
+      console.error('Failed to generate reply:', e);
+    }
+
+    // Step 3: Send notification if we have both
+    if (summary && reply) {
+      store.sendEmailNotification(emailId, summary, reply);
+    }
+  } finally {
+    processingEmails.delete(emailId);
+  }
 }
 
 export const useEmailStore = create<EmailState>((set, get) => ({
@@ -63,6 +141,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   error: null,
   currentFilter: 'inbox',
   searchQuery: '',
+  notifiedEmailIds: new Set<string>(),
+  initialEmailIds: new Set<string>(),
+  hasInitialized: false,
 
   fetchEmails: async () => {
     try {
@@ -138,6 +219,29 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         });
 
         set({ emails, isLoading: false });
+
+        // Handle initial vs subsequent fetches
+        const state = get();
+        if (!state.hasInitialized) {
+          // First fetch - just track existing emails, don't process them
+          const initialIds = new Set(emails.map((e: Email) => e.id));
+          set({ initialEmailIds: initialIds, hasInitialized: true });
+        } else {
+          // Subsequent fetches - only process truly NEW emails
+          const currentIds = new Set(emails.map((e: Email) => e.id));
+          const newEmailIds = [...currentIds].filter(id => !state.initialEmailIds.has(id));
+
+          // Also add these new emails to initialEmailIds so we don't process them again
+          const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
+          set({ initialEmailIds: updatedInitialIds });
+
+          // Process only the new emails
+          for (const emailId of newEmailIds) {
+            if (!state.notifiedEmailIds.has(emailId)) {
+              processNewEmail(emailId);
+            }
+          }
+        }
       } catch (pythonError) {
         console.error('Python OAuth server error:', pythonError);
 
@@ -159,6 +263,24 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         const emails = emailResponse.emails.map(convertGmailEmailToApp);
 
         set({ emails, isLoading: false });
+
+        // Handle initial vs subsequent fetches (same logic as Python path)
+        const state = get();
+        if (!state.hasInitialized) {
+          const initialIds = new Set(emails.map((e: Email) => e.id));
+          set({ initialEmailIds: initialIds, hasInitialized: true });
+        } else {
+          const currentIds = new Set(emails.map((e: Email) => e.id));
+          const newEmailIds = [...currentIds].filter(id => !state.initialEmailIds.has(id));
+          const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
+          set({ initialEmailIds: updatedInitialIds });
+
+          for (const emailId of newEmailIds) {
+            if (!state.notifiedEmailIds.has(emailId)) {
+              processNewEmail(emailId);
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to fetch emails:', error);
@@ -461,6 +583,22 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       selectedEmail: state.selectedEmail?.id === emailId
         ? { ...state.selectedEmail, ai_generated_reply: reply }
         : state.selectedEmail,
+    }));
+  },
+
+  sendEmailNotification: (emailId, summary, reply) => {
+    const state = get();
+    if (state.notifiedEmailIds.has(emailId)) return; // Already notified
+
+    const email = state.emails.find(e => e.id === emailId);
+    if (!email) return;
+
+    const senderName = email.sender.split('<')[0].trim() || email.sender;
+    const notificationBody = `${summary}\n\nSuggested: ${reply.substring(0, 100)}${reply.length > 100 ? '...' : ''}`;
+
+    sendNotification(`Email from ${senderName}`, notificationBody);
+    set((state) => ({
+      notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
     }));
   },
 

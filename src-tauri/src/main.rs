@@ -12,6 +12,7 @@ use services::storage::TokenStorage;
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         // Register only the commands that exist
         .invoke_handler(tauri::generate_handler![
             // Auth commands

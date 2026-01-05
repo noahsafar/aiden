@@ -12,6 +12,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import threading
 import time
+import queue
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -58,6 +61,29 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 5  # seconds
 
+# Request queue and rate limiter to prevent concurrent API calls
+class RateLimiter:
+    """Rate limiter for OpenAI API calls - ensures requests are spaced out"""
+    def __init__(self, min_delay=3.0):
+        self.min_delay = min_delay  # Minimum seconds between requests
+        self.last_call_time = 0
+        self.lock = threading.Lock()
+
+    def wait_if_needed(self):
+        """Wait if needed to respect rate limit"""
+        with self.lock:
+            current_time = time.time()
+            time_since_last = current_time - self.last_call_time
+            if time_since_last < self.min_delay:
+                wait_time = self.min_delay - time_since_last
+                print(f"Rate limiter: waiting {wait_time:.1f}s before API call")
+                time.sleep(wait_time)
+            self.last_call_time = time.time()
+
+# Global rate limiter
+# 5 seconds between calls = 12 calls/minute max, well under free tier limits
+rate_limiter = RateLimiter(min_delay=5.0)
+
 
 def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=15):
     """Call OpenAI API with exponential backoff retry on rate limit (429) errors"""
@@ -65,6 +91,9 @@ def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=15
 
     if not OPENAI_API_KEY:
         return None, "OPENAI_API_KEY not configured"
+
+    # Wait before making the API call to respect rate limits
+    rate_limiter.wait_if_needed()
 
     headers = {
         "Content-Type": "application/json",
@@ -120,6 +149,8 @@ def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=15
 
             print(f"Retrying in {delay} seconds...")
             time.sleep(delay)
+            # Reset rate limiter after waiting for retry to avoid double-waiting
+            rate_limiter.last_call_time = time.time()
             delay *= 2  # Exponential backoff
         else:
             return None, f"API error {response.status_code}: {response.text[:200]}"
