@@ -315,6 +315,36 @@ def load_cached_sent_emails():
     return []
 
 
+def clean_summary(summary):
+    """Remove common preamble phrases from AI-generated summaries"""
+    if not summary:
+        return summary
+
+    # Common preamble patterns to remove
+    preamble_patterns = [
+        r"^here['']?s?\s+(a\s+)?(concise\s+)?(brief\s+)?summary[:\s]*",
+        r"^summary[:\s]*",
+        r"^the\s+email\s+(can\s+be\s+)?summarized\s+(as\s+follows)?[:\s]*",
+        r"^in\s+(this\s+email|summary)[:\s]*",
+        r"^this\s+email\s+(is\s+about|says|conveys)[:\s]*",
+        r"^(the\s+)?(main\s+)?(point|gist|essence)(\s+of\s+the\s+email)?(\s+is)?[:\s]*",
+        r"^quick\s+summary[:\s]*",
+        r"^below\s+(is\s+)?(a\s+)?summary[:\s]*",
+    ]
+
+    import re
+    cleaned = summary
+    for pattern in preamble_patterns:
+        cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+
+    # Clean up any leading/trailing whitespace and capitalize first letter
+    cleaned = cleaned.strip()
+    if cleaned:
+        cleaned = cleaned[0].upper() + cleaned[1:] if len(cleaned) > 1 else cleaned.upper()
+
+    return cleaned
+
+
 def summarize_email(subject, sender, body_text, snippet=""):
     """Generate a concise summary of an email using OpenAI or Ollama"""
     try:
@@ -343,8 +373,10 @@ Summary:"""
         summary, error = call_openai_with_retry(messages, max_tokens=100, temperature=0.3, timeout=10)
 
         if summary:
-            print(f"Email summary generated: {summary[:50]}...")
-            return summary
+            # Clean up any preamble phrases
+            cleaned_summary = clean_summary(summary)
+            print(f"Email summary generated: {cleaned_summary[:50]}...")
+            return cleaned_summary
         else:
             print(f"Failed to generate summary: {error}")
             return None
