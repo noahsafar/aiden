@@ -935,9 +935,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
 
 CRITICAL: You are {user_name}. The email is FROM them, TO you. Sign with YOUR name ({user_name}), NOT theirs.
 
-INCOMING EMAIL (from them to you):
-From: {sender}
-Subject: {subject}
+INCOMING EMAIL:
+{sender} wrote: {subject}
 
 {body_text[:1500]}
 
@@ -951,29 +950,28 @@ INSTRUCTIONS:
 4. {f'Address them as "{recipient_first_name}"' if recipient_first_name else 'Use the same salutation style'}
 5. NEVER use placeholders like [Your Name], [Your Position], etc.
 6. Keep it under 100 words
-7. Output ONLY the email reply - no preamble
+7. Start with a salutation (Hi, Hey, Dear, etc.)
+8. Output ONLY the email body - no subject line, no preamble
 
 Now write the reply as {user_name}:"""
             elif user_name:
                 prompt = f"""Generate a short, professional reply to this email. Your name is {user_name} - sign the email with this name.
 
-From: {sender}
+Email from {sender}:
 Subject: {subject}
 
-Email body:
 {body_text[:1000]}
 
-Write a concise reply (under 100 words). Be professional and helpful. Sign off with "{user_name}". Do not include any preamble - just provide the reply email text directly."""
+Write a concise reply (under 100 words). Be professional and helpful. Sign off with "{user_name}". Start with a salutation. Do not include a subject line - just the email body."""
             else:
                 prompt = f"""Generate a short, professional reply to this email:
 
-From: {sender}
+Email from {sender}:
 Subject: {subject}
 
-Email body:
 {body_text[:1000]}
 
-Write a concise reply (under 100 words). Be professional and helpful. Do not include any preamble - just provide the reply email text directly."""
+Write a concise reply (under 100 words). Be professional and helpful. Start with a salutation. Do not include a subject line - just the email body."""
 
             messages = [{"role": "user", "content": prompt}]
             reply, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=10)

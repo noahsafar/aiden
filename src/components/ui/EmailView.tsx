@@ -43,33 +43,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
   // Get AI reply from store
   const aiReply = fullEmail?.ai_generated_reply || null;
 
-  // Parse the AI reply to extract subject and body
-  const parseAIReply = (reply: string) => {
-    if (!reply) return { subject: null, body: '' };
-
-    // The first line is the subject line (from the Python prompt)
-    const lines = reply.split('\n');
-    const firstLine = lines[0]?.trim() || '';
-
-    // Check if first line looks like a subject (starts with common patterns or is short)
-    const subjectPatterns = ['re:', 'fw:', 'subject:', 'regarding', 'about', 'update'];
-    const looksLikeSubject = firstLine.length < 100 && (
-      firstLine.match(/^[A-Z]/) || // Starts with capital
-      subjectPatterns.some(p => firstLine.toLowerCase().startsWith(p))
-    );
-
-    if (looksLikeSubject && lines.length > 1) {
-      return {
-        subject: firstLine,
-        body: lines.slice(1).join('\n').trim()
-      };
-    }
-
-    return { subject: null, body: reply };
-  };
-
-  const parsedReply = parseAIReply(aiReply || '');
-
   // Check if reply is being generated
   const isGenerating = email?.id ? isGeneratingReply(email.id) : false;
 
@@ -227,12 +200,12 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 )}
               </div>
 
-              {/* Show subject line separately if detected */}
-              {parsedReply.subject && !isEditing && (
+              {/* Show subject line */}
+              {!isEditing && email?.subject && (
                 <div className="mb-2 pb-2 border-b border-blue-200 dark:border-blue-700">
                   <p className="text-sm text-gray-700 dark:text-gray-300">
                     <span className="text-xs text-blue-600 dark:text-blue-400">Subject: </span>
-                    {parsedReply.subject}
+                    Re: {email.subject}
                   </p>
                 </div>
               )}
@@ -245,7 +218,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                   placeholder="Edit your reply..."
                 />
               ) : (
-                <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{parsedReply.body}</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{aiReply || ''}</p>
               )}
               {!hasSent && (
                 <div className="flex items-center gap-2 mt-5">
