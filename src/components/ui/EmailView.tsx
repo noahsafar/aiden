@@ -91,6 +91,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       const result = await response.json();
       if (result.success) {
         setEditedReply(result.edited_reply);
+        setHasEdited(true);
         setAiEditPrompt('');
       } else {
         alert('Failed to edit reply: ' + result.error);
