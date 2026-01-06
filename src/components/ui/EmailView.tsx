@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useMemo } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { Bookmark } from 'lucide-react';
@@ -18,137 +18,51 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onDelete = () => {},
   onAction = () => {}
 }) => {
-  const { sendEmail, updateEmailStatus, emails, summarizeEmail, sentEmails, saveEmail, unsaveEmail, saveGeneratedReply } = useEmailStore();
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isSummarizing, setIsSummarizing] = useState(false);
-  const [summary, setSummary] = useState<string>('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [generatedReply, setGeneratedReply] = useState<string | null>(null);
-  const [editedReply, setEditedReply] = useState<string>('');
-  const [aiEditPrompt, setAiEditPrompt] = useState<string>('');
-  const [isAiEditing, setIsAiEditing] = useState(false);
+  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingReply } = useEmailStore();
 
-  // Track which email we're currently summarizing/generating reply to avoid duplicates
-  const summarizingEmailId = useRef<string | null>(null);
-  const generatingReplyEmailId = useRef<string | null>(null);
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [editedReply, setEditedReply] = React.useState('');
+  const [aiEditPrompt, setAiEditPrompt] = React.useState('');
+  const [isAiEditing, setIsAiEditing] = React.useState(false);
 
-  // Get the full email data from store (includes body_text)
-  const fullEmail = email ? emails.find(e => e.id === email.id) : null;
+  // Get the full email data from store - this updates when store updates
+  const fullEmail = useMemo(() => {
+    return email ? emails.find(e => e.id === email.id) : null;
+  }, [email?.id, emails]);
 
-  // Check if this is a sent email (from sentEmails list)
+  // Check if this is a sent email
   const sentEmail = email ? sentEmails.find(e => e.id === email.id) : null;
   const isSentEmail = !!sentEmail;
 
   // For sent emails, get the original email that was replied to
   const originalEmail = sentEmail?.originalEmail || (sentEmail?.inReplyTo ? emails.find(e => e.id === sentEmail.inReplyTo) : null);
 
-  const handleSummarize = async () => {
-    if (!email?.id || summarizingEmailId.current === email.id) return;
+  // Get summary from store
+  const summary = fullEmail?.summary || '';
 
-    summarizingEmailId.current = email.id;
-    setIsSummarizing(true);
-    try {
-      const summaryText = await summarizeEmail(email.id);
-      if (summaryText) {
-        setSummary(summaryText);
-      }
-      setIsSummarizing(false);
-      summarizingEmailId.current = null;
-    } catch (error) {
-      console.error('Failed to summarize:', error);
-      setIsSummarizing(false);
-      summarizingEmailId.current = null;
+  // Get AI reply from store
+  const aiReply = fullEmail?.ai_generated_reply || null;
+
+  // Check if reply is being generated
+  const isGenerating = email?.id ? isGeneratingReply(email.id) : false;
+
+  // Initialize edited reply when AI reply becomes available
+  React.useEffect(() => {
+    if (aiReply && !isEditing) {
+      setEditedReply(aiReply);
     }
-  };
+  }, [aiReply, isEditing]);
 
-  // Auto-generate summary when email changes
-  useEffect(() => {
-    if (email?.id && fullEmail?.summary) {
-      // Already has summary, use it
-      setSummary(fullEmail.summary);
-    } else if (email?.id && !fullEmail?.summary && !isSummarizing && summarizingEmailId.current !== email.id) {
-      // No summary yet, generate it
-      setSummary('');
-      handleSummarize();
-    } else if (!email?.id) {
-      // No email selected, clear summary
-      setSummary('');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [email?.id]);
-
-  // Load saved reply when email changes
-  useEffect(() => {
-    if (email?.id && fullEmail?.ai_generated_reply) {
-      // Already has generated reply, use it
-      setGeneratedReply(fullEmail.ai_generated_reply);
-      setEditedReply(fullEmail.ai_generated_reply);
-    } else if (!email?.id || isSentEmail) {
-      // No email selected or it's a sent email, clear reply
-      setGeneratedReply(null);
+  // Clear state when email changes
+  React.useEffect(() => {
+    if (!email?.id || isSentEmail) {
       setEditedReply('');
       setIsEditing(false);
       setAiEditPrompt('');
+    } else if (aiReply) {
+      setEditedReply(aiReply);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [email?.id, isSentEmail]);
-
-  // Auto-generate reply after summary is done
-  useEffect(() => {
-    if (!isSentEmail && email?.id && summary && !generatedReply && !isGenerating && generatingReplyEmailId.current !== email.id) {
-      // Summary is ready, now generate reply
-      handleGenerateReply();
-    } else if (!email?.id || isSentEmail) {
-      // No email selected or it's a sent email, clear reply
-      setGeneratedReply(null);
-      setEditedReply('');
-      setIsEditing(false);
-      setAiEditPrompt('');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [email?.id, summary, isSentEmail]);
-
-  const handleGenerateReply = async () => {
-    if (!email?.id || generatingReplyEmailId.current === email.id) return;
-
-    generatingReplyEmailId.current = email.id;
-    // Use email prop if fullEmail is not available
-    const emailData = fullEmail || {
-      sender: email?.from?.email || email?.from?.name || email?.sender || '',
-      subject: email?.subject || '',
-      body_text: email?.content || '',
-      id: email?.id || ''
-    };
-
-    setIsGenerating(true);
-    try {
-      const response = await fetch('http://localhost:8081/generate-reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sender: emailData.sender,
-          subject: emailData.subject,
-          body_text: emailData.body_text,
-        }),
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        setGeneratedReply(result.reply);
-        setEditedReply(result.reply);
-        // Save to store so it persists when navigating away
-        saveGeneratedReply(email.id, result.reply);
-      } else {
-        alert('Failed to generate reply: ' + result.error);
-      }
-    } catch (error) {
-      console.error('Failed to generate AI reply:', error);
-      alert('Failed to generate reply');
-    } finally {
-      setIsGenerating(false);
-      generatingReplyEmailId.current = null;
-    }
-  };
+  }, [email?.id, isSentEmail, aiReply]);
 
   const handleAiEdit = async () => {
     if (!aiEditPrompt.trim() || !editedReply) return;
@@ -206,7 +120,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
     try {
       await sendEmail(senderEmail, `Re: ${email.subject}`, editedReply, email.id, originalEmailData);
       updateEmailStatus(email.id, 'Replied');
-      setGeneratedReply(null);
       setEditedReply('');
       setIsEditing(false);
       alert('Reply sent!');
@@ -232,15 +145,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       {/* Action Bar */}
       <div className={isSentEmail ? 'px-4 pb-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'}>
 
-        {/* Summary Display - shown first above reply */}
-        {isSummarizing ? (
-          <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-            <div className="flex items-center gap-2">
-              <div className="h-4 w-4 animate-spin rounded-full border border-purple-500 border-t-transparent" />
-              <p className="text-sm text-purple-700 dark:text-purple-300">Generating summary...</p>
-            </div>
-          </div>
-        ) : summary && (
+        {/* Summary Display */}
+        {summary && (
           <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
             <div>
               <p className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">AI Summary</p>
@@ -260,9 +166,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
           </div>
         )}
 
-        {generatedReply && (
+        {/* AI Reply Display/Edit */}
+        {aiReply && (
           <div className="mt-4 space-y-3">
-            {/* Reply Display/Edit Area */}
             <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
               <p className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-2">AI Response</p>
               {isEditing ? (
@@ -282,7 +188,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 <Button size="sm" variant="outline" onClick={() => setIsEditing(!isEditing)}>
                   {isEditing ? 'Done' : 'Edit'}
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => { setGeneratedReply(null); setEditedReply(''); setIsEditing(false); setAiEditPrompt(''); }}>
+                <Button size="sm" variant="outline" onClick={() => { setEditedReply(aiReply); setIsEditing(false); setAiEditPrompt(''); }}>
                   Discard
                 </Button>
               </div>

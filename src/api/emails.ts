@@ -30,7 +30,7 @@ export interface SummarizeResponse {
   error?: string;
 }
 
-const OAUTH_SERVER_URL = 'http://localhost:8082';
+const OAUTH_SERVER_URL = 'http://localhost:8081';
 
 export async function fetchEmails(
   accessToken: string,
@@ -79,7 +79,7 @@ export async function summarizeEmail(
   snippet: string
 ): Promise<SummarizeResponse> {
   try {
-    const response = await fetch('http://localhost:8082/summarize', {
+    const response = await fetch('http://localhost:8081/summarize', {
       method: 'POST',
       mode: 'cors',
       headers: {

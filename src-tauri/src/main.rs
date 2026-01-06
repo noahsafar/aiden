@@ -6,7 +6,7 @@ mod models;
 mod services;
 mod utils;
 
-use commands::{auth, gmail, ai, database};
+use commands::{auth, gmail, ai, database, settings};
 use services::storage::TokenStorage;
 
 fn main() {
@@ -30,6 +30,9 @@ fn main() {
             database::save_email,
             database::get_emails,
             database::update_email_status,
+            // Settings commands
+            settings::start_oauth_server,
+            settings::check_oauth_server_running,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

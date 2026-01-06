@@ -58,7 +58,7 @@ SENT_EMAILS_CACHE_FILE = TOKEN_DIR / 'sent_emails_cache.json'
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 # Rate limiting retry configuration
-MAX_RETRIES = 0  # No retries - immediately fall back to Ollama on rate limit
+MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 5  # seconds
 
 # Request queue and rate limiter to prevent concurrent API calls
@@ -85,7 +85,7 @@ class RateLimiter:
 rate_limiter = RateLimiter(min_delay=5.0)
 
 
-def call_ollama(messages, max_tokens=300, timeout=60):
+def call_ollama(messages, max_tokens=300, timeout=30):
     """Call local Ollama API as fallback"""
     import requests
 
@@ -157,27 +157,12 @@ def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=15
     delay = INITIAL_RETRY_DELAY
 
     while retry_count <= MAX_RETRIES:
-        try:
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=body,
-                timeout=timeout
-            )
-        except requests.exceptions.Timeout:
-            print(f"OpenAI request timed out after {timeout}s")
-            # Fall back to Ollama on timeout
-            if use_ollama_fallback:
-                print("Falling back to Ollama...")
-                return call_ollama(messages, max_tokens=max_tokens, timeout=60)
-            return None, f"OpenAI request timed out after {timeout}s"
-        except requests.exceptions.RequestException as e:
-            print(f"OpenAI request error: {e}")
-            # Fall back to Ollama on network errors
-            if use_ollama_fallback:
-                print("Falling back to Ollama...")
-                return call_ollama(messages, max_tokens=max_tokens, timeout=60)
-            return None, f"OpenAI request error: {str(e)}"
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=body,
+            timeout=timeout
+        )
 
         if response.status_code == 200:
             result = response.json()
@@ -191,7 +176,7 @@ def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=15
                 # Fall back to Ollama
                 if use_ollama_fallback:
                     print("Falling back to Ollama...")
-                    return call_ollama(messages, max_tokens=max_tokens, timeout=60)
+                    return call_ollama(messages, max_tokens=max_tokens, timeout=timeout)
                 return None, f"Rate limit exceeded after {MAX_RETRIES} retries"
 
             # Extract suggested retry time if available
@@ -216,7 +201,7 @@ def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=15
             # On other errors, try Ollama fallback
             if use_ollama_fallback:
                 print(f"OpenAI API error {response.status_code}, falling back to Ollama...")
-                return call_ollama(messages, max_tokens=max_tokens, timeout=60)
+                return call_ollama(messages, max_tokens=max_tokens, timeout=timeout)
             return None, f"API error {response.status_code}: {response.text[:200]}"
 
     return None, "Max retries exceeded"
@@ -340,7 +325,7 @@ Examples of good summaries:
 Summary:"""
 
         messages = [{"role": "user", "content": prompt}]
-        summary, error = call_openai_with_retry(messages, max_tokens=100, temperature=0.3, timeout=10)
+        summary, error = call_openai_with_retry(messages, max_tokens=100, temperature=0.3, timeout=60)
 
         if summary:
             print(f"Email summary generated: {summary[:50]}...")
@@ -785,7 +770,15 @@ class OAuthHandler(BaseHTTPRequestHandler):
     def handle_generate_reply(self):
         """Generate email reply using OpenAI API"""
         try:
-            # Get request body FIRST before sending any response
+            self.send_header('Content-type', 'application/json')
+
+            if not OPENAI_API_KEY:
+                self.end_headers()
+                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Get request body
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data.decode('utf-8'))
@@ -793,13 +786,6 @@ class OAuthHandler(BaseHTTPRequestHandler):
             sender = data.get('sender', '')
             subject = data.get('subject', '')
             body_text = data.get('body_text', '') or ''
-
-            if not OPENAI_API_KEY:
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
-                self.wfile.write(json.dumps(response).encode())
-                return
 
             # Load user's name from saved user info
             user_name = None
@@ -900,18 +886,16 @@ Email body:
 Write a concise reply (under 100 words). Be professional and helpful. Do not include any preamble - just provide the reply email text directly."""
 
             messages = [{"role": "user", "content": prompt}]
-            reply, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=10)
-
-            # Now send response headers (note: send_response already called in do_POST)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
+            reply, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=60)
 
             if reply:
                 print(f"AI reply generated successfully!")
+                self.end_headers()
                 resp = {'success': True, 'reply': reply}
                 self.wfile.write(json.dumps(resp).encode())
             else:
                 print(f"Failed to generate reply: {error}")
+                self.end_headers()
                 resp = {'success': False, 'error': f'Failed to generate reply: {error}'}
                 self.wfile.write(json.dumps(resp).encode())
 
@@ -919,7 +903,6 @@ Write a concise reply (under 100 words). Be professional and helpful. Do not inc
             print(f"Error generating reply: {e}")
             import traceback
             traceback.print_exc()
-            # For errors, we need to send the full response since do_POST already sent 200
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             response = {'success': False, 'error': f'Failed to generate reply: {str(e)}'}
@@ -928,7 +911,15 @@ Write a concise reply (under 100 words). Be professional and helpful. Do not inc
     def handle_edit_reply(self):
         """Edit an email reply using AI based on user's edit prompt"""
         try:
-            # Get request body FIRST before sending any response
+            self.send_header('Content-type', 'application/json')
+
+            if not OPENAI_API_KEY:
+                self.end_headers()
+                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Get request body
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data.decode('utf-8'))
@@ -936,15 +927,7 @@ Write a concise reply (under 100 words). Be professional and helpful. Do not inc
             current_reply = data.get('current_reply', '')
             edit_prompt = data.get('edit_prompt', '')
 
-            if not OPENAI_API_KEY:
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
-                self.wfile.write(json.dumps(response).encode())
-                return
-
             if not current_reply or not edit_prompt:
-                self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 response = {'success': False, 'error': 'Missing current_reply or edit_prompt'}
                 self.wfile.write(json.dumps(response).encode())
@@ -963,18 +946,16 @@ USER'S EDIT INSTRUCTIONS:
 Edit the email draft according to the user's instructions. Keep the same general meaning but apply the requested changes. Output ONLY the edited email text - no preamble, no explanations."""
 
             messages = [{"role": "user", "content": prompt}]
-            edited_reply, error = call_openai_with_retry(messages, max_tokens=500, temperature=0.7, timeout=10)
-
-            # Now send response headers (note: send_response already called in do_POST)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
+            edited_reply, error = call_openai_with_retry(messages, max_tokens=500, temperature=0.7, timeout=60)
 
             if edited_reply:
                 print(f"AI edit completed successfully!")
+                self.end_headers()
                 resp = {'success': True, 'edited_reply': edited_reply}
                 self.wfile.write(json.dumps(resp).encode())
             else:
                 print(f"Failed to edit reply: {error}")
+                self.end_headers()
                 resp = {'success': False, 'error': f'Failed to edit reply: {error}'}
                 self.wfile.write(json.dumps(resp).encode())
 
@@ -982,7 +963,6 @@ Edit the email draft according to the user's instructions. Keep the same general
             print(f"Error editing reply: {e}")
             import traceback
             traceback.print_exc()
-            # For errors, we need to send the full response since do_POST already sent 200
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             response = {'success': False, 'error': f'Failed to edit reply: {str(e)}'}
@@ -991,7 +971,9 @@ Edit the email draft according to the user's instructions. Keep the same general
     def handle_summarize(self):
         """Generate email summary using OpenAI API or Ollama"""
         try:
-            # Get request body FIRST before sending any response
+            self.send_header('Content-type', 'application/json')
+
+            # Get request body
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data.decode('utf-8'))
@@ -1006,14 +988,12 @@ Edit the email draft according to the user's instructions. Keep the same general
             # Generate summary
             summary = summarize_email(subject, sender, body_text, snippet)
 
-            # Now send response headers (note: send_response already called in do_POST)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-
             if summary:
+                self.end_headers()
                 resp = {'success': True, 'summary': summary}
                 self.wfile.write(json.dumps(resp).encode())
             else:
+                self.end_headers()
                 resp = {'success': False, 'error': 'Failed to generate summary'}
                 self.wfile.write(json.dumps(resp).encode())
 
@@ -1021,7 +1001,6 @@ Edit the email draft according to the user's instructions. Keep the same general
             print(f"Error generating summary: {e}")
             import traceback
             traceback.print_exc()
-            # For errors, we need to send the full response since do_POST already sent 200
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             response = {'success': False, 'error': f'Failed to generate summary: {str(e)}'}
