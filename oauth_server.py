@@ -315,6 +315,52 @@ def load_cached_sent_emails():
     return []
 
 
+def clean_reply(reply):
+    """Remove subject lines and other unwanted patterns from AI-generated replies"""
+    if not reply:
+        return reply
+
+    import re
+
+    # Remove lines that look like subject lines at the beginning
+    lines = reply.split('\n')
+    while lines:
+        first_line = lines[0].strip()
+
+        # Patterns that indicate we should skip this line
+        skip_patterns = [
+            r'^subject:\s*',
+            r'^re:\s*',
+            r'^fw:\s*',
+            r'^from:\s*',
+            r'^to:\s*',
+            r'^date:\s*',
+            r'^cc:\s*',
+            r'^bcc:\s*',
+        ]
+
+        should_skip = False
+        for pattern in skip_patterns:
+            if re.match(pattern, first_line, re.IGNORECASE):
+                should_skip = True
+                break
+
+        # Also skip if it's just the subject repeated (e.g., "Re: Pizza")
+        # and the next line looks like a proper salutation
+        if not should_skip and len(lines) > 1:
+            if (first_line.startswith('Re:') or first_line.startswith('FW:')) and \
+               len(first_line) < 100 and \
+               any(lines[1].strip().lower().startswith(s) for s in ['hi ', 'hey ', 'dear ', 'hello ', 'hello,']):
+                should_skip = True
+
+        if should_skip:
+            lines.pop(0)
+        else:
+            break
+
+    return '\n'.join(lines).strip()
+
+
 def clean_summary(summary):
     """Remove common preamble phrases from AI-generated summaries"""
     if not summary:
@@ -976,11 +1022,9 @@ Write a concise reply (under 100 words). Be professional and helpful. Start with
             messages = [{"role": "user", "content": prompt}]
             reply, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=10)
 
-            # Now send response headers (note: send_response already called in do_POST)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-
             if reply:
+                # Clean up the reply - remove any repeated subject line at the beginning
+                reply = clean_reply(reply)
                 print(f"AI reply generated successfully!")
                 resp = {'success': True, 'reply': reply}
                 self.wfile.write(json.dumps(resp).encode())
