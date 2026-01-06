@@ -24,6 +24,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [editedReply, setEditedReply] = React.useState('');
   const [aiEditPrompt, setAiEditPrompt] = React.useState('');
   const [isAiEditing, setIsAiEditing] = React.useState(false);
+  const [hasEdited, setHasEdited] = React.useState(false);
 
   // Get the full email data from store - this updates when store updates
   const fullEmail = useMemo(() => {
@@ -56,6 +57,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   React.useEffect(() => {
     if (aiReply && !isEditing) {
       setEditedReply(aiReply);
+      setHasEdited(false);
     }
   }, [aiReply, isEditing]);
 
@@ -65,8 +67,10 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setEditedReply('');
       setIsEditing(false);
       setAiEditPrompt('');
+      setHasEdited(false);
     } else if (aiReply) {
       setEditedReply(aiReply);
+      setHasEdited(false);
     }
   }, [email?.id, isSentEmail, aiReply]);
 
@@ -213,22 +217,22 @@ export const EmailView: React.FC<EmailViewProps> = ({
               {isEditing ? (
                 <textarea
                   value={editedReply}
-                  onChange={(e) => setEditedReply(e.target.value)}
+                  onChange={(e) => { setEditedReply(e.target.value); setHasEdited(true); }}
                   className="w-full min-h-[120px] p-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
                   placeholder="Edit your reply..."
                 />
               ) : (
-                <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{aiReply || ''}</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{hasEdited ? editedReply : (aiReply || '')}</p>
               )}
               {!hasSent && (
                 <div className="flex items-center gap-2 mt-5">
                   <Button size="sm" onClick={handleSendReply}>
                     Send
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setIsEditing(!isEditing)}>
+                  <Button size="sm" variant="outline" onClick={() => { if (isEditing) setIsEditing(false); else setIsEditing(true); }}>
                     {isEditing ? 'Done' : 'Edit'}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => { setEditedReply(aiReply); setIsEditing(false); setAiEditPrompt(''); }}>
+                  <Button size="sm" variant="outline" onClick={() => { setEditedReply(aiReply || ''); setIsEditing(false); setAiEditPrompt(''); setHasEdited(false); }}>
                     Discard
                   </Button>
                 </div>
