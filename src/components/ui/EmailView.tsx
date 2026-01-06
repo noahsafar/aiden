@@ -232,9 +232,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
                   <Button size="sm" variant="outline" onClick={() => { if (isEditing) setIsEditing(false); else setIsEditing(true); }}>
                     {isEditing ? 'Done' : 'Edit'}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => { setEditedReply(aiReply || ''); setIsEditing(false); setAiEditPrompt(''); setHasEdited(false); }}>
-                    Discard
-                  </Button>
+                  {hasEdited && (
+                    <Button size="sm" variant="outline" onClick={() => { setEditedReply(aiReply || ''); setIsEditing(false); setAiEditPrompt(''); setHasEdited(false); }}>
+                      Undo
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
