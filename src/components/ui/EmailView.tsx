@@ -204,7 +204,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
               {!isEditing && email?.subject && (
                 <div className="mb-2 pb-2 border-b border-blue-200 dark:border-blue-700">
                   <p className="text-sm text-gray-700 dark:text-gray-300">
-                    <span className="text-xs text-blue-600 dark:text-blue-400">Subject: </span>
+                    <span className="text-sm text-blue-600 dark:text-blue-400">Subject: </span>
                     Re: {email.subject}
                   </p>
                 </div>
