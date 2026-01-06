@@ -18,7 +18,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onDelete = () => {},
   onAction = () => {}
 }) => {
-  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingReply } = useEmailStore();
+  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingReply, hasSentReply } = useEmailStore();
 
   const [isEditing, setIsEditing] = React.useState(false);
   const [editedReply, setEditedReply] = React.useState('');
@@ -45,6 +45,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
   // Check if reply is being generated
   const isGenerating = email?.id ? isGeneratingReply(email.id) : false;
+
+  // Check if we've already sent a reply to this email
+  const hasSent = email?.id ? hasSentReply(email.id) : false;
 
   // Initialize edited reply when AI reply becomes available
   React.useEffect(() => {
@@ -120,7 +123,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
     try {
       await sendEmail(senderEmail, `Re: ${email.subject}`, editedReply, email.id, originalEmailData);
       updateEmailStatus(email.id, 'Replied');
-      setEditedReply('');
       setIsEditing(false);
       alert('Reply sent!');
     } catch (error) {
@@ -169,8 +171,20 @@ export const EmailView: React.FC<EmailViewProps> = ({
         {/* AI Reply Display/Edit */}
         {aiReply && (
           <div className="mt-4 space-y-3">
-            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-              <p className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-2">AI Response</p>
+            <div className={`p-3 rounded-lg border ${hasSent ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <p className={`text-xs font-medium ${hasSent ? 'text-green-700 dark:text-green-300' : 'text-blue-700 dark:text-blue-300'}`}>
+                  AI Response {hasSent && '(Sent)'}
+                </p>
+                {hasSent && (
+                  <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Sent
+                  </span>
+                )}
+              </div>
               {isEditing ? (
                 <textarea
                   value={editedReply}
@@ -181,21 +195,23 @@ export const EmailView: React.FC<EmailViewProps> = ({
               ) : (
                 <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{editedReply}</p>
               )}
-              <div className="flex items-center gap-2 mt-5">
-                <Button size="sm" onClick={handleSendReply}>
-                  Send
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setIsEditing(!isEditing)}>
-                  {isEditing ? 'Done' : 'Edit'}
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => { setEditedReply(aiReply); setIsEditing(false); setAiEditPrompt(''); }}>
-                  Discard
-                </Button>
-              </div>
+              {!hasSent && (
+                <div className="flex items-center gap-2 mt-5">
+                  <Button size="sm" onClick={handleSendReply}>
+                    Send
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setIsEditing(!isEditing)}>
+                    {isEditing ? 'Done' : 'Edit'}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setEditedReply(aiReply); setIsEditing(false); setAiEditPrompt(''); }}>
+                    Discard
+                  </Button>
+                </div>
+              )}
             </div>
 
-            {/* AI Edit Section */}
-            {isEditing && (
+            {/* AI Edit Section - only show if not sent */}
+            {isEditing && !hasSent && (
               <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
                 <label className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-2 block">
                   ✨ AI Edit - describe how to change the email:

@@ -101,6 +101,8 @@ export interface EmailState {
   initialEmailIds: Set<string>;   // Track emails that existed at app startup
   hasInitialized: boolean;        // Whether initial fetch has completed
   generatingReplies: Set<string>; // Track which emails are currently having replies generated
+  sentReplyEmailIds: Set<string>; // Track which emails we've sent replies to
+  appStartTime: number; // Track when the app started to know which emails are "new"
 
   // Actions
   fetchEmails: () => Promise<void>;
@@ -121,6 +123,8 @@ export interface EmailState {
   refreshEmails: () => Promise<void>;
   getFilteredEmails: () => Email[];
   isGeneratingReply: (emailId: string) => boolean;
+  triggerAIProcessing: (emailId: string) => void;
+  hasSentReply: (emailId: string) => boolean;
 }
 
 // Track which emails are being processed (for both summary and reply)
@@ -219,9 +223,6 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
   processingEmails.add(`${emailId}-reply`);
   console.log(`[AI Processing] Starting reply generation for ${emailId}`);
 
-  // Add to generatingReplies set
-  useEmailStore.setState({ generatingReplies: new Set(useEmailStore.getState().generatingReplies).add(emailId) });
-
   try {
     const store = useEmailStore.getState();
     const email = store.emails.find(e => e.id === emailId);
@@ -249,16 +250,33 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
       const result = await response.json();
       if (result.success && result.reply) {
         console.log(`[AI Processing] Reply generated for ${emailId}`);
+
+        // Strip unwanted prefixes like "Subject: Re:" from the reply
+        let cleanedReply = result.reply;
+        const unwantedPrefixes = ['Subject: Re:', 'Subject: RE:', 'Subject: Re', 'Subject: RE'];
+        for (const prefix of unwantedPrefixes) {
+          if (cleanedReply.startsWith(prefix)) {
+            cleanedReply = cleanedReply.substring(prefix.length).trim();
+            break;
+          }
+        }
+
         // Update store with reply
         useEmailStore.setState((state) => ({
           emails: state.emails.map(e =>
-            e.id === emailId ? { ...e, ai_generated_reply: result.reply } : e
+            e.id === emailId ? { ...e, ai_generated_reply: cleanedReply } : e
           ),
         }));
 
-        // Send notification for new email with both summary and reply
-        if (!store.notifiedEmailIds.has(emailId) && email.summary) {
-          sendNotification(`New email from ${email.sender.split('<')[0].trim()}`, email.summary);
+        // Send notification for new email with summary
+        // Only notify if we haven't notified before AND the email is recent (within 5 minutes of app start)
+        const emailTime = new Date(email.date).getTime();
+        const shouldNotify = !store.notifiedEmailIds.has(emailId) &&
+          (emailTime > store.appStartTime - 5 * 60 * 1000); // Email arrived within 5min before app start
+
+        if (shouldNotify) {
+          const summary = email.summary || 'New email received';
+          sendNotification(`New email from ${email.sender.split('<')[0].trim()}`, summary);
           useEmailStore.setState((state) => ({
             notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
           }));
@@ -284,9 +302,22 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
 
 // Process an email completely (summary + reply)
 function processEmail(emailId: string) {
+  // Mark reply as generating immediately so UI shows loading state
+  useEmailStore.setState((state) => ({
+    generatingReplies: new Set(state.generatingReplies).add(emailId)
+  }));
+
   // Queue both operations to limit concurrency
   queueAIOperation(() => generateSummaryForEmail(emailId));
   queueAIOperation(() => generateReplyForEmail(emailId));
+}
+
+// Process a single email immediately (for when user clicks on an email)
+function processEmailImmediately(emailId: string) {
+  // Only process if not already being processed
+  if (!processingEmails.has(`${emailId}-summary`) && !processingEmails.has(`${emailId}-reply`)) {
+    processEmail(emailId);
+  }
 }
 
 // Process multiple emails in parallel (fire and forget)
@@ -309,6 +340,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   initialEmailIds: new Set<string>(),
   hasInitialized: false,
   generatingReplies: new Set<string>(),
+  sentReplyEmailIds: new Set<string>(),
+  appStartTime: Date.now(), // Track when the app started to know which emails are "new"
 
   fetchEmails: async () => {
     try {
@@ -393,21 +426,27 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // Handle initial vs subsequent fetches
         const state = get();
         if (!state.hasInitialized) {
-          // First fetch - track existing emails and process those without replies
+          // First fetch - track existing emails and process only RECENT ones without replies
           const initialIds = new Set(emails.map((e: Email) => e.id));
           set({ initialEmailIds: initialIds, hasInitialized: true });
           console.log(`[AI Processing] Initial fetch, found ${emails.length} emails`);
 
-          // Process emails that don't have summaries or replies yet (background, parallel)
-          const emailsNeedingProcessing = emails.filter(e => !e.summary || !e.ai_generated_reply);
-          console.log(`[AI Processing] Emails needing processing on initial fetch: ${emailsNeedingProcessing.length}`);
+          // Only process emails received after app started (recent emails)
+          const recentEmails = emails.filter(e => {
+            const emailTime = new Date(e.date).getTime();
+            return emailTime >= state.appStartTime;
+          });
+
+          // Process only recent emails that don't have summaries or replies yet
+          const emailsNeedingProcessing = recentEmails.filter(e => !e.summary || !e.ai_generated_reply);
+          console.log(`[AI Processing] Recent emails needing processing: ${emailsNeedingProcessing.length} (skipping ${emails.length - recentEmails.length} older emails)`);
           if (emailsNeedingProcessing.length > 0) {
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
             }, 100); // Small delay to not block UI
           }
         } else {
-          // Subsequent fetches - process truly NEW emails and any existing emails without replies
+          // Subsequent fetches - process truly NEW emails
           const currentIds = new Set(emails.map((e: Email) => e.id));
           const newEmailIds = [...currentIds].filter(id => !state.initialEmailIds.has(id));
 
@@ -417,11 +456,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
           set({ initialEmailIds: updatedInitialIds });
 
-          // Process new emails and any emails without replies (in parallel)
-          const emailsNeedingProcessing = emails.filter(e =>
-            newEmailIds.includes(e.id) || (!e.summary || !e.ai_generated_reply)
-          );
-          console.log(`[AI Processing] Emails needing processing on poll: ${emailsNeedingProcessing.length}`);
+          // Process only new emails (not all emails without replies)
+          const emailsNeedingProcessing = emails.filter(e => newEmailIds.includes(e.id));
+          console.log(`[AI Processing] New emails to process: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
             processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
           }
@@ -454,8 +491,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           const initialIds = new Set(emails.map((e: Email) => e.id));
           set({ initialEmailIds: initialIds, hasInitialized: true });
 
-          // Process emails that don't have summaries or replies yet
-          const emailsNeedingProcessing = emails.filter(e => !e.summary || !e.ai_generated_reply);
+          // Only process emails received after app started
+          const recentEmails = emails.filter(e => {
+            const emailTime = new Date(e.date).getTime();
+            return emailTime >= state.appStartTime;
+          });
+
+          const emailsNeedingProcessing = recentEmails.filter(e => !e.summary || !e.ai_generated_reply);
+          console.log(`[AI Processing] Gmail API - Recent emails needing processing: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
@@ -467,9 +510,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
           set({ initialEmailIds: updatedInitialIds });
 
-          const emailsNeedingProcessing = emails.filter(e =>
-            newEmailIds.includes(e.id) || (!e.summary || !e.ai_generated_reply)
-          );
+          // Process only new emails
+          const emailsNeedingProcessing = emails.filter(e => newEmailIds.includes(e.id));
+          console.log(`[AI Processing] Gmail API - New emails to process: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
             processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
           }
@@ -488,6 +531,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     set({ selectedEmail: email });
     if (email && !email.is_read) {
       get().markAsRead(email.id);
+    }
+    // Trigger AI processing when user selects an email
+    if (email && email.id) {
+      const fullEmail = get().emails.find(e => e.id === email.id);
+      if (fullEmail && (!fullEmail.summary || !fullEmail.ai_generated_reply)) {
+        processEmailImmediately(email.id);
+      }
     }
   },
 
@@ -633,10 +683,6 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     return email.summary || null;
   },
 
-  isGeneratingReply: (emailId: string) => {
-    return get().generatingReplies.has(emailId);
-  },
-
   sendEmail: async (to, subject, body, inReplyTo, originalEmailData) => {
     try {
       console.log('Sending email via OAuth server...');
@@ -695,6 +741,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
       set((state) => ({
         sentEmails: [sentEmail, ...state.sentEmails],
+        // Track that we sent a reply to this email
+        sentReplyEmailIds: new Set(state.sentReplyEmailIds).add(inReplyTo || ''),
       }));
     } catch (error) {
       console.error('Failed to send email:', error);
@@ -808,5 +856,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
 
     return filtered;
+  },
+
+  isGeneratingReply: (emailId: string) => {
+    return get().generatingReplies.has(emailId);
+  },
+
+  triggerAIProcessing: (emailId: string) => {
+    processEmailImmediately(emailId);
+  },
+
+  hasSentReply: (emailId: string) => {
+    return get().sentReplyEmailIds.has(emailId);
   },
 }));
