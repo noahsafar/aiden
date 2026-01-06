@@ -322,7 +322,9 @@ def clean_summary(summary):
 
     # Common preamble patterns to remove
     preamble_patterns = [
+        r"^here['']?s?\s+(a\s+)?(concise\s+)?(brief\s+)?(one\s+)?sentence\s+summarizing[:\s]*",
         r"^here['']?s?\s+(a\s+)?(concise\s+)?(brief\s+)?summary[:\s]*",
+        r"^here['']?s?\s+a\s+concise\s+sentence\s+summarizing",
         r"^summary[:\s]*",
         r"^the\s+email\s+(can\s+be\s+)?summarized\s+(as\s+follows)?[:\s]*",
         r"^in\s+(this\s+email|summary)[:\s]*",
@@ -330,6 +332,8 @@ def clean_summary(summary):
         r"^(the\s+)?(main\s+)?(point|gist|essence)(\s+of\s+the\s+email)?(\s+is)?[:\s]*",
         r"^quick\s+summary[:\s]*",
         r"^below\s+(is\s+)?(a\s+)?summary[:\s]*",
+        r"^this\s+(email\s+)?can\s+be\s+summarized",
+        r"^the\s+summary\s+(is|of)",
     ]
 
     import re

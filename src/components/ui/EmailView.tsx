@@ -230,8 +230,10 @@ export const EmailView: React.FC<EmailViewProps> = ({
               {/* Show subject line separately if detected */}
               {parsedReply.subject && !isEditing && (
                 <div className="mb-2 pb-2 border-b border-blue-200 dark:border-blue-700">
-                  <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Subject:</p>
-                  <p className="text-sm text-gray-800 dark:text-gray-200 font-semibold">{parsedReply.subject}</p>
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    <span className="text-xs text-blue-600 dark:text-blue-400">Subject: </span>
+                    {parsedReply.subject}
+                  </p>
                 </div>
               )}
 
