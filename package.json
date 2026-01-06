@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:build": "npm run tauri build && bash scripts/copy-oauth-server.sh",
     "inject-secrets": "node build-secrets.js",
     "restore-placeholders": "node restore-placeholders.js"
   },

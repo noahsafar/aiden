@@ -33,6 +33,9 @@ fn main() {
             // Settings commands
             settings::start_oauth_server,
             settings::check_oauth_server_running,
+            settings::proxy_generate_reply,
+            settings::proxy_analyze_email,
+            settings::check_server_health,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

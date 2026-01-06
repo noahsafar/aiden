@@ -7,6 +7,7 @@ import json
 import os
 import pickle
 import webbrowser
+import html
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -222,6 +223,13 @@ def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=15
     return None, "Max retries exceeded"
 
 
+def decode_html_entities(text):
+    """Decode HTML entities like &#39; to actual characters"""
+    if not text:
+        return text
+    return html.unescape(text)
+
+
 def extract_email_body(message):
     """Extract plain text body from Gmail message"""
     try:
@@ -232,7 +240,8 @@ def extract_email_body(message):
                 data = part.get('body', {}).get('data', '')
                 if data:
                     import base64
-                    return base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+                    decoded = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+                    return decode_html_entities(decoded)
             for subpart in part.get('parts', []):
                 result = find_text(subpart)
                 if result:
@@ -243,14 +252,14 @@ def extract_email_body(message):
         body_data = payload.get('body', {}).get('data', '')
         if body_data:
             import base64
-            return base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
+            return decode_html_entities(base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore'))
 
         # Check parts
         parts = payload.get('parts', [])
         for part in parts:
             result = find_text(part)
             if result:
-                return result
+                return decode_html_entities(result)
 
         return None
     except Exception as e:
@@ -366,7 +375,7 @@ def clean_summary(summary):
     if not summary:
         return summary
 
-    # Common preamble patterns to remove
+    # Common preamble patterns to remove - be very aggressive
     preamble_patterns = [
         r"^here['']?s?\s+(a\s+)?(concise\s+)?(brief\s+)?(one\s+)?sentence\s+summarizing[:\s]*",
         r"^here['']?s?\s+(a\s+)?(concise\s+)?(brief\s+)?summary[:\s]*",
@@ -380,6 +389,11 @@ def clean_summary(summary):
         r"^below\s+(is\s+)?(a\s+)?summary[:\s]*",
         r"^this\s+(email\s+)?can\s+be\s+summarized",
         r"^the\s+summary\s+(is|of)",
+        r"^this\s+(email|message)\s+(can be )?summar",
+        r"^to\s+summarize[:\s]*",
+        r"^in\s+summary[:\s]*",
+        r"^briefly[:\s]*",
+        r"^summary\s+of\s+the\s+email",
     ]
 
     import re
@@ -536,7 +550,11 @@ class OAuthHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
-        if self.path.startswith('/auth'):
+        if self.path == '/health' or self.path == '/health/':
+            # Health check endpoint
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'ok', 'service': 'oauth-server'}).encode())
+        elif self.path.startswith('/auth'):
             self.handle_auth()
         elif self.path.startswith('/callback'):
             self.handle_callback()
@@ -558,6 +576,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
 
         if self.path.startswith('/send-email'):
             self.handle_send_email()
+        elif self.path.startswith('/analyze-email'):
+            self.handle_analyze_email()
         elif self.path.startswith('/generate-reply'):
             self.handle_generate_reply()
         elif self.path.startswith('/edit-reply'):
@@ -742,7 +762,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
 
                     sender = headers.get('From', '')
                     subject = headers.get('Subject', '(No Subject)')
-                    snippet = msg.get('snippet', '')
+                    snippet = decode_html_entities(msg.get('snippet', ''))
 
                     email_data = {
                         'id': msg['id'],
@@ -750,7 +770,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
                         'snippet': snippet,
                         'from': sender,
                         'to': headers.get('To', ''),
-                        'subject': subject,
+                        'subject': decode_html_entities(subject),
                         'date': date_str,
                         'timestamp': timestamp,
                         'isRead': not msg.get('labelIds', []) or 'UNREAD' not in msg.get('labelIds', []),
@@ -904,6 +924,145 @@ class OAuthHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(response).encode())
 
+    def handle_analyze_email(self):
+        """Analyze email to extract questions that need user input and suggest formality level"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            sender = data.get('sender', '')
+            subject = data.get('subject', '')
+            body_text = data.get('body_text', '') or ''
+
+            if not OPENAI_API_KEY:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'OPENAI_API_KEY not configured'}).encode())
+                return
+
+            # Get past emails with this sender to determine relationship formality
+            creds = get_stored_credentials()
+            recipient_emails = []
+            if creds:
+                import re
+                email_match = re.search(r'[\w.+-]+@[\w.-]+\.[a-z]+', sender.lower())
+                if email_match:
+                    recipient_email = email_match.group(0)
+                    recipient_emails = get_emails_with_recipient(creds, recipient_email, count=3)
+
+            # Build context from past emails for formality detection
+            past_context = ""
+            if recipient_emails:
+                past_context = "\n\nPast emails with this person (for tone reference):\n" + "\n---\n".join(recipient_emails[:2])
+
+            # Look for common question patterns in the text as a fallback
+            text_lower = body_text[:1500].lower()
+            has_choice_pattern = ' or ' in text_lower or ' ?' in text_lower or '?' in text_lower
+            has_food_keywords = any(word in text_lower for word in ['lunch', 'dinner', 'food', 'order', 'pizza', 'burger', 'sandwich', 'sushi'])
+
+            prompt = f"""Analyze this email and identify ANY questions, choices, or decisions that the recipient needs to answer.
+
+Email from {sender}
+Subject: {subject}
+
+{body_text[:1500]}
+{past_context}
+
+Your task - Be VERY thorough, look for:
+1. Direct questions ("What do you want?", "When are you free?", "Can you make it?")
+2. Choices offered ("A or B?", "pizza or burger?", "tea or coffee?", "X or Y?")
+3. Yes/No questions ("Can you come?", "Are you available?")
+4. Preference requests ("Which do you prefer?", "What works better?")
+5. Time/place questions ("When should we meet?", "Where at?")
+6. Food ordering questions ("What do you want for lunch?", "Pizza or burgers?")
+7. ANY "or" connecting two options
+8. Question marks - ANY sentence ending with "?" is likely a question
+
+Return JSON with:
+- "questions": array of questions. Each has:
+  - type: "choice" for options/yes-no, "text" for open-ended
+  - question: what they're asking
+  - options: array of choices (extract from email if mentioned)
+- "suggested_formality": "casual", "neutral", or "formal" based on:
+  * The tone of the incoming email (casual = slang/emojis/informal, formal = proper structure/polite)
+  * Past correspondence style (if available)
+
+Examples to learn from:
+- "Hey! We're ordering lunch. Pizza or burgers?" -> {{"type": "choice", "question": "What do you want for lunch?", "options": ["Pizza", "Burgers"]}}
+- "What do you want - pizza or burgers?" -> {{"type": "choice", "question": "What do you want?", "options": ["Pizza", "Burgers"]}}
+- "We can do pizza or burgers, what do you prefer?" -> {{"type": "choice", "question": "What do you prefer?", "options": ["Pizza", "Burgers"]}}
+- "Can you make it at 3pm?" -> {{"type": "choice", "question": "Can you make it at 3pm?", "options": ["Yes", "No"]}}
+- "When are you free?" -> {{"type": "text", "question": "When are you free?", "options": []}}
+- "Which day works best - Monday or Tuesday?" -> {{"type": "choice", "question": "Which day works best?", "options": ["Monday", "Tuesday"]}}
+- "Are you coming to the party?" -> {{"type": "choice", "question": "Are you coming to the party?", "options": ["Yes", "No"]}}
+
+CRITICAL RULES:
+- If someone asks "X or Y?" - ALWAYS extract both X and Y as options
+- Food ordering with choices is ALWAYS a choice question
+- "What do you want" or "ordering" + food options = choice question
+- "lunch", "dinner", "food" + "or" = choice question
+- ANY sentence ending with "?" that asks for input is a question
+- "want", "prefer", "like" + "or" = choice question
+- If there are ANY questions that require input, extract them
+- Better to have too many questions than too few
+
+Formality guidelines:
+- Casual: uses "hey", "hi", slang, emojis, exclamation points, first names only
+- Formal: uses "Dear", proper full sentences, "Sincerely", "Regards", last names
+- Neutral: everything else
+
+If there are genuinely NO questions requiring input (just informational news like "meeting moved to Tuesday"), return {{"questions": [], "suggested_formality": "neutral"}}.
+
+Return ONLY valid JSON, no other text."""
+
+            messages = [{"role": "user", "content": prompt}]
+            result, error = call_openai_with_retry(messages, max_tokens=500, temperature=0.3, timeout=10)
+
+            print(f"[DEBUG] AI analysis result: {result[:200] if result else 'No result'}...")
+
+            # do_POST already sent response and basic headers, just add Content-type and end
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            if result:
+                try:
+                    # Parse the AI response as JSON
+                    import re
+                    # Extract JSON from response (in case there's extra text)
+                    json_match = re.search(r'\{.*\}', result, re.DOTALL)
+                    if json_match:
+                        result_data = json.loads(json_match.group())
+                        questions = result_data.get('questions', [])
+                        suggested_formality = result_data.get('suggested_formality', 'neutral')
+                        # Validate formality value
+                        if suggested_formality not in ['casual', 'neutral', 'formal']:
+                            suggested_formality = 'neutral'
+                    else:
+                        questions = []
+                        suggested_formality = 'neutral'
+
+                    print(f"Email analysis found {len(questions)} questions, suggested formality: {suggested_formality}")
+                    resp = {'success': True, 'questions': questions, 'suggested_formality': suggested_formality}
+                    self.wfile.write(json.dumps(resp).encode())
+                except json.JSONDecodeError as e:
+                    print(f"Failed to parse AI response as JSON: {e}, result was: {result}")
+                    resp = {'success': True, 'questions': [], 'suggested_formality': 'neutral'}
+                    self.wfile.write(json.dumps(resp).encode())
+            else:
+                print(f"Failed to analyze email: {error}")
+                resp = {'success': True, 'questions': [], 'suggested_formality': 'neutral'}
+                self.wfile.write(json.dumps(resp).encode())
+
+        except Exception as e:
+            print(f"Error analyzing email: {e}")
+            import traceback
+            traceback.print_exc()
+            # do_POST already sent response, just add Content-type and end
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': f'Failed to analyze email: {str(e)}'}).encode())
+
     def handle_generate_reply(self):
         """Generate email reply using OpenAI API"""
         try:
@@ -915,6 +1074,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             sender = data.get('sender', '')
             subject = data.get('subject', '')
             body_text = data.get('body_text', '') or ''
+            user_answers = data.get('user_answers', [])  # User's answers to questions
+            formality_level = data.get('formality_level', 'neutral')  # User's chosen formality level: casual, neutral, or formal
 
             if not OPENAI_API_KEY:
                 self.send_header('Content-type', 'application/json')
@@ -941,7 +1102,6 @@ class OAuthHandler(BaseHTTPRequestHandler):
 
             # Try to get past emails with this specific recipient first
             recipient_emails = []
-            relationship_type = 'neutral'
 
             if creds:
                 # Extract email address from sender string
@@ -953,27 +1113,31 @@ class OAuthHandler(BaseHTTPRequestHandler):
                     if recipient_emails:
                         print(f"Found {len(recipient_emails)} past emails with {recipient_email}")
 
-                # Detect relationship type
-                relationship_type = detect_relationship_type(sender, recipient_emails)
-
             # Fall back to general sent emails if no recipient-specific ones
             if not recipient_emails:
                 recipient_emails = load_cached_sent_emails()
 
-            print(f"Generating reply for: sender={sender[:30]}, subject={subject[:30]}, relationship={relationship_type}")
+            print(f"Generating reply for: sender={sender[:30]}, subject={subject[:30]}, formality={formality_level}")
+
+            # Build user answers context if provided
+            user_answers_context = ""
+            if user_answers:
+                user_answers_context = "\n\nUSER'S CHOICES (incorporate these into your reply):\n"
+                for answer in user_answers:
+                    user_answers_context += f"- {answer.get('question', '')}: {answer.get('answer', '')}\n"
+
+            # Determine style instruction based on user's chosen formality level
+            if formality_level == 'formal':
+                style_instruction = "Use a formal, respectful tone appropriate for academic or professional contexts. Use proper salutations (e.g., 'Dear [Name]') and sign-offs (e.g., 'Best regards' or 'Sincerely')."
+            elif formality_level == 'casual':
+                style_instruction = "Use a friendly, casual tone - be relaxed and informal. Use casual greetings (e.g., 'Hi' or 'Hey') and casual sign-offs (e.g., 'Best' or just your name)."
+            else:  # neutral
+                style_instruction = "Use a professional but approachable tone. Balance friendliness with professionalism."
 
             # Build context-aware prompt
             if recipient_emails:
                 # Use recipient-specific emails as primary examples
                 examples = "\n\n---\n\n".join(recipient_emails[:4])
-
-                # Customize instructions based on relationship
-                if relationship_type == 'formal':
-                    style_instruction = "Use a formal, respectful tone appropriate for academic or professional contexts."
-                elif relationship_type == 'casual':
-                    style_instruction = "Use a friendly, casual tone - be relaxed and informal."
-                else:
-                    style_instruction = "Use a professional but approachable tone."
 
                 recipient_name_note = f"\n- Address them as '{recipient_first_name}' or by their preferred name" if recipient_first_name else ""
 
@@ -985,19 +1149,22 @@ INCOMING EMAIL:
 {sender} wrote: {subject}
 
 {body_text[:1500]}
-
+{user_answers_context}
 YOUR PAST EMAILS TO THIS PERSON (your writing style - study tone and format):
 {examples}
 
-INSTRUCTIONS:
-1. You are {user_name} - sign the email with YOUR NAME, never the recipient's name
-2. {style_instruction}
-3. Match the writing style from your past emails, but ALWAYS sign as "{user_name}"
-4. {f'Address them as "{recipient_first_name}"' if recipient_first_name else 'Use the same salutation style'}
-5. NEVER use placeholders like [Your Name], [Your Position], etc.
-6. Keep it under 100 words
-7. Start with a salutation (Hi, Hey, Dear, etc.)
-8. Output ONLY the email body - no subject line, no preamble
+CRITICAL RULES:
+1. If the email asks you to make a choice or preference, DO NOT choose. Instead ask them to clarify or say you're flexible.
+2. NEVER decide on behalf of {user_name}. If asked "A or B?", respond asking what they prefer or say either works.
+3. You are {user_name} - sign the email with YOUR NAME, never the recipient's name
+4. {style_instruction}
+5. Match the writing style from your past emails, but ALWAYS sign as "{user_name}"
+6. {f'Address them as "{recipient_first_name}"' if recipient_first_name else 'Use the same salutation style'}
+7. NEVER use placeholders like [Your Name], [Your Position], etc.
+8. Keep it under 100 words
+9. Start with a salutation (Hi, Hey, Dear, etc.)
+10. Output ONLY the email body - no subject line, no preamble
+11. If user choices are provided above, incorporate them into your reply
 
 Now write the reply as {user_name}:"""
             elif user_name:
@@ -1007,8 +1174,11 @@ Email from {sender}:
 Subject: {subject}
 
 {body_text[:1000]}
+{user_answers_context}
 
-Write a concise reply (under 100 words). Be professional and helpful. Sign off with "{user_name}". Start with a salutation. Do not include a subject line - just the email body."""
+CRITICAL: If the email asks you to make a choice or preference, DO NOT choose. Ask them to clarify or say you're flexible.
+
+Write a concise reply (under 100 words). Be professional and helpful. Sign off with "{user_name}". Start with a salutation. Do not include a subject line - just the email body. If user choices are provided above, incorporate them into your reply."""
             else:
                 prompt = f"""Generate a short, professional reply to this email:
 
@@ -1016,11 +1186,14 @@ Email from {sender}:
 Subject: {subject}
 
 {body_text[:1000]}
+{user_answers_context}
 
-Write a concise reply (under 100 words). Be professional and helpful. Start with a salutation. Do not include a subject line - just the email body."""
+CRITICAL: If the email asks you to make a choice or preference, DO NOT choose. Ask them to clarify or say you're flexible.
+
+Write a concise reply (under 100 words). Be professional and helpful. Start with a salutation. Do not include a subject line - just the email body. If user choices are provided above, incorporate them into your reply."""
 
             messages = [{"role": "user", "content": prompt}]
-            reply, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=10)
+            reply, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=30)
 
             if reply:
                 # Clean up the reply - remove any repeated subject line at the beginning

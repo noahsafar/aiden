@@ -2,6 +2,27 @@ use tauri::command;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GenerateReplyRequest {
+    pub sender: String,
+    pub subject: String,
+    pub body_text: String,
+    pub user_answers: Vec<UserAnswer>,
+    pub formality_level: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserAnswer {
+    pub question: String,
+    pub answer: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GenerateReplyResponse {
+    pub reply: String,
+    pub suggested_formality: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppSettings {
     pub polling_interval_minutes: u64,
@@ -78,6 +99,16 @@ pub async fn start_oauth_server() -> Result<bool, String> {
         "/Users/noahsafar/Projects/aiden/src-tauri/oauth_server.py".to_string(),
     ];
 
+    // macOS app bundle: look in Resources directory
+    // In macOS app bundles: exe is at .app/Contents/MacOS/, resources at .app/Contents/Resources/
+    if let Some(contents_dir) = exe_dir.parent() {
+        let resources_path = contents_dir.join("Resources").join("oauth_server.py");
+        if let Some(path_str) = resources_path.to_str() {
+            println!("Checking for oauth_server.py at: {:?}", resources_path);
+            possible_paths.push(path_str.to_string());
+        }
+    }
+
     // Also try next to the executable (for production bundle)
     if let Some(exe_path) = exe_dir.join("oauth_server.py").to_str() {
         possible_paths.push(exe_path.to_string());
@@ -129,40 +160,43 @@ pub async fn start_oauth_server() -> Result<bool, String> {
 
         let mut spawn_result: Option<std::io::Result<std::process::Child>> = None;
 
+        println!("Looking for Python executables...");
         for python_path in python_paths {
             if std::path::Path::new(python_path).exists() {
-                println!("Trying Python at: {}", python_path);
+                println!("Found Python at: {}", python_path);
+                println!("Spawning oauth_server at: {:?}", oauth_server_path);
                 spawn_result = Some(Command::new(python_path)
                     .arg(&oauth_server_path)
                     .spawn());
 
-                if let Some(Ok(_)) = &spawn_result {
-                    println!("OAuth server started successfully with {}", python_path);
+                if let Some(Ok(child)) = &spawn_result {
+                    println!("OAuth server spawned successfully with {}, PID: {:?}", python_path, child.id());
                     return Ok(true);
+                } else if let Some(Err(e)) = &spawn_result {
+                    println!("Failed to spawn with {}: {}", python_path, e);
                 }
+            } else {
+                println!("Python not found at: {}", python_path);
             }
         }
 
         // If no absolute path worked, try the PATH-relative version as fallback
-        if spawn_result.is_none() || spawn_result.as_ref().unwrap().is_err() {
-            println!("Trying 'python3' from PATH as fallback");
-            let result = Command::new("python3")
-                .arg(&oauth_server_path)
-                .spawn();
+        println!("Trying 'python3' from PATH as fallback");
+        let result = Command::new("python3")
+            .arg(&oauth_server_path)
+            .spawn();
 
-            match result {
-                Ok(_) => {
-                    println!("OAuth server started successfully with python3 from PATH");
-                    Ok(true)
-                }
-                Err(e) => {
-                    eprintln!("Failed to start OAuth server: {}", e);
-                    eprintln!("Python executable not found. Please ensure Python 3 is installed.");
-                    Ok(false)
-                }
+        match result {
+            Ok(child) => {
+                println!("OAuth server spawned successfully with python3 from PATH, PID: {:?}", child.id());
+                Ok(true)
             }
-        } else {
-            Ok(false)
+            Err(e) => {
+                eprintln!("Failed to start OAuth server: {}", e);
+                eprintln!("OAuth server path: {:?}", oauth_server_path);
+                eprintln!("Python executable not found. Please ensure Python 3 is installed.");
+                Ok(false)
+            }
         }
     }
 
@@ -189,6 +223,226 @@ pub async fn start_oauth_server() -> Result<bool, String> {
     {
         Ok(false)
     }
+}
+
+/// Proxy the generate-reply request to the Python OAuth server
+/// This bypasses the webview's security restrictions
+#[command]
+pub async fn proxy_generate_reply(request: GenerateReplyRequest) -> Result<GenerateReplyResponse, String> {
+    println!("[proxy_generate_reply] Sending request to Python server");
+
+    // Build the JSON payload
+    let json_payload = match serde_json::to_string(&request) {
+        Ok(json) => json,
+        Err(e) => {
+            eprintln!("Failed to serialize request: {}", e);
+            return Err(format!("Failed to serialize request: {}", e));
+        }
+    };
+
+    println!("[proxy_generate_reply] Payload size: {} bytes", json_payload.len());
+
+    // Try multiple possible curl locations
+    let curl_paths = vec![
+        "/opt/anaconda3/bin/curl",
+        "/usr/bin/curl",
+        "/opt/homebrew/bin/curl",
+        "/usr/local/bin/curl",
+        "curl",  // fallback to PATH
+    ];
+
+    let mut last_error = String::from("No curl found");
+
+    for curl_path in curl_paths {
+        let output = match Command::new(curl_path)
+            .arg("-s")                          // Silent mode
+            .arg("-X")                          // Specify method
+            .arg("POST")                        // POST method
+            .arg("-H")                          // Add header
+            .arg("Content-Type: application/json")
+            .arg("-d")                          // Data payload
+            .arg(&json_payload)
+            .arg("--connect-timeout")           // Connection timeout
+            .arg("5")
+            .arg("--max-time")                  // Max time for request
+            .arg("60")                          // 60 seconds total (AI can take time)
+            .arg("http://localhost:8081/generate-reply")
+            .output()
+        {
+            Ok(output) => output,
+            Err(e) => {
+                last_error = format!("Failed to execute curl at {}: {}", curl_path, e);
+                continue;
+            }
+        };
+
+        if !output.status.success() {
+            last_error = format!("HTTP request failed with status: {}", output.status);
+            continue;
+        }
+
+        let response_body = match std::str::from_utf8(&output.stdout) {
+            Ok(s) => s,
+            Err(e) => {
+                last_error = format!("Invalid response encoding: {}", e);
+                continue;
+            }
+        };
+
+        println!("[proxy_generate_reply] Response received: {} bytes", response_body.len());
+
+        // Parse the response
+        match serde_json::from_str::<GenerateReplyResponse>(response_body) {
+            Ok(response) => {
+                println!("[proxy_generate_reply] Successfully parsed response");
+                return Ok(response);
+            }
+            Err(e) => {
+                last_error = format!("Invalid response from server: {}", e);
+                eprintln!("Failed to parse response JSON: {}", e);
+                eprintln!("Response body: {}", response_body);
+                continue;
+            }
+        }
+    }
+
+    eprintln!("[proxy_generate_reply] All curl attempts failed: {}", last_error);
+    Err(last_error)
+}
+
+/// Analyze an email to detect questions and suggest formality
+#[command]
+pub async fn proxy_analyze_email(sender: String, subject: String, body_text: String) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+
+    println!("[proxy_analyze_email] Sending analyze request to Python server");
+
+    let payload = json!({
+        "sender": sender,
+        "subject": subject,
+        "body_text": body_text
+    });
+
+    let json_payload = match serde_json::to_string(&payload) {
+        Ok(json) => json,
+        Err(e) => return Err(format!("Failed to serialize request: {}", e)),
+    };
+
+    // Try multiple possible curl locations
+    let curl_paths = vec![
+        "/opt/anaconda3/bin/curl",
+        "/usr/bin/curl",
+        "/opt/homebrew/bin/curl",
+        "/usr/local/bin/curl",
+        "curl",  // fallback to PATH
+    ];
+
+    let mut last_error = String::from("No curl found");
+
+    for curl_path in curl_paths {
+        let output = match Command::new(curl_path)
+            .arg("-s")
+            .arg("-X")
+            .arg("POST")
+            .arg("-H")
+            .arg("Content-Type: application/json")
+            .arg("-d")
+            .arg(&json_payload)
+            .arg("--connect-timeout")
+            .arg("5")
+            .arg("--max-time")
+            .arg("30")
+            .arg("http://localhost:8081/analyze-email")
+            .output()
+        {
+            Ok(output) => output,
+            Err(e) => {
+                last_error = format!("Failed to execute curl at {}: {}", curl_path, e);
+                continue;
+            }
+        };
+
+        if !output.status.success() {
+            last_error = format!("HTTP request failed");
+            continue;
+        }
+
+        let response_body = match std::str::from_utf8(&output.stdout) {
+            Ok(s) => s,
+            Err(e) => {
+                last_error = format!("Invalid response encoding: {}", e);
+                continue;
+            }
+        };
+
+        match serde_json::from_str::<serde_json::Value>(response_body) {
+            Ok(response) => return Ok(response),
+            Err(e) => {
+                last_error = format!("Invalid response: {}", e);
+                continue;
+            }
+        }
+    }
+
+    Err(last_error)
+}
+
+/// Check if the Python server is responding
+#[command]
+pub async fn check_server_health() -> Result<bool, String> {
+    // First check if the process is running (more reliable than HTTP check)
+    #[cfg(unix)]
+    {
+        let pgrep_result = Command::new("pgrep")
+            .args(&["-f", "python.*oauth_server"])
+            .output();
+
+        if let Ok(output) = pgrep_result {
+            if output.status.success() {
+                println!("[check_server_health] Python process is running");
+                return Ok(true);
+            }
+        }
+    }
+
+    // Try multiple possible curl locations for HTTP check
+    let curl_paths = vec![
+        "/opt/anaconda3/bin/curl",
+        "/usr/bin/curl",
+        "/opt/homebrew/bin/curl",
+        "/usr/local/bin/curl",
+        "curl",  // fallback to PATH
+    ];
+
+    for curl_path in curl_paths {
+        let output = match Command::new(curl_path)
+            .arg("-s")
+            .arg("--connect-timeout")
+            .arg("2")
+            .arg("http://localhost:8081/health")
+            .output()
+        {
+            Ok(output) => output,
+            Err(_) => continue,  // Try next path
+        };
+
+        if !output.status.success() {
+            continue;
+        }
+
+        let response_body = match std::str::from_utf8(&output.stdout) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        if response_body.contains("\"status\": \"ok\"") || response_body.contains("\"status\":\"ok\"") {
+            println!("[check_server_health] Server is responding via HTTP");
+            return Ok(true);
+        }
+    }
+
+    println!("[check_server_health] Server not responding");
+    Ok(false)
 }
 
 #[command]

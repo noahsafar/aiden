@@ -310,21 +310,19 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
 
 // Process an email completely (summary + reply)
 function processEmail(emailId: string) {
-  // Mark both as generating immediately so UI shows loading state
+  // Only generate summary automatically - reply is handled by EmailView's question flow
   useEmailStore.setState((state) => ({
-    generatingReplies: new Set(state.generatingReplies).add(emailId),
     generatingSummaries: new Set(state.generatingSummaries).add(emailId)
   }));
 
-  // Queue both operations to limit concurrency
+  // Only queue summary generation
   queueAIOperation(() => generateSummaryForEmail(emailId));
-  queueAIOperation(() => generateReplyForEmail(emailId));
 }
 
 // Process a single email immediately (for when user clicks on an email)
 function processEmailImmediately(emailId: string) {
   // Only process if not already being processed
-  if (!processingEmails.has(`${emailId}-summary`) && !processingEmails.has(`${emailId}-reply`)) {
+  if (!processingEmails.has(`${emailId}-summary`)) {
     processEmail(emailId);
   }
 }
