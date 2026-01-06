@@ -704,7 +704,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ to, subject, body })
+        body: JSON.stringify({ to, subject, body, inReplyTo })
       });
 
       if (!response.ok) {

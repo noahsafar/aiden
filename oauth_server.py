@@ -736,6 +736,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
             to = data.get('to')
             subject = data.get('subject')
             body = data.get('body')
+            in_reply_to = data.get('inReplyTo')  # Gmail message ID we're replying to
 
             if not all([to, subject, body]):
                 self.end_headers()
@@ -749,12 +750,51 @@ class OAuthHandler(BaseHTTPRequestHandler):
             # Build Gmail service
             service = build('gmail', 'v1', credentials=creds)
 
-            # Create RFC 2822 formatted email
+            # Create RFC 2822 formatted email with threading headers
             import email.message
             message = email.message.EmailMessage()
             message.set_content(body)
             message['To'] = to
             message['Subject'] = subject
+
+            # Add threading headers if replying to an existing email
+            if in_reply_to:
+                # Get the original message to fetch References header
+                try:
+                    original_msg = service.users().messages().get(
+                        userId='me',
+                        id=in_reply_to,
+                        format='metadata',
+                        metadataHeaders=['Message-ID', 'References', 'Subject']
+                    ).execute()
+
+                    # Set In-Reply-To header
+                    msg_id_header = None
+                    for header in original_msg.get('payload', {}).get('headers', []):
+                        if header['name'] == 'Message-ID':
+                            msg_id_header = header['value']
+                            break
+
+                    if msg_id_header:
+                        message['In-Reply-To'] = msg_id_header
+
+                    # Set References header for proper threading
+                    references_header = None
+                    for header in original_msg.get('payload', {}).get('headers', []):
+                        if header['name'] == 'References':
+                            references_header = header['value']
+                            break
+
+                    if references_header:
+                        # Append the current message ID to References
+                        message['References'] = references_header
+                    else:
+                        # If no References header, use the Message-ID
+                        message['References'] = msg_id_header
+
+                    print(f"Threading headers added: In-Reply-To={msg_id_header}, References={message['References']}")
+                except Exception as e:
+                    print(f"Warning: Could not fetch original message for threading: {e}")
 
             # Send message
             import base64
