@@ -961,6 +961,45 @@ class OAuthHandler(BaseHTTPRequestHandler):
             has_choice_pattern = ' or ' in text_lower or ' ?' in text_lower or '?' in text_lower
             has_food_keywords = any(word in text_lower for word in ['lunch', 'dinner', 'food', 'order', 'pizza', 'burger', 'sandwich', 'sushi'])
 
+            # SIMPLE RULE-BASED EXTRACTION AS FALLBACK (works for common patterns)
+            rule_based_questions = []
+            import re as regex_module
+
+            # Pattern: "X or Y?" - extract the options
+            or_with_question = regex_module.search(r'(.+?)\s+or\s+(.+?)\?', body_text, regex_module.IGNORECASE)
+            if or_with_question:
+                option1 = or_with_question.group(1).strip()
+                option2 = or_with_question.group(2).strip()
+                # Clean up the options (remove common prefixes)
+                option1 = regex_module.sub(r'^(do you want|would you like|want|prefer|choose|select)\s+(for|to)?\s*', '', option1, flags=regex_module.IGNORECASE).strip()
+                option2 = regex_module.sub(r'^(do you want|would you like|want|prefer|choose|select)\s+(for|to)?\s*', '', option2, flags=regex_module.IGNORECASE).strip()
+                rule_based_questions.append({
+                    "type": "choice",
+                    "question": "Which would you like?",
+                    "options": [option1.capitalize(), option2.capitalize()]
+                })
+
+            # Pattern: "Are you..." or "Can you..." questions
+            yes_no_pattern = regex_module.search(r'(are you|can you|will you|could you|would you|is this)\s+(.+?)\?', body_text, regex_module.IGNORECASE)
+            if yes_no_pattern and not rule_based_questions:
+                question_text = yes_no_pattern.group(0).strip()
+                rule_based_questions.append({
+                    "type": "choice",
+                    "question": question_text,
+                    "options": ["Yes", "No"]
+                })
+
+            # Pattern: food ordering questions
+            if has_food_keywords and ' or ' in text_lower:
+                # Extract food options
+                food_match = regex_module.search(r'(pizza|burger|sandwich|sushi|salad|pasta|tacos|chinese|indian|thai)\s+or\s+(pizza|burger|sandwich|sushi|salad|pasta|tacos|chinese|indian|thai)', body_text, regex_module.IGNORECASE)
+                if food_match and not rule_based_questions:
+                    rule_based_questions.append({
+                        "type": "choice",
+                        "question": "What would you like?",
+                        "options": [food_match.group(1).capitalize(), food_match.group(2).capitalize()]
+                    })
+
             prompt = f"""Analyze this email and identify ANY questions, choices, or decisions that the recipient needs to answer.
 
 Email from {sender}
@@ -1029,15 +1068,49 @@ Return ONLY valid JSON, no other text."""
                 try:
                     # Parse the AI response as JSON
                     import re
-                    # Extract JSON from response (in case there's extra text)
-                    json_match = re.search(r'\{.*\}', result, re.DOTALL)
-                    if json_match:
-                        result_data = json.loads(json_match.group())
+
+                    # First, try to parse directly
+                    result_data = None
+                    try:
+                        result_data = json.loads(result.strip())
+                    except json.JSONDecodeError:
+                        # If direct parsing fails, try to extract JSON from response
+                        # Look for the outermost braces by counting nested braces
+                        start_idx = result.find('{')
+                        if start_idx != -1:
+                            brace_count = 0
+                            in_string = False
+                            escape_next = False
+                            for i, char in enumerate(result[start_idx:], start_idx):
+                                if escape_next:
+                                    escape_next = False
+                                    continue
+                                if char == '\\' and in_string:
+                                    escape_next = True
+                                    continue
+                                if char == '"' and not escape_next:
+                                    in_string = not in_string
+                                if not in_string:
+                                    if char == '{':
+                                        brace_count += 1
+                                    elif char == '}':
+                                        brace_count -= 1
+                                        if brace_count == 0:
+                                            json_str = result[start_idx:i+1]
+                                            result_data = json.loads(json_str)
+                                            break
+
+                    if result_data:
                         questions = result_data.get('questions', [])
                         suggested_formality = result_data.get('suggested_formality', 'neutral')
                         # Validate formality value
                         if suggested_formality not in ['casual', 'neutral', 'formal']:
                             suggested_formality = 'neutral'
+
+                        # FALLBACK: If AI found no questions but rule-based found some, use rule-based
+                        if not questions and rule_based_questions:
+                            print(f"AI found no questions, using rule-based fallback: {rule_based_questions}")
+                            questions = rule_based_questions
                     else:
                         questions = []
                         suggested_formality = 'neutral'
@@ -1046,8 +1119,13 @@ Return ONLY valid JSON, no other text."""
                     resp = {'success': True, 'questions': questions, 'suggested_formality': suggested_formality}
                     self.wfile.write(json.dumps(resp).encode())
                 except json.JSONDecodeError as e:
-                    print(f"Failed to parse AI response as JSON: {e}, result was: {result}")
-                    resp = {'success': True, 'questions': [], 'suggested_formality': 'neutral'}
+                    print(f"Failed to parse AI response as JSON: {e}, result was: {result[:500]}")
+                    # Use rule-based questions as fallback
+                    if rule_based_questions:
+                        print(f"Using rule-based questions after parse error: {rule_based_questions}")
+                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality': 'neutral'}
+                    else:
+                        resp = {'success': True, 'questions': [], 'suggested_formality': 'neutral'}
                     self.wfile.write(json.dumps(resp).encode())
             else:
                 print(f"Failed to analyze email: {error}")
@@ -1154,8 +1232,8 @@ YOUR PAST EMAILS TO THIS PERSON (your writing style - study tone and format):
 {examples}
 
 CRITICAL RULES:
-1. If the email asks you to make a choice or preference, DO NOT choose. Instead ask them to clarify or say you're flexible.
-2. NEVER decide on behalf of {user_name}. If asked "A or B?", respond asking what they prefer or say either works.
+1. {"***If the user has provided choices above (in USER'S CHOICES), USE THEIR CHOICE and state it clearly in your reply.***" if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Instead ask them to clarify or say you're flexible."}
+2. {"***The user has already made their choice - use it! Say things like 'I would like [CHOICE]' or 'I'll go with [CHOICE]'.***" if user_answers else "NEVER decide on behalf of " + user_name + ". If asked 'A or B?' and no choice provided, respond asking what they prefer or say either works."}
 3. You are {user_name} - sign the email with YOUR NAME, never the recipient's name
 4. {style_instruction}
 5. Match the writing style from your past emails, but ALWAYS sign as "{user_name}"
@@ -1164,7 +1242,6 @@ CRITICAL RULES:
 8. Keep it under 100 words
 9. Start with a salutation (Hi, Hey, Dear, etc.)
 10. Output ONLY the email body - no subject line, no preamble
-11. If user choices are provided above, incorporate them into your reply
 
 Now write the reply as {user_name}:"""
             elif user_name:
@@ -1176,9 +1253,9 @@ Subject: {subject}
 {body_text[:1000]}
 {user_answers_context}
 
-CRITICAL: If the email asks you to make a choice or preference, DO NOT choose. Ask them to clarify or say you're flexible.
+CRITICAL: {"If user choices are provided above, USE THEM! State your choice clearly like 'I would like [choice]' or 'I'll go with [choice]'." if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Ask them to clarify or say you're flexible."}
 
-Write a concise reply (under 100 words). Be professional and helpful. Sign off with "{user_name}". Start with a salutation. Do not include a subject line - just the email body. If user choices are provided above, incorporate them into your reply."""
+Write a concise reply (under 100 words). Be professional and helpful. Sign off with "{user_name}". Start with a salutation. Do not include a subject line - just the email body."""
             else:
                 prompt = f"""Generate a short, professional reply to this email:
 
@@ -1188,12 +1265,16 @@ Subject: {subject}
 {body_text[:1000]}
 {user_answers_context}
 
-CRITICAL: If the email asks you to make a choice or preference, DO NOT choose. Ask them to clarify or say you're flexible.
+CRITICAL: {"If user choices are provided above, USE THEM! State your choice clearly like 'I would like [choice]' or 'I'll go with [choice]'." if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Ask them to clarify or say you're flexible."}
 
-Write a concise reply (under 100 words). Be professional and helpful. Start with a salutation. Do not include a subject line - just the email body. If user choices are provided above, incorporate them into your reply."""
+Write a concise reply (under 100 words). Be professional and helpful. Start with a salutation. Do not include a subject line - just the email body."""
 
             messages = [{"role": "user", "content": prompt}]
             reply, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=30)
+
+            # Send response headers before writing body
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
 
             if reply:
                 # Clean up the reply - remove any repeated subject line at the beginning
@@ -1210,9 +1291,12 @@ Write a concise reply (under 100 words). Be professional and helpful. Start with
             print(f"Error generating reply: {e}")
             import traceback
             traceback.print_exc()
-            # For errors, we need to send the full response since do_POST already sent 200
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
+            # For errors, headers may not have been sent yet
+            try:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+            except:
+                pass  # Headers already sent
             response = {'success': False, 'error': f'Failed to generate reply: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
 

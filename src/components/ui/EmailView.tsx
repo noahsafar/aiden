@@ -2,7 +2,6 @@ import React, { useMemo, useEffect } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { Bookmark } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 
 // Helper to decode HTML entities
 function decodeHTMLEntities(text: string): string {
@@ -159,7 +158,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
   // Check if the OAuth server is running
   const checkServerHealth = async (): Promise<boolean> => {
     try {
-      const isRunning = await invoke<boolean>('check_server_health');
+      const response = await fetch('http://localhost:8081/health', {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000), // 2 second timeout
+      });
+      const isRunning = response.ok;
       setServerRunning(isRunning);
       return isRunning;
     } catch (error) {
@@ -179,19 +182,27 @@ export const EmailView: React.FC<EmailViewProps> = ({
     try {
       const bodyText = fullEmail.snippet || fullEmail.body_text || email.content || '';
 
-      console.log('[analyzeEmail] Sending for analysis via Tauri command:', {
+      console.log('[analyzeEmail] Sending for analysis:', {
         sender: fullEmail.sender,
         subject: email.subject,
         body_length: bodyText.length,
       });
 
-      // Use Tauri command instead of direct fetch
-      const result = await invoke<any>('proxy_analyze_email', {
-        sender: fullEmail.sender,
-        subject: email.subject,
-        bodyText: bodyText,
+      const response = await fetch('http://localhost:8081/analyze-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender: fullEmail.sender,
+          subject: email.subject,
+          body_text: bodyText,
+        }),
       });
 
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}`);
+      }
+
+      const result = await response.json();
       console.log('[analyzeEmail] Backend response:', result);
 
       if (result.success && result.questions && result.questions.length > 0) {
@@ -242,7 +253,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       answer: userAnswers[idx] || ''
     }));
 
-    const request = {
+    const requestBody = {
       sender: fullEmail.sender,
       subject: email.subject,
       body_text: fullEmail.body_text || fullEmail.snippet || email.content || '',
@@ -250,17 +261,36 @@ export const EmailView: React.FC<EmailViewProps> = ({
       formality_level: formalityLevel,
     };
 
-    console.log('[generateReply] Request body via Tauri proxy:', JSON.stringify(request, null, 2));
+    console.log('[generateReply] Request body:', JSON.stringify(requestBody, null, 2));
 
     try {
-      console.log('[generateReply] Sending request via Tauri proxy command...');
+      console.log('[generateReply] Sending request to backend...');
+      const response = await fetch('http://localhost:8081/generate-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
 
-      // Use Tauri proxy command instead of direct fetch - this bypasses webview security
-      const result = await invoke<{ reply: string; suggested_formality?: string }>('proxy_generate_reply', { request });
+      console.log('[generateReply] Got response, status:', response.status);
 
-      console.log('[generateReply] Got response from proxy:', result);
+      // Get raw text first to see what we're getting
+      const rawText = await response.text();
+      console.log('[generateReply] Raw response:', rawText.substring(0, 500));
 
-      if (result.reply) {
+      let result;
+      try {
+        result = JSON.parse(rawText);
+      } catch (e) {
+        console.error('[generateReply] Failed to parse JSON:', e);
+        setLastError('Invalid JSON response: ' + rawText.substring(0, 200));
+        setGeneratingReply(false);
+        return;
+      }
+
+      console.log('[generateReply] Parsed result:', result);
+      console.log('[generateReply] result.success:', result.success, 'result.reply:', result.reply);
+
+      if (result.success && result.reply) {
         console.log('[generateReply] Reply generated successfully:', result.reply);
         // Set local state immediately for display
         setLocalAiReply(result.reply);
@@ -274,7 +304,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         }));
       } else {
         console.error('[generateReply] Backend returned no reply:', result);
-        const errorMsg = 'No reply in response';
+        const errorMsg = result.error || 'Unknown error - no reply in response';
         setLastError('Error: ' + errorMsg);
         alert('Failed to generate reply. Please try again.\n\nError: ' + errorMsg);
       }
@@ -283,8 +313,12 @@ export const EmailView: React.FC<EmailViewProps> = ({
       const errorMsg = String(error);
       setLastError('Network error: ' + errorMsg);
 
-      // More helpful error message
-      alert('Failed to generate reply. Please check your connection.\n\nError: ' + errorMsg);
+      // More helpful error message for common issues
+      if (errorMsg.includes('Load failed') || errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+        alert('Cannot connect to Aiden\'s backend server.\n\nPlease make sure the app is properly built and restart it.\n\nIf this persists, please run "npm run tauri dev" instead.');
+      } else {
+        alert('Failed to generate reply. Please check your connection.\n\nError: ' + errorMsg);
+      }
     } finally {
       console.log('[generateReply] Done, generatingReply = false');
       setGeneratingReply(false);
@@ -545,14 +579,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 <p className="text-xs text-blue-600 dark:text-blue-400">Almost done</p>
               </div>
             </div>
-          </div>
-        )}
-
-        {/* Debug: Show state when not generating and no reply */}
-        {!generatingReply && !displayAiReply && summary && (
-          <div className="mt-4 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
-            <p className="text-xs text-red-700 dark:text-red-300">DEBUG: generatingReply={String(generatingReply)}, displayAiReply={String(displayAiReply)}, localAiReply={String(localAiReply)}, storeAiReply={String(aiReply)}</p>
-            <p className="text-xs text-red-600 dark:text-red-400 mt-1">Last response: {lastError || 'None'}</p>
           </div>
         )}
 
