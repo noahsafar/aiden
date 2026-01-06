@@ -18,7 +18,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onDelete = () => {},
   onAction = () => {}
 }) => {
-  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingReply, hasSentReply } = useEmailStore();
+  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingReply, isGeneratingSummary, hasSentReply } = useEmailStore();
 
   const [isEditing, setIsEditing] = React.useState(false);
   const [editedReply, setEditedReply] = React.useState('');
@@ -45,6 +45,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
   // Check if reply is being generated
   const isGenerating = email?.id ? isGeneratingReply(email.id) : false;
+
+  // Check if summary is being generated
+  const isSummaryGenerating = email?.id ? isGeneratingSummary(email.id) : false;
 
   // Check if we've already sent a reply to this email
   const hasSent = email?.id ? hasSentReply(email.id) : false;
@@ -146,6 +149,17 @@ export const EmailView: React.FC<EmailViewProps> = ({
     <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
       {/* Action Bar */}
       <div className={isSentEmail ? 'px-4 pb-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'}>
+
+        {/* Summary Loading Indicator */}
+        {isSummaryGenerating && !summary && (
+          <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+            <p className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">AI Summary</p>
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-4 animate-spin rounded-full border border-purple-500 border-t-transparent" />
+              <p className="text-sm text-purple-700 dark:text-purple-300">Generating...</p>
+            </div>
+          </div>
+        )}
 
         {/* Summary Display */}
         {summary && (

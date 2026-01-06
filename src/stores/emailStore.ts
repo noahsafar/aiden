@@ -101,6 +101,7 @@ export interface EmailState {
   initialEmailIds: Set<string>;   // Track emails that existed at app startup
   hasInitialized: boolean;        // Whether initial fetch has completed
   generatingReplies: Set<string>; // Track which emails are currently having replies generated
+  generatingSummaries: Set<string>; // Track which emails are currently having summaries generated
   sentReplyEmailIds: Set<string>; // Track which emails we've sent replies to
   appStartTime: number; // Track when the app started to know which emails are "new"
 
@@ -123,6 +124,7 @@ export interface EmailState {
   refreshEmails: () => Promise<void>;
   getFilteredEmails: () => Email[];
   isGeneratingReply: (emailId: string) => boolean;
+  isGeneratingSummary: (emailId: string) => boolean;
   triggerAIProcessing: (emailId: string) => void;
   hasSentReply: (emailId: string) => boolean;
 }
@@ -211,6 +213,12 @@ async function generateSummaryForEmail(emailId: string): Promise<void> {
     console.error('[AI Processing] Failed to generate summary:', e);
   } finally {
     processingEmails.delete(`${emailId}-summary`);
+    // Remove from generatingSummaries set
+    useEmailStore.setState((state) => {
+      const newSet = new Set(state.generatingSummaries);
+      newSet.delete(emailId);
+      return { generatingSummaries: newSet };
+    });
   }
 }
 
@@ -302,9 +310,10 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
 
 // Process an email completely (summary + reply)
 function processEmail(emailId: string) {
-  // Mark reply as generating immediately so UI shows loading state
+  // Mark both as generating immediately so UI shows loading state
   useEmailStore.setState((state) => ({
-    generatingReplies: new Set(state.generatingReplies).add(emailId)
+    generatingReplies: new Set(state.generatingReplies).add(emailId),
+    generatingSummaries: new Set(state.generatingSummaries).add(emailId)
   }));
 
   // Queue both operations to limit concurrency
@@ -340,6 +349,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   initialEmailIds: new Set<string>(),
   hasInitialized: false,
   generatingReplies: new Set<string>(),
+  generatingSummaries: new Set<string>(),
   sentReplyEmailIds: new Set<string>(),
   appStartTime: Date.now(), // Track when the app started to know which emails are "new"
 
@@ -860,6 +870,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   isGeneratingReply: (emailId: string) => {
     return get().generatingReplies.has(emailId);
+  },
+
+  isGeneratingSummary: (emailId: string) => {
+    return get().generatingSummaries.has(emailId);
   },
 
   triggerAIProcessing: (emailId: string) => {
