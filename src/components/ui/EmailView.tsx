@@ -53,13 +53,12 @@ export const EmailView: React.FC<EmailViewProps> = ({
   // Check if we've already sent a reply to this email
   const hasSent = email?.id ? hasSentReply(email.id) : false;
 
-  // Initialize edited reply when AI reply becomes available
+  // Initialize edited reply when AI reply becomes available (only if not already edited)
   React.useEffect(() => {
-    if (aiReply && !isEditing) {
+    if (aiReply && !isEditing && !hasEdited) {
       setEditedReply(aiReply);
-      setHasEdited(false);
     }
-  }, [aiReply, isEditing]);
+  }, [aiReply, isEditing, hasEdited]);
 
   // Clear state when email changes
   React.useEffect(() => {
