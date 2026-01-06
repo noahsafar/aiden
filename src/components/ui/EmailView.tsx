@@ -25,8 +25,28 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [aiEditPrompt, setAiEditPrompt] = React.useState('');
   const [isAiEditing, setIsAiEditing] = React.useState(false);
 
+  // Get the full email data from store - this updates when store updates
+  const fullEmail = useMemo(() => {
+    return email ? emails.find(e => e.id === email.id) : null;
+  }, [email?.id, emails]);
+
+  // Check if this is a sent email
+  const sentEmail = email ? sentEmails.find(e => e.id === email.id) : null;
+  const isSentEmail = !!sentEmail;
+
+  // For sent emails, get the original email that was replied to
+  const originalEmail = sentEmail?.originalEmail || (sentEmail?.inReplyTo ? emails.find(e => e.id === sentEmail.inReplyTo) : null);
+
+  // Get summary from store
+  const summary = fullEmail?.summary || '';
+
+  // Get AI reply from store
+  const aiReply = fullEmail?.ai_generated_reply || null;
+
   // Parse the AI reply to extract subject and body
   const parseAIReply = (reply: string) => {
+    if (!reply) return { subject: null, body: '' };
+
     // The first line is the subject line (from the Python prompt)
     const lines = reply.split('\n');
     const firstLine = lines[0]?.trim() || '';
@@ -48,25 +68,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
     return { subject: null, body: reply };
   };
 
-  const parsedReply = aiReply ? parseAIReply(aiReply) : { subject: null, body: '' };
-
-  // Get the full email data from store - this updates when store updates
-  const fullEmail = useMemo(() => {
-    return email ? emails.find(e => e.id === email.id) : null;
-  }, [email?.id, emails]);
-
-  // Check if this is a sent email
-  const sentEmail = email ? sentEmails.find(e => e.id === email.id) : null;
-  const isSentEmail = !!sentEmail;
-
-  // For sent emails, get the original email that was replied to
-  const originalEmail = sentEmail?.originalEmail || (sentEmail?.inReplyTo ? emails.find(e => e.id === sentEmail.inReplyTo) : null);
-
-  // Get summary from store
-  const summary = fullEmail?.summary || '';
-
-  // Get AI reply from store
-  const aiReply = fullEmail?.ai_generated_reply || null;
+  const parsedReply = parseAIReply(aiReply || '');
 
   // Check if reply is being generated
   const isGenerating = email?.id ? isGeneratingReply(email.id) : false;
