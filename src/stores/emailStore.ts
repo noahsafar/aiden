@@ -5,6 +5,50 @@ import { useAuthStore } from '@/stores/authStore';
 // Check if running in Tauri
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
 
+// Helper function to fetch with timeout (Ollama can take 20+ seconds on first load)
+export async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 90000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  // If a signal is already provided in options, we need to chain them
+  // Abort when either the timeout expires or the provided signal aborts
+  if (options.signal) {
+    options.signal.addEventListener('abort', () => controller.abort());
+    // Use the original signal for the fetch
+    const signal = options.signal;
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal,
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if ((error as Error).name === 'AbortError') {
+        // Re-throw with original AbortError name (not "Request timeout")
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if ((error as Error).name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  }
+}
+
 // Lazy load notification API only in Tauri
 let sendTauriNotification: any = null;
 async function sendNotification(title: string, body: string): Promise<void> {
@@ -56,6 +100,7 @@ export interface EmailState {
   notifiedEmailIds: Set<string>;  // Track which emails we've sent notifications for
   initialEmailIds: Set<string>;   // Track emails that existed at app startup
   hasInitialized: boolean;        // Whether initial fetch has completed
+  generatingReplies: Set<string>; // Track which emails are currently having replies generated
 
   // Actions
   fetchEmails: () => Promise<void>;
@@ -75,61 +120,180 @@ export interface EmailState {
   setCurrentFilter: (filter: EmailState['currentFilter']) => void;
   refreshEmails: () => Promise<void>;
   getFilteredEmails: () => Email[];
+  isGeneratingReply: (emailId: string) => boolean;
 }
 
-// Background processor for new emails - generates summary, reply, then notifies
-// Defined outside store to access it via get() during async operations
+// Track which emails are being processed (for both summary and reply)
 let processingEmails = new Set<string>();
-async function processNewEmail(emailId: string) {
-  if (processingEmails.has(emailId)) return;
-  processingEmails.add(emailId);
+// Limit concurrent AI operations to avoid overwhelming the system
+const MAX_CONCURRENT_AI_OPERATIONS = 3;
+let activeAIOperations = 0;
+let aiOperationQueue: Array<() => void> = [];
+
+// Queue an AI operation to limit concurrency
+function queueAIOperation(operation: () => Promise<void>) {
+  aiOperationQueue.push(operation);
+  processAIQueue();
+}
+
+// Process the AI operation queue
+async function processAIQueue() {
+  if (activeAIOperations >= MAX_CONCURRENT_AI_OPERATIONS || aiOperationQueue.length === 0) {
+    return;
+  }
+
+  const operation = aiOperationQueue.shift();
+  if (operation) {
+    activeAIOperations++;
+    // Don't await - let it run in the background
+    operation().finally(() => {
+      activeAIOperations--;
+      processAIQueue();
+    });
+  }
+}
+
+// Generate summary for a single email (fire and forget - updates store directly)
+async function generateSummaryForEmail(emailId: string): Promise<void> {
+  if (processingEmails.has(`${emailId}-summary`)) {
+    console.log(`[AI Processing] Summary already in progress for ${emailId}`);
+    return;
+  }
+  processingEmails.add(`${emailId}-summary`);
+  console.log(`[AI Processing] Starting summary generation for ${emailId}`);
 
   try {
-    // Wait a bit to let the email settle in the store
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Get the store instance
     const store = useEmailStore.getState();
-
-    // Step 1: Generate summary
-    let summary: string | null = null;
-    try {
-      summary = await store.summarizeEmail(emailId);
-    } catch (e) {
-      console.error('Failed to generate summary:', e);
+    const email = store.emails.find(e => e.id === emailId);
+    if (!email) {
+      console.log(`[AI Processing] Email ${emailId} not found in store`);
+      return;
+    }
+    if (email.summary) {
+      console.log(`[AI Processing] Email ${emailId} already has summary`);
+      return;
     }
 
-    // Step 2: Generate reply
-    let reply: string | null = null;
-    try {
-      const email = store.emails.find(e => e.id === emailId);
-      if (!email) return;
+    console.log(`[AI Processing] Calling summarize API for ${emailId}`);
+    const response = await fetchWithTimeout('http://localhost:8081/summarize', {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sender: email.sender,
+        subject: email.subject,
+        body_text: email.body_text,
+        snippet: email.snippet,
+      })
+    }, 90000);
 
-      const response = await fetch('http://localhost:8081/generate-reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sender: email.sender,
-          subject: email.subject,
-          body_text: email.body_text,
-        }),
-      });
-
+    if (response.ok) {
       const result = await response.json();
-      if (result.success) {
-        reply = result.reply;
-        store.saveGeneratedReply(emailId, reply);
+      if (result.success && result.summary) {
+        console.log(`[AI Processing] Summary generated for ${emailId}:`, result.summary);
+        // Update store with summary
+        useEmailStore.setState((state) => ({
+          emails: state.emails.map(e =>
+            e.id === emailId ? { ...e, summary: result.summary } : e
+          ),
+        }));
+      } else {
+        console.log(`[AI Processing] Summary API returned no summary for ${emailId}:`, result);
       }
-    } catch (e) {
-      console.error('Failed to generate reply:', e);
+    } else {
+      console.log(`[AI Processing] Summary API failed for ${emailId}:`, response.status);
+    }
+  } catch (e) {
+    console.error('[AI Processing] Failed to generate summary:', e);
+  } finally {
+    processingEmails.delete(`${emailId}-summary`);
+  }
+}
+
+// Generate reply for a single email (fire and forget - updates store directly)
+async function generateReplyForEmail(emailId: string): Promise<void> {
+  if (processingEmails.has(`${emailId}-reply`)) {
+    console.log(`[AI Processing] Reply already in progress for ${emailId}`);
+    return;
+  }
+  processingEmails.add(`${emailId}-reply`);
+  console.log(`[AI Processing] Starting reply generation for ${emailId}`);
+
+  // Add to generatingReplies set
+  useEmailStore.setState({ generatingReplies: new Set(useEmailStore.getState().generatingReplies).add(emailId) });
+
+  try {
+    const store = useEmailStore.getState();
+    const email = store.emails.find(e => e.id === emailId);
+    if (!email) {
+      console.log(`[AI Processing] Email ${emailId} not found in store`);
+      return;
+    }
+    if (email.ai_generated_reply) {
+      console.log(`[AI Processing] Email ${emailId} already has reply`);
+      return;
     }
 
-    // Step 3: Send notification if we have both
-    if (summary && reply) {
-      store.sendEmailNotification(emailId, summary, reply);
+    console.log(`[AI Processing] Calling reply API for ${emailId}`);
+    const response = await fetchWithTimeout('http://localhost:8081/generate-reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sender: email.sender,
+        subject: email.subject,
+        body_text: email.body_text,
+      }),
+    }, 90000);
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.success && result.reply) {
+        console.log(`[AI Processing] Reply generated for ${emailId}`);
+        // Update store with reply
+        useEmailStore.setState((state) => ({
+          emails: state.emails.map(e =>
+            e.id === emailId ? { ...e, ai_generated_reply: result.reply } : e
+          ),
+        }));
+
+        // Send notification for new email with both summary and reply
+        if (!store.notifiedEmailIds.has(emailId) && email.summary) {
+          sendNotification(`New email from ${email.sender.split('<')[0].trim()}`, email.summary);
+          useEmailStore.setState((state) => ({
+            notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
+          }));
+        }
+      } else {
+        console.log(`[AI Processing] Reply API returned no reply for ${emailId}:`, result);
+      }
+    } else {
+      console.log(`[AI Processing] Reply API failed for ${emailId}:`, response.status);
     }
+  } catch (e) {
+    console.error('[AI Processing] Failed to generate reply:', e);
   } finally {
-    processingEmails.delete(emailId);
+    processingEmails.delete(`${emailId}-reply`);
+    // Remove from generatingReplies set
+    useEmailStore.setState((state) => {
+      const newSet = new Set(state.generatingReplies);
+      newSet.delete(emailId);
+      return { generatingReplies: newSet };
+    });
+  }
+}
+
+// Process an email completely (summary + reply)
+function processEmail(emailId: string) {
+  // Queue both operations to limit concurrency
+  queueAIOperation(() => generateSummaryForEmail(emailId));
+  queueAIOperation(() => generateReplyForEmail(emailId));
+}
+
+// Process multiple emails in parallel (fire and forget)
+function processMultipleEmails(emailIds: string[]) {
+  console.log('[AI Processing] Processing emails:', emailIds);
+  for (const emailId of emailIds) {
+    processEmail(emailId); // Fire and forget - all run in parallel
   }
 }
 
@@ -144,6 +308,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   notifiedEmailIds: new Set<string>(),
   initialEmailIds: new Set<string>(),
   hasInitialized: false,
+  generatingReplies: new Set<string>(),
 
   fetchEmails: async () => {
     try {
@@ -207,13 +372,18 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           summary: email.summary || undefined,
         }));
 
-        // Preserve status from existing emails
+        // Preserve status, summary, and ai_generated_reply from existing emails
         const existingEmails = get().emails;
         const emails = newEmails.map((newEmail: Email) => {
           const existing = existingEmails.find(e => e.id === newEmail.id);
           if (existing) {
-            // Preserve the status from existing email
-            return { ...newEmail, status: existing.status, summary: existing.summary || newEmail.summary };
+            // Preserve the status, summary, and ai_generated_reply from existing email
+            return {
+              ...newEmail,
+              status: existing.status,
+              summary: existing.summary || newEmail.summary,
+              ai_generated_reply: existing.ai_generated_reply
+            };
           }
           return newEmail;
         });
@@ -223,23 +393,37 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // Handle initial vs subsequent fetches
         const state = get();
         if (!state.hasInitialized) {
-          // First fetch - just track existing emails, don't process them
+          // First fetch - track existing emails and process those without replies
           const initialIds = new Set(emails.map((e: Email) => e.id));
           set({ initialEmailIds: initialIds, hasInitialized: true });
+          console.log(`[AI Processing] Initial fetch, found ${emails.length} emails`);
+
+          // Process emails that don't have summaries or replies yet (background, parallel)
+          const emailsNeedingProcessing = emails.filter(e => !e.summary || !e.ai_generated_reply);
+          console.log(`[AI Processing] Emails needing processing on initial fetch: ${emailsNeedingProcessing.length}`);
+          if (emailsNeedingProcessing.length > 0) {
+            setTimeout(() => {
+              processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
+            }, 100); // Small delay to not block UI
+          }
         } else {
-          // Subsequent fetches - only process truly NEW emails
+          // Subsequent fetches - process truly NEW emails and any existing emails without replies
           const currentIds = new Set(emails.map((e: Email) => e.id));
           const newEmailIds = [...currentIds].filter(id => !state.initialEmailIds.has(id));
+
+          console.log(`[AI Processing] Polling - new emails: ${newEmailIds.length}`);
 
           // Also add these new emails to initialEmailIds so we don't process them again
           const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
           set({ initialEmailIds: updatedInitialIds });
 
-          // Process only the new emails
-          for (const emailId of newEmailIds) {
-            if (!state.notifiedEmailIds.has(emailId)) {
-              processNewEmail(emailId);
-            }
+          // Process new emails and any emails without replies (in parallel)
+          const emailsNeedingProcessing = emails.filter(e =>
+            newEmailIds.includes(e.id) || (!e.summary || !e.ai_generated_reply)
+          );
+          console.log(`[AI Processing] Emails needing processing on poll: ${emailsNeedingProcessing.length}`);
+          if (emailsNeedingProcessing.length > 0) {
+            processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
           }
         }
       } catch (pythonError) {
@@ -269,16 +453,25 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         if (!state.hasInitialized) {
           const initialIds = new Set(emails.map((e: Email) => e.id));
           set({ initialEmailIds: initialIds, hasInitialized: true });
+
+          // Process emails that don't have summaries or replies yet
+          const emailsNeedingProcessing = emails.filter(e => !e.summary || !e.ai_generated_reply);
+          if (emailsNeedingProcessing.length > 0) {
+            setTimeout(() => {
+              processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
+            }, 100);
+          }
         } else {
           const currentIds = new Set(emails.map((e: Email) => e.id));
           const newEmailIds = [...currentIds].filter(id => !state.initialEmailIds.has(id));
           const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
           set({ initialEmailIds: updatedInitialIds });
 
-          for (const emailId of newEmailIds) {
-            if (!state.notifiedEmailIds.has(emailId)) {
-              processNewEmail(emailId);
-            }
+          const emailsNeedingProcessing = emails.filter(e =>
+            newEmailIds.includes(e.id) || (!e.summary || !e.ai_generated_reply)
+          );
+          if (emailsNeedingProcessing.length > 0) {
+            processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
           }
         }
       }
@@ -429,51 +622,19 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   },
 
   summarizeEmail: async (emailId) => {
-    try {
-      const email = get().emails.find(e => e.id === emailId);
-      if (!email) return null;
+    // Just trigger background processing and return what we have
+    const email = get().emails.find(e => e.id === emailId);
+    if (!email) return null;
 
-      // Call OAuth server to generate summary
-      const response = await fetch('http://localhost:8081/summarize', {
-        method: 'POST',
-        mode: 'cors',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sender: email.sender,
-          subject: email.subject,
-          body_text: email.body_text,
-          snippet: email.snippet,
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to summarize: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-
-      if (result.success && result.summary) {
-        // Update local state with summary
-        set((state) => ({
-          emails: state.emails.map(e =>
-            e.id === emailId
-              ? { ...e, summary: result.summary }
-              : e
-          ),
-          selectedEmail: state.selectedEmail?.id === emailId
-            ? { ...state.selectedEmail, summary: result.summary }
-            : state.selectedEmail,
-        }));
-        return result.summary;
-      } else {
-        throw new Error(result.error || 'Failed to generate summary');
-      }
-    } catch (error) {
-      console.error('Failed to summarize email:', error);
-      throw error;
+    // If no summary, trigger background generation
+    if (!email.summary) {
+      generateSummaryForEmail(emailId);
     }
+    return email.summary || null;
+  },
+
+  isGeneratingReply: (emailId: string) => {
+    return get().generatingReplies.has(emailId);
   },
 
   sendEmail: async (to, subject, body, inReplyTo, originalEmailData) => {
@@ -594,9 +755,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     if (!email) return;
 
     const senderName = email.sender.split('<')[0].trim() || email.sender;
-    const notificationBody = `${summary}\n\nSuggested: ${reply.substring(0, 100)}${reply.length > 100 ? '...' : ''}`;
 
-    sendNotification(`Email from ${senderName}`, notificationBody);
+    sendNotification(`Email from ${senderName}`, summary);
     set((state) => ({
       notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
     }));

@@ -64,8 +64,8 @@ function App() {
   const { signOut, isAuthenticated, isLoading, initialize, setState, user } = useAuthStore();
   const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter } = useEmailStore();
 
-  // Convert email store format to UI format
-  const convertToUIEmail = (email: any): Email => {
+  // Convert email store format to UI format - use useCallback to avoid recreating on every render
+  const convertToUIEmail = React.useCallback((email: any): Email => {
     const fromMatch = email.sender.match(/^(?:"?([^"]*)"?\s)?(?:<?([^>]+)>?)$/);
     const fromName = fromMatch?.[1] || email.sender.split('<')[0].trim() || 'Unknown';
     const fromEmail = fromMatch?.[2] || email.sender.split('<')[1]?.replace('>', '').trim() || email.sender;
@@ -102,10 +102,10 @@ function App() {
       aiActionItems: email.key_points || [],
       aiPriority: email.category === 'Urgent' ? 'high' : email.category === 'Important' ? 'medium' : 'low' as const
     };
-  };
+  }, []);
 
-  // Convert sent email to UI format
-  const convertSentEmailToUI = (email: any): Email => {
+  // Convert sent email to UI format - use useCallback to avoid recreating on every render
+  const convertSentEmailToUI = React.useCallback((email: any): Email => {
     const toRecipients = email.recipients ? email.recipients.split(',').map((r: string) => {
       const match = r.trim().match(/^(?:"?([^"]*)"?\s)?(?:<?([^>]+)>?)$/);
       const name = match?.[1] || r.trim().split('<')[0].trim() || 'Unknown';
@@ -137,31 +137,50 @@ function App() {
       aiActionItems: email.key_points || [],
       aiPriority: 'low' as const
     };
-  };
+  }, []);
 
-  // Filter emails based on current filter
-  const filteredEmails = currentFilter === 'sent'
-    ? sentEmails.map(convertSentEmailToUI)
-    : emails
-        .filter(email => {
-          const emailTime = new Date(email.date).getTime();
-          // For Saved category, only show saved emails. For inbox, exclude saved/archived.
-          if (currentFilter === 'saved') {
-            return emailTime >= appStartTime && email.status === 'Saved';
-          }
-          return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved';
-        })
-        .map(convertToUIEmail);
+  // Filter emails based on current filter - use useMemo to avoid recalculating on every render
+  const filteredEmails = React.useMemo(() =>
+    currentFilter === 'sent'
+      ? sentEmails.map(convertSentEmailToUI)
+      : emails
+          .filter(email => {
+            const emailTime = new Date(email.date).getTime();
+            // For Saved category, only show saved emails. For inbox, exclude saved/archived.
+            if (currentFilter === 'saved') {
+              return emailTime >= appStartTime && email.status === 'Saved';
+            }
+            return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved';
+          })
+          .map(convertToUIEmail),
+    [currentFilter, sentEmails, emails, appStartTime, convertToUIEmail, convertSentEmailToUI]
+  );
 
   // Calculate actual inbox count (emails after app start, not archived/saved)
-  const inboxCount = emails.filter(email => {
-    const emailTime = new Date(email.date).getTime();
-    return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved';
-  }).length;
+  // Use useMemo to avoid recalculating on every render
+  const inboxCount = React.useMemo(() =>
+    emails.filter(email => {
+      const emailTime = new Date(email.date).getTime();
+      return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved';
+    }).length,
+    [emails, appStartTime]
+  );
 
   useEffect(() => {
     // Initialize authentication state on app load
     const initAuth = async () => {
+      // Start OAuth server automatically (Tauri only)
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const { isTauri } = await import('@tauri-apps/api/core');
+        // Check if we're running in Tauri by attempting to invoke
+        const started = await invoke<boolean>('start_oauth_server');
+        console.log('OAuth server auto-start:', started ? 'started' : 'already running or not available');
+      } catch (e) {
+        // Not in Tauri environment or command failed
+        console.log('OAuth server auto-start skipped (not in Tauri):', (e as Error).message);
+      }
+
       await initialize();
       // After auth is initialized, start fetching emails
       if (isAuthenticated) {
@@ -178,7 +197,7 @@ function App() {
 
     const interval = setInterval(() => {
       fetchEmails();
-    }, 10000); // Poll every 10 seconds
+    }, 60000); // Poll every 60 seconds to reduce CPU usage
 
     return () => clearInterval(interval);
   }, [isAuthenticated, fetchEmails]);
@@ -370,11 +389,6 @@ function App() {
                           ? 'Emails you bookmark will appear here.'
                           : 'Emails that arrive after you logged in will appear here automatically.'}
                       </p>
-                      {currentFilter !== 'sent' && currentFilter !== 'saved' && (
-                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                          Checking for new emails every 10 seconds...
-                        </p>
-                      )}
                     </div>
                   ) : (
                     <EmailList
