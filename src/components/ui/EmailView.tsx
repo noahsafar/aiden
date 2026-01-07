@@ -93,7 +93,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       const state = emailStateMap.get(email.id)!;
       setPendingQuestions([...state.pendingQuestions]);
       setUserAnswers({...state.userAnswers});
-      setFormalityScore(state.formalityScore);
+      setFormalityScore(state.suggestedFormalityScore); // Always start at suggested position
       setSuggestedFormalityScore(state.suggestedFormalityScore);
       setQuestionsLoaded(state.questionsLoaded);
       setSummaryComplete(state.summaryComplete);
@@ -745,7 +745,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                     className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                   />
                   {/* Suggested position - arrow below */}
-                  <div className="absolute -bottom-5 flex flex-col items-center pointer-events-none" style={{ left: `calc(${suggestedFormalityScore}% + 8px)` }}>
+                  <div className="absolute -bottom-5 flex flex-col items-center pointer-events-none -translate-x-1/2" style={{ left: `${suggestedFormalityScore}%` }}>
                     <svg className="w-3 h-3 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
                     </svg>
