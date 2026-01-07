@@ -203,6 +203,25 @@ async function generateSummaryForEmail(emailId: string): Promise<void> {
             e.id === emailId ? { ...e, summary: result.summary } : e
           ),
         }));
+
+        // Send notification for new emails with summary
+        // Only notify if we haven't notified before AND the email is recent (arrived after app start)
+        const store = useEmailStore.getState();
+        const emailTime = new Date(email.date).getTime();
+        const shouldNotify = !store.notifiedEmailIds.has(emailId) &&
+          (emailTime >= store.appStartTime);
+
+        if (shouldNotify) {
+          const senderName = email.sender.split('<')[0].trim() || email.sender;
+          // Truncate summary if too long for notification
+          const summaryText = result.summary.length > 150
+            ? result.summary.substring(0, 147) + '...'
+            : result.summary;
+          sendNotification(`New email from ${senderName}`, summaryText);
+          useEmailStore.setState((state) => ({
+            notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
+          }));
+        }
       } else {
         console.log(`[AI Processing] Summary API returned no summary for ${emailId}:`, result);
       }
@@ -341,20 +360,6 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
             e.id === emailId ? { ...e, ai_generated_reply: cleanedReply } : e
           ),
         }));
-
-        // Send notification for new email with summary
-        // Only notify if we haven't notified before AND the email is recent (within 5 minutes of app start)
-        const emailTime = new Date(email.date).getTime();
-        const shouldNotify = !store.notifiedEmailIds.has(emailId) &&
-          (emailTime > store.appStartTime - 5 * 60 * 1000); // Email arrived within 5min before app start
-
-        if (shouldNotify) {
-          const summary = email.summary || 'New email received';
-          sendNotification(`New email from ${email.sender.split('<')[0].trim()}`, summary);
-          useEmailStore.setState((state) => ({
-            notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
-          }));
-        }
       } else {
         console.log(`[AI Processing] Reply API returned no reply for ${emailId}:`, result);
       }
