@@ -684,55 +684,52 @@ export const EmailView: React.FC<EmailViewProps> = ({
               </div>
             )}
 
-            {/* Formality Level Selector */}
-            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            {/* Formality Level Selector - Slider */}
+            <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Tone
                 </p>
-                {suggestedFormality !== 'neutral' && (
-                  <span className="text-xs text-blue-600 dark:text-blue-400">
-                    Suggested: {suggestedFormality === 'casual' ? 'Casual' : suggestedFormality === 'formal' ? 'Formal' : 'Neutral'}
-                  </span>
-                )}
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {formalityLevel === 'casual' ? 'Casual' : formalityLevel === 'formal' ? 'Formal' : 'Neutral'}
+                  {suggestedFormality !== formalityLevel && suggestedFormality && (
+                    <span className="ml-2 opacity-60">(suggested: {suggestedFormality === 'casual' ? 'Casual' : suggestedFormality === 'formal' ? 'Formal' : 'Neutral'})</span>
+                  )}
+                </span>
               </div>
-              <div className="flex gap-2">
-                {[
-                  { value: 'casual' as const, label: 'Casual' },
-                  { value: 'neutral' as const, label: 'Neutral' },
-                  { value: 'formal' as const, label: 'Formal' },
-                ].map((level) => (
-                  <button
-                    key={level.value}
-                    onClick={() => {
-                      setFormalityLevel(level.value);
-                      // Save formality choice to state map
-                      if (email?.id) {
-                        const state = getEmailState(email.id);
-                        state.formalityLevel = level.value;
-                      }
-                    }}
-                    className={`flex-1 px-4 py-2 text-sm rounded-md transition-colors ${
-                      formalityLevel === level.value
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-white dark:bg-gray-800 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30'
-                    }`}
-                  >
-                    {level.label}
-                  </button>
-                ))}
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500 dark:text-gray-400">Casual</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="1"
+                  value={formalityLevel === 'casual' ? 0 : formalityLevel === 'neutral' ? 1 : 2}
+                  onChange={(e) => {
+                    const values: FormalityLevel[] = ['casual', 'neutral', 'formal'];
+                    const newValue = values[parseInt(e.target.value)];
+                    setFormalityLevel(newValue);
+                    if (email?.id) {
+                      const state = getEmailState(email.id);
+                      state.formalityLevel = newValue;
+                    }
+                  }}
+                  className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <span className="text-xs text-gray-500 dark:text-gray-400">Formal</span>
               </div>
             </div>
 
-            {/* Generate Button */}
+            {/* Generate Button - more subtle */}
             <Button
               onClick={generateReply}
               disabled={generatingReply}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 text-base"
+              variant="outline"
+              className="w-full text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 py-2 text-sm"
             >
               {generatingReply ? (
                 <span className="flex items-center justify-center gap-2">
-                  <div className="h-5 w-5 animate-spin rounded-full border border-white border-t-transparent" />
+                  <div className="h-4 w-4 animate-spin rounded-full border border-gray-500 border-t-transparent" />
                   Generating...
                 </span>
               ) : (
