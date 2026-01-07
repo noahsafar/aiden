@@ -1236,6 +1236,7 @@ Return ONLY valid JSON, no other text or explanation."""
             body_text = data.get('body_text', '') or ''
             user_answers = data.get('user_answers', [])  # User's answers to questions
             formality_level = data.get('formality_level', 'neutral')  # User's chosen formality level: casual, neutral, or formal
+            additional_context = data.get('additional_context', '')  # Additional context/instructions from user
 
             if not OPENAI_API_KEY:
                 self.send_header('Content-type', 'application/json')
@@ -1286,6 +1287,11 @@ Return ONLY valid JSON, no other text or explanation."""
                 for answer in user_answers:
                     user_answers_context += f"- {answer.get('question', '')}: {answer.get('answer', '')}\n"
 
+            # Build additional context if provided
+            additional_context_section = ""
+            if additional_context:
+                additional_context_section = f"\n\nADDITIONAL CONTEXT/INSTRUCTIONS FROM USER:\n{additional_context}\n"
+
             # Determine style instruction based on user's chosen formality level
             if formality_level == 'formal':
                 style_instruction = "Use a formal, respectful tone appropriate for academic or professional contexts. Use proper salutations (e.g., 'Dear [Name]') and sign-offs (e.g., 'Best regards' or 'Sincerely')."
@@ -1309,7 +1315,7 @@ INCOMING EMAIL:
 {sender} wrote: {subject}
 
 {body_text[:1500]}
-{user_answers_context}
+{user_answers_context}{additional_context_section}
 YOUR PAST EMAILS TO THIS PERSON (your writing style - study tone and format):
 {examples}
 
@@ -1324,6 +1330,7 @@ CRITICAL RULES:
 8. Keep it under 100 words
 9. Start with a salutation (Hi, Hey, Dear, etc.)
 10. Output ONLY the email body - no subject line, no preamble
+11. {"***IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above.***" if additional_context else ""}
 
 Now write the reply as {user_name}:"""
             elif user_name:
@@ -1333,9 +1340,10 @@ Email from {sender}:
 Subject: {subject}
 
 {body_text[:1000]}
-{user_answers_context}
+{user_answers_context}{additional_context_section}
 
 CRITICAL: {"If user choices are provided above, USE THEM! State your choice clearly like 'I would like [choice]' or 'I'll go with [choice]'." if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Ask them to clarify or say you're flexible."}
+{"IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above." if additional_context else ""}
 
 Write a concise reply (under 100 words). Be professional and helpful. Sign off with "{user_name}". Start with a salutation. Do not include a subject line - just the email body."""
             else:
@@ -1345,9 +1353,10 @@ Email from {sender}:
 Subject: {subject}
 
 {body_text[:1000]}
-{user_answers_context}
+{user_answers_context}{additional_context_section}
 
 CRITICAL: {"If user choices are provided above, USE THEM! State your choice clearly like 'I would like [choice]' or 'I'll go with [choice]'." if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Ask them to clarify or say you're flexible."}
+{"IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above." if additional_context else ""}
 
 Write a concise reply (under 100 words). Be professional and helpful. Start with a salutation. Do not include a subject line - just the email body."""
 

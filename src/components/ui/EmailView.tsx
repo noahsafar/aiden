@@ -65,6 +65,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const sendTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
 
+  // Additional context/keyword for reply generation
+  const [additionalContext, setAdditionalContext] = React.useState('');
+
   // Get or create email-specific state
   const getEmailState = (emailId: string) => {
     if (!emailStateMap.has(emailId)) {
@@ -470,6 +473,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       body_text: fullEmail.body_text || fullEmail.snippet || email.content || '',
       user_answers: answersArray,
       formality_level: formalityLevel,
+      additional_context: additionalContext || undefined,
     };
 
     console.log('[generateReply] Request body:', JSON.stringify(requestBody, null, 2));
@@ -620,7 +624,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   return (
     <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
       {/* Action Bar */}
-      <div className={isSentEmail ? 'px-4 pb-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'}>
+      <div className={`${isSentEmail ? 'px-4 pb-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'} overflow-y-auto max-h-[50vh]`}>
 
         {/* Summary Loading Indicator */}
         {isSummaryGenerating && !summary && (
@@ -763,6 +767,20 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 </div>
               </div>
             )}
+
+            {/* Additional Context Input - Optional keywords/instructions for AI */}
+            <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+                Additional context <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={additionalContext}
+                onChange={(e) => setAdditionalContext(e.target.value)}
+                placeholder="e.g., 'mention I'll be out of office next week', 'ask about the project timeline'..."
+                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+              />
+            </div>
 
             {/* Formality Score Selector - Continuous Slider */}
             <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
