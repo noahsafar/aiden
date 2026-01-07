@@ -21,6 +21,16 @@ interface EmailViewProps {
 
 type FormalityLevel = 'casual' | 'neutral' | 'formal';
 
+// Store email-specific state in a map to preserve it when switching between emails
+const emailStateMap = new Map<string, {
+  pendingQuestions: any[];
+  userAnswers: Record<number, string>;
+  formalityLevel: FormalityLevel;
+  suggestedFormality: FormalityLevel;
+  questionsLoaded: boolean;
+  summaryComplete: boolean;
+}>();
+
 export const EmailView: React.FC<EmailViewProps> = ({
   email = null,
   onReply = () => {},
@@ -48,7 +58,49 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [formalityLevel, setFormalityLevel] = React.useState<FormalityLevel>('neutral');
   const [suggestedFormality, setSuggestedFormality] = React.useState<FormalityLevel>('neutral');
   const [summaryComplete, setSummaryComplete] = React.useState(false);
-  const analyzedEmailIds = React.useRef(new Set<string>());
+
+  // Get or create email-specific state
+  const getEmailState = (emailId: string) => {
+    if (!emailStateMap.has(emailId)) {
+      emailStateMap.set(emailId, {
+        pendingQuestions: [],
+        userAnswers: {},
+        formalityLevel: 'neutral',
+        suggestedFormality: 'neutral',
+        questionsLoaded: false,
+        summaryComplete: false,
+      });
+    }
+    return emailStateMap.get(emailId)!;
+  };
+
+  // Save current state to map for this email
+  const saveEmailState = () => {
+    if (email?.id) {
+      const state = getEmailState(email.id);
+      state.pendingQuestions = pendingQuestions;
+      state.userAnswers = userAnswers;
+      state.formalityLevel = formalityLevel;
+      state.suggestedFormality = suggestedFormality;
+      state.questionsLoaded = questionsLoaded;
+      state.summaryComplete = summaryComplete;
+    }
+  };
+
+  // Load state from map for this email
+  const loadEmailState = () => {
+    if (email?.id && emailStateMap.has(email.id)) {
+      const state = emailStateMap.get(email.id)!;
+      setPendingQuestions([...state.pendingQuestions]);
+      setUserAnswers({...state.userAnswers});
+      setFormalityLevel(state.formalityLevel);
+      setSuggestedFormality(state.suggestedFormality);
+      setQuestionsLoaded(state.questionsLoaded);
+      setSummaryComplete(state.summaryComplete);
+      return true;
+    }
+    return false;
+  };
 
   // Get the full email data from store - this updates when store updates
   const fullEmail = useMemo(() => {
@@ -84,46 +136,78 @@ export const EmailView: React.FC<EmailViewProps> = ({
     }
   }, [displayAiReply, isEditing, hasEdited]);
 
-  // Clear state when email changes
+  // Save state before email changes, then load new email's state
+  const prevEmailIdRef = React.useRef<string | null>(null);
+
   React.useEffect(() => {
-    if (!email?.id || isSentEmail) {
+    const currentEmailId = email?.id || null;
+
+    // Save previous email's state before switching
+    if (prevEmailIdRef.current && prevEmailIdRef.current !== currentEmailId) {
+      // Save previous email state
+      const prevState = emailStateMap.get(prevEmailIdRef.current);
+      if (prevState) {
+        prevState.pendingQuestions = pendingQuestions;
+        prevState.userAnswers = userAnswers;
+        prevState.formalityLevel = formalityLevel;
+        prevState.suggestedFormality = suggestedFormality;
+        prevState.questionsLoaded = questionsLoaded;
+        prevState.summaryComplete = summaryComplete;
+      }
+    }
+
+    // Reset for null/no email
+    if (!currentEmailId || isSentEmail) {
       setEditedReply('');
       setIsEditing(false);
       setAiEditPrompt('');
       setHasEdited(false);
       setLocalAiReply(null);
       setLastError('');
-      // Clear the analyzed flag when switching emails
-      analyzedEmailIds.current.clear();
       setPendingQuestions([]);
       setUserAnswers({});
       setFormalityLevel('neutral');
       setSuggestedFormality('neutral');
       setSummaryComplete(false);
       setQuestionsLoaded(false);
-    } else if (displayAiReply) {
-      setEditedReply(displayAiReply);
-      setHasEdited(false);
+    } else if (prevEmailIdRef.current !== currentEmailId) {
+      // New email - try to load saved state
+      const loaded = loadEmailState();
+
+      // Only initialize defaults if no saved state
+      if (!loaded) {
+        setPendingQuestions([]);
+        setUserAnswers({});
+        setFormalityLevel('neutral');
+        setSuggestedFormality('neutral');
+        setSummaryComplete(false);
+        setQuestionsLoaded(false);
+      }
+
+      // Set edited reply from new email's AI reply
+      if (displayAiReply) {
+        setEditedReply(displayAiReply);
+        setHasEdited(false);
+      }
     }
+
+    prevEmailIdRef.current = currentEmailId;
   }, [email?.id, isSentEmail, displayAiReply]);
 
   // When summary completes and we have no aiReply, start question analysis
+  // Only analyze if we haven't already loaded questions for this email
   useEffect(() => {
-    if (summary && !summaryComplete && !displayAiReply && !isSentEmail && !hasSent && !analyzedEmailIds.current.has(email?.id + '_questions')) {
-      setSummaryComplete(true);
-      // Start question analysis after summary is done
-      analyzeEmailForQuestions();
+    if (summary && !summaryComplete && !displayAiReply && !isSentEmail && !hasSent && email?.id) {
+      const state = getEmailState(email.id);
+      // Only analyze if we haven't already completed this for this email
+      if (!state.summaryComplete) {
+        setSummaryComplete(true);
+        state.summaryComplete = true;
+        // Start question analysis after summary is done
+        analyzeEmailForQuestions();
+      }
     }
   }, [summary, aiReply, isSentEmail, hasSent, email?.id]);
-
-  // Also handle case where summary already exists on mount
-  useEffect(() => {
-    if (summary && !displayAiReply && !isSentEmail && !hasSent && !analyzedEmailIds.current.has(email?.id + '_questions')) {
-      analyzedEmailIds.current.add(email?.id + '_questions');
-      setSummaryComplete(true);
-      analyzeEmailForQuestions();
-    }
-  }, []);
 
   const handleAiEdit = async () => {
     if (!aiEditPrompt.trim() || !editedReply) return;
@@ -208,19 +292,39 @@ export const EmailView: React.FC<EmailViewProps> = ({
       if (result.success && result.questions && result.questions.length > 0) {
         console.log('[analyzeEmail] Found questions:', result.questions);
         setPendingQuestions(result.questions);
+        // Save questions to state map
+        if (email?.id) {
+          const state = getEmailState(email.id);
+          state.pendingQuestions = result.questions;
+        }
       } else {
         console.log('[analyzeEmail] No questions found');
         setPendingQuestions([]);
+        // Save empty questions to state map
+        if (email?.id) {
+          const state = getEmailState(email.id);
+          state.pendingQuestions = [];
+        }
       }
 
       // Set suggested formality if provided
       if (result.suggested_formality) {
         setSuggestedFormality(result.suggested_formality);
         setFormalityLevel(result.suggested_formality);
+        // Save formality to state map
+        if (email?.id) {
+          const state = getEmailState(email.id);
+          state.suggestedFormality = result.suggested_formality;
+          state.formalityLevel = result.suggested_formality;
+        }
       }
 
       // Mark that we've successfully loaded questions (even if empty)
       setQuestionsLoaded(true);
+      if (email?.id) {
+        const state = getEmailState(email.id);
+        state.questionsLoaded = true;
+      }
       setServerRunning(true);
     } catch (error) {
       console.error('[analyzeEmail] Failed to analyze email:', error);
@@ -236,7 +340,15 @@ export const EmailView: React.FC<EmailViewProps> = ({
   // Handle user answering a specific question
   const handleAnswer = (questionIndex: number, answer: string) => {
     console.log(`[handleAnswer] Question ${questionIndex} answered:`, answer);
-    setUserAnswers(prev => ({ ...prev, [questionIndex]: answer }));
+    setUserAnswers(prev => {
+      const newAnswers = { ...prev, [questionIndex]: answer };
+      // Save state to map after answering
+      if (email?.id) {
+        const state = getEmailState(email.id);
+        state.userAnswers = newAnswers;
+      }
+      return newAnswers;
+    });
   };
 
   // Generate reply with user's answers and formality level
@@ -538,7 +650,14 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 ].map((level) => (
                   <button
                     key={level.value}
-                    onClick={() => setFormalityLevel(level.value)}
+                    onClick={() => {
+                      setFormalityLevel(level.value);
+                      // Save formality choice to state map
+                      if (email?.id) {
+                        const state = getEmailState(email.id);
+                        state.formalityLevel = level.value;
+                      }
+                    }}
                     className={`flex-1 px-4 py-2 text-sm rounded-md transition-colors ${
                       formalityLevel === level.value
                         ? 'bg-blue-500 text-white'

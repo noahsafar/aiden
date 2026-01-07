@@ -958,102 +958,171 @@ class OAuthHandler(BaseHTTPRequestHandler):
 
             # Look for common question patterns in the text as a fallback
             text_lower = body_text[:1500].lower()
-            has_choice_pattern = ' or ' in text_lower or ' ?' in text_lower or '?' in text_lower
-            has_food_keywords = any(word in text_lower for word in ['lunch', 'dinner', 'food', 'order', 'pizza', 'burger', 'sandwich', 'sushi'])
+            has_question_mark = '?' in text_lower
+            has_or = ' or ' in text_lower
+            has_food_keywords = any(word in text_lower for word in ['lunch', 'dinner', 'food', 'order', 'pizza', 'burger', 'sandwich', 'sushi', 'coffee', 'tea'])
 
             # SIMPLE RULE-BASED EXTRACTION AS FALLBACK (works for common patterns)
             rule_based_questions = []
             import re as regex_module
 
-            # Pattern: "X or Y?" - extract the options
-            or_with_question = regex_module.search(r'(.+?)\s+or\s+(.+?)\?', body_text, regex_module.IGNORECASE)
-            if or_with_question:
-                option1 = or_with_question.group(1).strip()
-                option2 = or_with_question.group(2).strip()
-                # Clean up the options (remove common prefixes)
-                option1 = regex_module.sub(r'^(do you want|would you like|want|prefer|choose|select)\s+(for|to)?\s*', '', option1, flags=regex_module.IGNORECASE).strip()
-                option2 = regex_module.sub(r'^(do you want|would you like|want|prefer|choose|select)\s+(for|to)?\s*', '', option2, flags=regex_module.IGNORECASE).strip()
-                rule_based_questions.append({
-                    "type": "choice",
-                    "question": "Which would you like?",
-                    "options": [option1.capitalize(), option2.capitalize()]
-                })
-
-            # Pattern: "Are you..." or "Can you..." questions
-            yes_no_pattern = regex_module.search(r'(are you|can you|will you|could you|would you|is this)\s+(.+?)\?', body_text, regex_module.IGNORECASE)
-            if yes_no_pattern and not rule_based_questions:
-                question_text = yes_no_pattern.group(0).strip()
+            # Extract ALL "X or Y" patterns with question marks - more comprehensive
+            # Pattern 1: "X or Y?" where X and Y are single words
+            simple_or_pattern = regex_module.search(r'\b([a-z]+)\s+or\s+([a-z]+)\?', body_text, regex_module.IGNORECASE)
+            if simple_or_pattern:
+                option1 = simple_or_pattern.group(1).strip().capitalize()
+                option2 = simple_or_pattern.group(2).strip().capitalize()
+                # Generate a contextual question
+                if has_food_keywords:
+                    question_text = "What would you like?"
+                else:
+                    question_text = f"Which would you prefer: {option1} or {option2}?"
                 rule_based_questions.append({
                     "type": "choice",
                     "question": question_text,
-                    "options": ["Yes", "No"]
+                    "options": [option1, option2]
                 })
 
-            # Pattern: food ordering questions
-            if has_food_keywords and ' or ' in text_lower:
-                # Extract food options
-                food_match = regex_module.search(r'(pizza|burger|sandwich|sushi|salad|pasta|tacos|chinese|indian|thai)\s+or\s+(pizza|burger|sandwich|sushi|salad|pasta|tacos|chinese|indian|thai)', body_text, regex_module.IGNORECASE)
-                if food_match and not rule_based_questions:
-                    rule_based_questions.append({
-                        "type": "choice",
-                        "question": "What would you like?",
-                        "options": [food_match.group(1).capitalize(), food_match.group(2).capitalize()]
-                    })
+            # Pattern 2: "Do you want X or Y?"
+            want_or_pattern = regex_module.search(r'(do you want|would you like|want|prefer|choose)\s+(.+) or (.+?)\?', body_text, regex_module.IGNORECASE)
+            if want_or_pattern and not simple_or_pattern:
+                option1 = want_or_pattern.group(2).strip().capitalize()
+                option2 = want_or_pattern.group(3).strip().capitalize()
+                rule_based_questions.append({
+                    "type": "choice",
+                    "question": f"What would you like?",
+                    "options": [option1, option2]
+                })
 
-            prompt = f"""Analyze this email and identify ANY questions, choices, or decisions that the recipient needs to answer.
+            # Pattern 3: Multiple items like "tea, coffee, or water?"
+            list_or_pattern = regex_module.search(r'(.+?),\s*(.+?)\s+or\s+(.+?)\?', body_text, regex_module.IGNORECASE)
+            if list_or_pattern and not rule_based_questions:
+                option1 = list_or_pattern.group(1).strip().capitalize()
+                option2 = list_or_pattern.group(2).strip().capitalize()
+                option3 = list_or_pattern.group(3).strip().capitalize()
+                rule_based_questions.append({
+                    "type": "choice",
+                    "question": "Which would you like?",
+                    "options": [option1, option2, option3]
+                })
 
-Email from {sender}
+            # Pattern 4: Yes/No questions - more comprehensive patterns
+            yes_no_patterns = [
+                r'(can you|could you|will you|would you|are you|is it|is this|do you)\s+(.+?)\?',
+                r'(should i|shall i|shall we)\s+(.+?)\?',
+            ]
+            for pattern in yes_no_patterns:
+                match = regex_module.search(pattern, body_text, regex_module.IGNORECASE)
+                if match and not rule_based_questions:
+                    question_text = match.group(0).strip()
+                    # Only add if it's a real yes/no question, not open-ended
+                    open_triggers = ['what', 'when', 'where', 'how', 'why', 'which', 'who', 'whose']
+                    if not any(trigger in question_text.lower() for trigger in open_triggers):
+                        rule_based_questions.append({
+                            "type": "choice",
+                            "question": question_text[:100] + "?" if len(question_text) > 100 else question_text,
+                            "options": ["Yes", "No"]
+                        })
+
+            # Pattern 5: Time/day questions with "or" - "Monday or Tuesday?"
+            day_time_pattern = regex_module.search(r'(monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|morning|afternoon|evening)\s+or\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|morning|afternoon|evening)', body_text, regex_module.IGNORECASE)
+            if day_time_pattern and not rule_based_questions:
+                option1 = day_time_pattern.group(1).strip().capitalize()
+                option2 = day_time_pattern.group(2).strip().capitalize()
+                rule_based_questions.append({
+                    "type": "choice",
+                    "question": "Which works better for you?",
+                    "options": [option1, option2]
+                })
+
+            # Pattern 6: Explicit "What X or Y?" without question mark but implied
+            what_or_pattern = regex_module.search(r'what\s+(.+) or (.+)', body_text, regex_module.IGNORECASE)
+            if what_or_pattern and not rule_based_questions:
+                option1 = what_or_pattern.group(1).strip().capitalize()
+                option2 = what_or_pattern.group(2).strip().capitalize()
+                rule_based_questions.append({
+                    "type": "choice",
+                    "question": f"What do you {what_or_pattern.group(1)}?",
+                    "options": [option1, option2]
+                })
+
+            # Pattern 7: "A or B" in food context (even without ?)
+            if has_food_keywords and has_or and not rule_based_questions:
+                food_options = regex_module.findall(r'\b(pizza|burger|sandwich|sushi|salad|pasta|tacos|chinese|indian|thai|coffee|tea)\b', body_text, regex_module.IGNORECASE)
+                if len(food_options) >= 2:
+                    # Get unique options preserving order
+                    seen = set()
+                    unique_options = []
+                    for opt in food_options:
+                        opt_lower = opt.lower()
+                        if opt_lower not in seen:
+                            seen.add(opt_lower)
+                            unique_options.append(opt.capitalize())
+                            if len(unique_options) >= 3:
+                                break
+                    if len(unique_options) >= 2:
+                        rule_based_questions.append({
+                            "type": "choice",
+                            "question": "What would you like?",
+                            "options": unique_options
+                        })
+
+            prompt = f"""You are analyzing an email to extract questions that need user input. Be VERY thorough and aggressive in finding questions.
+
+Email from: {sender}
 Subject: {subject}
 
+Email body:
 {body_text[:1500]}
 {past_context}
 
-Your task - Be VERY thorough, look for:
-1. Direct questions ("What do you want?", "When are you free?", "Can you make it?")
-2. Choices offered ("A or B?", "pizza or burger?", "tea or coffee?", "X or Y?")
-3. Yes/No questions ("Can you come?", "Are you available?")
-4. Preference requests ("Which do you prefer?", "What works better?")
-5. Time/place questions ("When should we meet?", "Where at?")
-6. Food ordering questions ("What do you want for lunch?", "Pizza or burgers?")
-7. ANY "or" connecting two options
-8. Question marks - ANY sentence ending with "?" is likely a question
+CRITICAL - Find ANY question that requires the recipient to respond:
+1. Questions ending with "?" - ALL of them are questions requiring input
+2. "X or Y" patterns - ALWAYS extract both X and Y as options
+3. "Do you want/like/prefer X or Y?" - choice question
+4. "Can you/will you/are you X?" - yes/no question
+5. "What/When/Where/How/Who/Why" questions - text input (unless they give options)
 
 Return JSON with:
 - "questions": array of questions. Each has:
-  - type: "choice" for options/yes-no, "text" for open-ended
-  - question: what they're asking
-  - options: array of choices (extract from email if mentioned)
-- "suggested_formality": "casual", "neutral", or "formal" based on:
-  * The tone of the incoming email (casual = slang/emojis/informal, formal = proper structure/polite)
-  * Past correspondence style (if available)
+  - type: "choice" if options are provided OR if yes/no question, "text" for open-ended
+  - question: the exact question being asked
+  - options: array of choices (ONLY if the email provides specific options)
 
-Examples to learn from:
-- "Hey! We're ordering lunch. Pizza or burgers?" -> {{"type": "choice", "question": "What do you want for lunch?", "options": ["Pizza", "Burgers"]}}
-- "What do you want - pizza or burgers?" -> {{"type": "choice", "question": "What do you want?", "options": ["Pizza", "Burgers"]}}
-- "We can do pizza or burgers, what do you prefer?" -> {{"type": "choice", "question": "What do you prefer?", "options": ["Pizza", "Burgers"]}}
-- "Can you make it at 3pm?" -> {{"type": "choice", "question": "Can you make it at 3pm?", "options": ["Yes", "No"]}}
+DETAILED EXAMPLES (learn from these):
+
+Choice questions (with 2+ options):
+- "We're ordering pizza or burgers?" -> {{"type": "choice", "question": "What do you want for lunch?", "options": ["Pizza", "Burgers"]}}
+- "Pizza or burgers for lunch?" -> {{"type": "choice", "question": "What would you like for lunch?", "options": ["Pizza", "Burgers"]}}
+- "Do you want tea or coffee?" -> {{"type": "choice", "question": "What would you like to drink?", "options": ["Tea", "Coffee"]}}
+- "Can you make it Monday or Tuesday?" -> {{"type": "choice", "question": "Which day works better?", "options": ["Monday", "Tuesday"]}}
+- "Morning or afternoon?" -> {{"type": "choice", "question": "Which do you prefer?", "options": ["Morning", "Afternoon"]}}
+- "Are you coming?" -> {{"type": "choice", "question": "Are you coming?", "options": ["Yes", "No"]}}
+- "Can you make it?" -> {{"type": "choice", "question": "Can you make it?", "options": ["Yes", "No"]}}
+- "Should I bring X or Y?" -> {{"type": "choice", "question": "Which would you prefer?", "options": ["X", "Y"]}}
+
+Text input questions (no specific options given):
 - "When are you free?" -> {{"type": "text", "question": "When are you free?", "options": []}}
-- "Which day works best - Monday or Tuesday?" -> {{"type": "choice", "question": "Which day works best?", "options": ["Monday", "Tuesday"]}}
-- "Are you coming to the party?" -> {{"type": "choice", "question": "Are you coming to the party?", "options": ["Yes", "No"]}}
+- "What time works for you?" -> {{"type": "text", "question": "What time works for you?", "options": []}}
+- "Where should we meet?" -> {{"type": "text", "question": "Where should we meet?", "options": []}}
+- "What's your address?" -> {{"type": "text", "question": "What's your address?", "options": []}}
+- "How many people?" -> {{"type": "text", "question": "How many people?", "options": []}}
 
-CRITICAL RULES:
-- If someone asks "X or Y?" - ALWAYS extract both X and Y as options
-- Food ordering with choices is ALWAYS a choice question
-- "What do you want" or "ordering" + food options = choice question
-- "lunch", "dinner", "food" + "or" = choice question
-- ANY sentence ending with "?" that asks for input is a question
-- "want", "prefer", "like" + "or" = choice question
-- If there are ANY questions that require input, extract them
-- Better to have too many questions than too few
+IMPORTANT DISTINCTIONS:
+- If email says "X or Y" -> it's a CHOICE question with those options
+- If email asks "Can you X?" without options -> it's a CHOICE with Yes/No
+- If email asks "When/Where/What/How" without specific options -> it's TEXT input
+- "Do you want X or Y?" -> CHOICE with X and Y as options
+- "Are you available?" -> CHOICE with Yes/No
 
-Formality guidelines:
-- Casual: uses "hey", "hi", slang, emojis, exclamation points, first names only
-- Formal: uses "Dear", proper full sentences, "Sincerely", "Regards", last names
-- Neutral: everything else
+Also detect formality:
+- Casual: "hey", "hi", slang, emojis, exclamation points, short sentences
+- Formal: "Dear", "Sincerely", "Regards", full sentences, proper structure
+- Neutral: everything in between
 
-If there are genuinely NO questions requiring input (just informational news like "meeting moved to Tuesday"), return {{"questions": [], "suggested_formality": "neutral"}}.
+If there are genuinely NO questions requiring a response (pure informational email), return {{"questions": [], "suggested_formality": "neutral"}}.
 
-Return ONLY valid JSON, no other text."""
+Return ONLY valid JSON, no other text or explanation."""
 
             messages = [{"role": "user", "content": prompt}]
             result, error = call_openai_with_retry(messages, max_tokens=500, temperature=0.3, timeout=10)
