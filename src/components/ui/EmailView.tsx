@@ -59,6 +59,12 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [suggestedFormalityScore, setSuggestedFormalityScore] = React.useState<FormalityScore>(50);
   const [summaryComplete, setSummaryComplete] = React.useState(false);
 
+  // Unsend state
+  const [isSending, setIsSending] = React.useState(false);
+  const [sendCountdown, setSendCountdown] = React.useState(5);
+  const sendTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const countdownIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+
   // Get or create email-specific state
   const getEmailState = (emailId: string) => {
     if (!emailStateMap.has(emailId)) {
@@ -159,6 +165,14 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setEditedReply(displayAiReply);
     }
   }, [displayAiReply, isEditing, hasEdited]);
+
+  // Cleanup timers on unmount
+  React.useEffect(() => {
+    return () => {
+      if (sendTimeoutRef.current) clearTimeout(sendTimeoutRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    };
+  }, []);
 
   // Save state before email changes, then load new email's state
   const prevEmailIdRef = React.useRef<string | null>(null);
@@ -525,36 +539,71 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const handleSendReply = async () => {
     if (!email || !editedReply) return;
 
-    const senderEmail = email.from?.email || email.from?.name || email.sender;
+    // Start the sending countdown
+    setIsSending(true);
+    setSendCountdown(5);
 
-    // Get the full email data from store to pass as original email
-    const originalEmailData = fullEmail || {
-      id: email.id,
-      sender: email.from?.email || email.from?.name || email.sender,
-      subject: email.subject,
-      body_text: email.content || '',
-      recipients: email.to?.map((t: any) => t.email || t.name).join(', ') || '',
-      date: email.timestamp || new Date().toISOString(),
-      snippet: email.content?.substring(0, 100) || '',
-      is_read: true,
-      is_starred: false,
-      has_attachments: false,
-      status: 'Unhandled' as const,
-      category: 'Normal' as const,
-      requires_reply: false,
-      gmail_id: email.id,
-      thread_id: email.id,
-    };
+    // Start countdown
+    countdownIntervalRef.current = setInterval(() => {
+      setSendCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(countdownIntervalRef.current!);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
-    try {
-      await sendEmail(senderEmail, `Re: ${email.subject}`, editedReply, email.id, originalEmailData);
-      updateEmailStatus(email.id, 'Replied');
-      setIsEditing(false);
-      alert('Reply sent!');
-    } catch (error) {
-      console.error('Failed to send reply:', error);
-      alert('Failed to send reply');
+    // Set timeout to actually send after 5 seconds
+    sendTimeoutRef.current = setTimeout(async () => {
+      clearInterval(countdownIntervalRef.current!);
+      setIsSending(false);
+      setSendCountdown(5);
+
+      const senderEmail = email.from?.email || email.from?.name || email.sender;
+
+      // Get the full email data from store to pass as original email
+      const originalEmailData = fullEmail || {
+        id: email.id,
+        sender: email.from?.email || email.from?.name || email.sender,
+        subject: email.subject,
+        body_text: email.content || '',
+        recipients: email.to?.map((t: any) => t.email || t.name).join(', ') || '',
+        date: email.timestamp || new Date().toISOString(),
+        snippet: email.content?.substring(0, 100) || '',
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled' as const,
+        category: 'Normal' as const,
+        requires_reply: false,
+        gmail_id: email.id,
+        thread_id: email.id,
+      };
+
+      try {
+        await sendEmail(senderEmail, `Re: ${email.subject}`, editedReply, email.id, originalEmailData);
+        updateEmailStatus(email.id, 'Replied');
+        setIsEditing(false);
+      } catch (error) {
+        console.error('Failed to send reply:', error);
+        alert('Failed to send reply');
+      }
+    }, 5000);
+  };
+
+  const handleUnsend = () => {
+    // Clear the timeout and interval
+    if (sendTimeoutRef.current) {
+      clearTimeout(sendTimeoutRef.current);
+      sendTimeoutRef.current = null;
     }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    setIsSending(false);
+    setSendCountdown(5);
   };
 
   if (!email) {
@@ -826,23 +875,39 @@ export const EmailView: React.FC<EmailViewProps> = ({
               )}
               {!hasSent && (
                 <div className="flex items-center gap-2 mt-4">
-                  <Button size="sm" onClick={handleSendReply}>
-                    Send
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => { if (isEditing) setIsEditing(false); else setIsEditing(true); }}>
-                    {isEditing ? 'Done' : 'Edit'}
-                  </Button>
-                  {hasEdited && (
-                    <Button size="sm" variant="outline" onClick={() => { setEditedReply(displayAiReply || ''); setIsEditing(false); setAiEditPrompt(''); setHasEdited(false); }}>
-                      Undo
-                    </Button>
+                  {isSending ? (
+                    <>
+                      {/* Countdown indicator */}
+                      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                        <span className="text-sm font-medium">Sending in {sendCountdown}s...</span>
+                      </div>
+                      {/* Unsend button */}
+                      <Button size="sm" variant="outline" onClick={handleUnsend} className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20">
+                        Unsend
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button size="sm" onClick={handleSendReply}>
+                        Send
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => { if (isEditing) setIsEditing(false); else setIsEditing(true); }}>
+                        {isEditing ? 'Done' : 'Edit'}
+                      </Button>
+                      {hasEdited && (
+                        <Button size="sm" variant="outline" onClick={() => { setEditedReply(displayAiReply || ''); setIsEditing(false); setAiEditPrompt(''); setHasEdited(false); }}>
+                          Undo
+                        </Button>
+                      )}
+                    </>
                   )}
                 </div>
               )}
             </div>
 
-            {/* AI Edit Section - only show if not sent */}
-            {isEditing && !hasSent && (
+            {/* AI Edit Section - only show if not sent and not sending */}
+            {isEditing && !hasSent && !isSending && (
               <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
                 <label className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-2 block">
                   AI Edit - describe how to change the email:
