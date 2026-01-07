@@ -99,6 +99,26 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setSummaryComplete(state.summaryComplete);
       return true;
     }
+    // Also check for background-generated questions in window global
+    if (email?.id) {
+      const globalQuestionData = (window as any).emailQuestionData?.get(email.id);
+      if (globalQuestionData && globalQuestionData.loaded) {
+        console.log('[loadEmailState] Found pre-generated questions in global:', globalQuestionData.questions);
+        setPendingQuestions(globalQuestionData.questions);
+        setSuggestedFormality(globalQuestionData.suggestedFormality);
+        setFormalityLevel(globalQuestionData.suggestedFormality);
+        setQuestionsLoaded(true);
+        // Initialize empty answers
+        setUserAnswers({});
+        // Save to email state map
+        const state = getEmailState(email.id);
+        state.pendingQuestions = globalQuestionData.questions;
+        state.suggestedFormality = globalQuestionData.suggestedFormality;
+        state.formalityLevel = globalQuestionData.suggestedFormality;
+        state.questionsLoaded = true;
+        return true;
+      }
+    }
     return false;
   };
 
@@ -194,20 +214,33 @@ export const EmailView: React.FC<EmailViewProps> = ({
     prevEmailIdRef.current = currentEmailId;
   }, [email?.id, isSentEmail, displayAiReply]);
 
-  // When summary completes and we have no aiReply, start question analysis
-  // Only analyze if we haven't already loaded questions for this email
+  // When summary completes and we have no aiReply, load or generate questions
   useEffect(() => {
-    if (summary && !summaryComplete && !displayAiReply && !isSentEmail && !hasSent && email?.id) {
+    if (summary && !displayAiReply && !isSentEmail && !hasSent && email?.id && !questionsLoaded) {
       const state = getEmailState(email.id);
-      // Only analyze if we haven't already completed this for this email
-      if (!state.summaryComplete) {
-        setSummaryComplete(true);
+      const globalQuestionData = (window as any).emailQuestionData?.get(email.id);
+
+      // Check if we have pre-generated questions from background
+      if (globalQuestionData && globalQuestionData.loaded) {
+        console.log('[useEffect] Loading pre-generated questions:', globalQuestionData.questions);
+        setPendingQuestions(globalQuestionData.questions);
+        setSuggestedFormality(globalQuestionData.suggestedFormality);
+        setFormalityLevel(globalQuestionData.suggestedFormality);
+        setQuestionsLoaded(true);
+        // Save to state
+        state.pendingQuestions = globalQuestionData.questions;
+        state.suggestedFormality = globalQuestionData.suggestedFormality;
+        state.formalityLevel = globalQuestionData.suggestedFormality;
+        state.questionsLoaded = true;
         state.summaryComplete = true;
-        // Start question analysis after summary is done
+        setSummaryComplete(true);
+      } else {
+        // No pre-generated questions, trigger analysis
+        console.log('[useEffect] No pre-generated questions, triggering analysis');
         analyzeEmailForQuestions();
       }
     }
-  }, [summary, aiReply, isSentEmail, hasSent, email?.id]);
+  }, [summary, aiReply, isSentEmail, hasSent, email?.id, questionsLoaded]);
 
   const handleAiEdit = async () => {
     if (!aiEditPrompt.trim() || !editedReply) return;
@@ -260,6 +293,27 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const analyzeEmailForQuestions = async () => {
     if (!fullEmail) return;
 
+    // First check if questions were already generated in the background
+    const globalQuestionData = (window as any).emailQuestionData?.get(email.id);
+    if (globalQuestionData && globalQuestionData.loaded) {
+      console.log('[analyzeEmail] Using pre-generated questions from background:', globalQuestionData.questions);
+      setPendingQuestions(globalQuestionData.questions);
+      setSuggestedFormality(globalQuestionData.suggestedFormality);
+      setFormalityLevel(globalQuestionData.suggestedFormality);
+      setQuestionsLoaded(true);
+      setAnalyzingQuestions(false);
+      // Save to email state map
+      if (email?.id) {
+        const state = getEmailState(email.id);
+        state.pendingQuestions = globalQuestionData.questions;
+        state.suggestedFormality = globalQuestionData.suggestedFormality;
+        state.formalityLevel = globalQuestionData.suggestedFormality;
+        state.questionsLoaded = true;
+      }
+      return;
+    }
+
+    // No pre-generated questions, need to call API
     setAnalyzingQuestions(true);
     setQuestionsLoaded(false);
 

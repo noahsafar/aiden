@@ -222,6 +222,62 @@ async function generateSummaryForEmail(emailId: string): Promise<void> {
   }
 }
 
+// Generate questions for a single email (fire and forget - stores in emailStateMap via EmailView)
+// This is called after summary generation completes
+async function generateQuestionsForEmail(emailId: string): Promise<void> {
+  if (processingEmails.has(`${emailId}-questions`)) {
+    console.log(`[AI Processing] Questions already in progress for ${emailId}`);
+    return;
+  }
+  processingEmails.add(`${emailId}-questions`);
+  console.log(`[AI Processing] Starting question generation for ${emailId}`);
+
+  try {
+    const store = useEmailStore.getState();
+    const email = store.emails.find(e => e.id === emailId);
+    if (!email) {
+      console.log(`[AI Processing] Email ${emailId} not found in store`);
+      return;
+    }
+
+    console.log(`[AI Processing] Calling analyze-email API for ${emailId}`);
+    const response = await fetchWithTimeout('http://localhost:8081/analyze-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sender: email.sender,
+        subject: email.subject,
+        body_text: email.body_text,
+      })
+    }, 90000);
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.success) {
+        console.log(`[AI Processing] Questions generated for ${emailId}:`, result.questions);
+        // Store questions in the email state map (accessed by EmailView)
+        // We use a window global to share this data with EmailView component
+        if (!(window as any).emailQuestionData) {
+          (window as any).emailQuestionData = new Map();
+        }
+        (window as any).emailQuestionData.set(emailId, {
+          questions: result.questions || [],
+          suggestedFormality: result.suggested_formality || 'neutral',
+          loaded: true,
+        });
+      } else {
+        console.log(`[AI Processing] Question API returned no data for ${emailId}:`, result);
+      }
+    } else {
+      console.log(`[AI Processing] Question API failed for ${emailId}:`, response.status);
+    }
+  } catch (e) {
+    console.error('[AI Processing] Failed to generate questions:', e);
+  } finally {
+    processingEmails.delete(`${emailId}-questions`);
+  }
+}
+
 // Generate reply for a single email (fire and forget - updates store directly)
 async function generateReplyForEmail(emailId: string): Promise<void> {
   if (processingEmails.has(`${emailId}-reply`)) {
@@ -308,15 +364,22 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
   }
 }
 
-// Process an email completely (summary + reply)
-function processEmail(emailId: string) {
-  // Only generate summary automatically - reply is handled by EmailView's question flow
+// Process an email completely (summary + questions)
+async function processEmail(emailId: string) {
+  // Generate summary first, then questions after summary completes
   useEmailStore.setState((state) => ({
     generatingSummaries: new Set(state.generatingSummaries).add(emailId)
   }));
 
-  // Only queue summary generation
-  queueAIOperation(() => generateSummaryForEmail(emailId));
+  // Queue summary generation, which will then trigger questions
+  queueAIOperation(async () => {
+    await generateSummaryForEmail(emailId);
+    // After summary completes, queue question generation
+    // We queue it separately so it goes through the queue system
+    setTimeout(() => {
+      queueAIOperation(() => generateQuestionsForEmail(emailId));
+    }, 100);
+  });
 }
 
 // Process a single email immediately (for when user clicks on an email)
