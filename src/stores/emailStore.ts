@@ -260,9 +260,19 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
         if (!(window as any).emailQuestionData) {
           (window as any).emailQuestionData = new Map();
         }
+        // Handle both old categorical format and new score format
+        let suggestedScore = 50; // default neutral
+        if (result.suggested_formality_score !== undefined) {
+          suggestedScore = result.suggested_formality_score;
+        } else if (result.suggested_formality) {
+          const categorical = result.suggested_formality;
+          if (categorical === 'casual') suggestedScore = 20;
+          else if (categorical === 'formal') suggestedScore = 80;
+          else suggestedScore = 50;
+        }
         (window as any).emailQuestionData.set(emailId, {
           questions: result.questions || [],
-          suggestedFormality: result.suggested_formality || 'neutral',
+          suggestedFormalityScore: suggestedScore,
           loaded: true,
         });
       } else {

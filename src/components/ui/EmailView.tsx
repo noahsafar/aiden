@@ -19,14 +19,14 @@ interface EmailViewProps {
   onAction?: (id: string, action: string) => void;
 }
 
-type FormalityLevel = 'casual' | 'neutral' | 'formal';
+type FormalityScore = number; // 0-100, where 0=casual, 50=neutral, 100=formal
 
 // Store email-specific state in a map to preserve it when switching between emails
 const emailStateMap = new Map<string, {
   pendingQuestions: any[];
   userAnswers: Record<number, string>;
-  formalityLevel: FormalityLevel;
-  suggestedFormality: FormalityLevel;
+  formalityScore: FormalityScore;
+  suggestedFormalityScore: FormalityScore;
   questionsLoaded: boolean;
   summaryComplete: boolean;
 }>();
@@ -55,8 +55,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [analyzingQuestions, setAnalyzingQuestions] = React.useState(false);
   const [questionsLoaded, setQuestionsLoaded] = React.useState(false); // Track if we've gotten a response from backend
   const [generatingReply, setGeneratingReply] = React.useState(false);
-  const [formalityLevel, setFormalityLevel] = React.useState<FormalityLevel>('neutral');
-  const [suggestedFormality, setSuggestedFormality] = React.useState<FormalityLevel>('neutral');
+  const [formalityScore, setFormalityScore] = React.useState<FormalityScore>(50); // 0-100
+  const [suggestedFormalityScore, setSuggestedFormalityScore] = React.useState<FormalityScore>(50);
   const [summaryComplete, setSummaryComplete] = React.useState(false);
 
   // Get or create email-specific state
@@ -65,8 +65,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       emailStateMap.set(emailId, {
         pendingQuestions: [],
         userAnswers: {},
-        formalityLevel: 'neutral',
-        suggestedFormality: 'neutral',
+        formalityScore: 50,
+        suggestedFormalityScore: 50,
         questionsLoaded: false,
         summaryComplete: false,
       });
@@ -80,8 +80,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       const state = getEmailState(email.id);
       state.pendingQuestions = pendingQuestions;
       state.userAnswers = userAnswers;
-      state.formalityLevel = formalityLevel;
-      state.suggestedFormality = suggestedFormality;
+      state.formalityScore = formalityScore;
+      state.suggestedFormalityScore = suggestedFormalityScore;
       state.questionsLoaded = questionsLoaded;
       state.summaryComplete = summaryComplete;
     }
@@ -93,8 +93,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       const state = emailStateMap.get(email.id)!;
       setPendingQuestions([...state.pendingQuestions]);
       setUserAnswers({...state.userAnswers});
-      setFormalityLevel(state.formalityLevel);
-      setSuggestedFormality(state.suggestedFormality);
+      setFormalityScore(state.formalityScore);
+      setSuggestedFormalityScore(state.suggestedFormalityScore);
       setQuestionsLoaded(state.questionsLoaded);
       setSummaryComplete(state.summaryComplete);
       return true;
@@ -105,16 +105,20 @@ export const EmailView: React.FC<EmailViewProps> = ({
       if (globalQuestionData && globalQuestionData.loaded) {
         console.log('[loadEmailState] Found pre-generated questions in global:', globalQuestionData.questions);
         setPendingQuestions(globalQuestionData.questions);
-        setSuggestedFormality(globalQuestionData.suggestedFormality);
-        setFormalityLevel(globalQuestionData.suggestedFormality);
+        // Convert old categorical format to score if needed
+        const suggestedScore = typeof globalQuestionData.suggestedFormality === 'number'
+          ? globalQuestionData.suggestedFormality
+          : globalQuestionData.suggestedFormalityScore || 50;
+        setSuggestedFormalityScore(suggestedScore);
+        setFormalityScore(suggestedScore);
         setQuestionsLoaded(true);
         // Initialize empty answers
         setUserAnswers({});
         // Save to email state map
         const state = getEmailState(email.id);
         state.pendingQuestions = globalQuestionData.questions;
-        state.suggestedFormality = globalQuestionData.suggestedFormality;
-        state.formalityLevel = globalQuestionData.suggestedFormality;
+        state.suggestedFormalityScore = suggestedScore;
+        state.formalityScore = suggestedScore;
         state.questionsLoaded = true;
         return true;
       }
@@ -169,8 +173,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       if (prevState) {
         prevState.pendingQuestions = pendingQuestions;
         prevState.userAnswers = userAnswers;
-        prevState.formalityLevel = formalityLevel;
-        prevState.suggestedFormality = suggestedFormality;
+        prevState.formalityScore = formalityScore;
+        prevState.suggestedFormalityScore = suggestedFormalityScore;
         prevState.questionsLoaded = questionsLoaded;
         prevState.summaryComplete = summaryComplete;
       }
@@ -186,8 +190,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setLastError('');
       setPendingQuestions([]);
       setUserAnswers({});
-      setFormalityLevel('neutral');
-      setSuggestedFormality('neutral');
+      setFormalityScore(50);
+      setSuggestedFormalityScore(50);
       setSummaryComplete(false);
       setQuestionsLoaded(false);
     } else if (prevEmailIdRef.current !== currentEmailId) {
@@ -198,8 +202,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       if (!loaded) {
         setPendingQuestions([]);
         setUserAnswers({});
-        setFormalityLevel('neutral');
-        setSuggestedFormality('neutral');
+        setFormalityScore(50);
+        setSuggestedFormalityScore(50);
         setSummaryComplete(false);
         setQuestionsLoaded(false);
       }
@@ -224,13 +228,17 @@ export const EmailView: React.FC<EmailViewProps> = ({
       if (globalQuestionData && globalQuestionData.loaded) {
         console.log('[useEffect] Loading pre-generated questions:', globalQuestionData.questions);
         setPendingQuestions(globalQuestionData.questions);
-        setSuggestedFormality(globalQuestionData.suggestedFormality);
-        setFormalityLevel(globalQuestionData.suggestedFormality);
+        // Convert old categorical format to score if needed
+        const suggestedScore = typeof globalQuestionData.suggestedFormality === 'number'
+          ? globalQuestionData.suggestedFormality
+          : globalQuestionData.suggestedFormalityScore || 50;
+        setSuggestedFormalityScore(suggestedScore);
+        setFormalityScore(suggestedScore);
         setQuestionsLoaded(true);
         // Save to state
         state.pendingQuestions = globalQuestionData.questions;
-        state.suggestedFormality = globalQuestionData.suggestedFormality;
-        state.formalityLevel = globalQuestionData.suggestedFormality;
+        state.suggestedFormalityScore = suggestedScore;
+        state.formalityScore = suggestedScore;
         state.questionsLoaded = true;
         state.summaryComplete = true;
         setSummaryComplete(true);
@@ -298,16 +306,20 @@ export const EmailView: React.FC<EmailViewProps> = ({
     if (globalQuestionData && globalQuestionData.loaded) {
       console.log('[analyzeEmail] Using pre-generated questions from background:', globalQuestionData.questions);
       setPendingQuestions(globalQuestionData.questions);
-      setSuggestedFormality(globalQuestionData.suggestedFormality);
-      setFormalityLevel(globalQuestionData.suggestedFormality);
+      // Convert old categorical format to score if needed
+      const suggestedScore = typeof globalQuestionData.suggestedFormality === 'number'
+        ? globalQuestionData.suggestedFormality
+        : globalQuestionData.suggestedFormalityScore || 50;
+      setSuggestedFormalityScore(suggestedScore);
+      setFormalityScore(suggestedScore);
       setQuestionsLoaded(true);
       setAnalyzingQuestions(false);
       // Save to email state map
       if (email?.id) {
         const state = getEmailState(email.id);
         state.pendingQuestions = globalQuestionData.questions;
-        state.suggestedFormality = globalQuestionData.suggestedFormality;
-        state.formalityLevel = globalQuestionData.suggestedFormality;
+        state.suggestedFormalityScore = suggestedScore;
+        state.formalityScore = suggestedScore;
         state.questionsLoaded = true;
       }
       return;
@@ -361,16 +373,25 @@ export const EmailView: React.FC<EmailViewProps> = ({
         }
       }
 
-      // Set suggested formality if provided
-      if (result.suggested_formality) {
-        setSuggestedFormality(result.suggested_formality);
-        setFormalityLevel(result.suggested_formality);
-        // Save formality to state map
-        if (email?.id) {
-          const state = getEmailState(email.id);
-          state.suggestedFormality = result.suggested_formality;
-          state.formalityLevel = result.suggested_formality;
-        }
+      // Set suggested formality score - handle both old categorical and new score format
+      let suggestedScore = 50; // default neutral
+      if (result.suggested_formality_score !== undefined) {
+        // New format: direct score
+        suggestedScore = result.suggested_formality_score;
+      } else if (result.suggested_formality) {
+        // Old format: categorical - convert to score
+        const categorical = result.suggested_formality;
+        if (categorical === 'casual') suggestedScore = 20;
+        else if (categorical === 'formal') suggestedScore = 80;
+        else suggestedScore = 50; // neutral
+      }
+      setSuggestedFormalityScore(suggestedScore);
+      setFormalityScore(suggestedScore);
+      // Save formality to state map
+      if (email?.id) {
+        const state = getEmailState(email.id);
+        state.suggestedFormalityScore = suggestedScore;
+        state.formalityScore = suggestedScore;
       }
 
       // Mark that we've successfully loaded questions (even if empty)
@@ -405,11 +426,21 @@ export const EmailView: React.FC<EmailViewProps> = ({
     });
   };
 
-  // Generate reply with user's answers and formality level
+  // Generate reply with user's answers and formality score
   const generateReply = async () => {
     if (!fullEmail) return;
 
-    console.log('[generateReply] Starting generation with formality:', formalityLevel);
+    // Convert score (0-100) to categorical for backend API
+    let formalityLevel: 'casual' | 'neutral' | 'formal';
+    if (formalityScore < 40) {
+      formalityLevel = 'casual';
+    } else if (formalityScore < 70) {
+      formalityLevel = 'neutral';
+    } else {
+      formalityLevel = 'formal';
+    }
+
+    console.log('[generateReply] Starting generation with formality score:', formalityScore, '->', formalityLevel);
     setGeneratingReply(true);
     setLastError('');
 
@@ -684,58 +715,61 @@ export const EmailView: React.FC<EmailViewProps> = ({
               </div>
             )}
 
-            {/* Formality Level Selector - Slider */}
+            {/* Formality Score Selector - Continuous Slider */}
             <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Tone
                 </p>
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {formalityLevel === 'casual' ? 'Casual' : formalityLevel === 'formal' ? 'Formal' : 'Neutral'}
-                  {suggestedFormality !== formalityLevel && suggestedFormality && (
-                    <span className="ml-2 opacity-60">(suggested: {suggestedFormality === 'casual' ? 'Casual' : suggestedFormality === 'formal' ? 'Formal' : 'Neutral'})</span>
-                  )}
+                  {formalityScore < 40 ? 'Casual' : formalityScore < 70 ? 'Neutral' : 'Formal'}
                 </span>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-xs text-gray-500 dark:text-gray-400">Casual</span>
-                <input
-                  type="range"
-                  min="0"
-                  max="2"
-                  step="1"
-                  value={formalityLevel === 'casual' ? 0 : formalityLevel === 'neutral' ? 1 : 2}
-                  onChange={(e) => {
-                    const values: FormalityLevel[] = ['casual', 'neutral', 'formal'];
-                    const newValue = values[parseInt(e.target.value)];
-                    setFormalityLevel(newValue);
-                    if (email?.id) {
-                      const state = getEmailState(email.id);
-                      state.formalityLevel = newValue;
-                    }
-                  }}
-                  className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
+                <div className="relative flex-1">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={formalityScore}
+                    onChange={(e) => {
+                      const newScore = parseInt(e.target.value);
+                      setFormalityScore(newScore);
+                      if (email?.id) {
+                        const state = getEmailState(email.id);
+                        state.formalityScore = newScore;
+                      }
+                    }}
+                    className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                  />
+                  {/* Suggested position - arrow below */}
+                  <div className="absolute -bottom-5 flex flex-col items-center pointer-events-none" style={{ left: `calc(${suggestedFormalityScore}% + 8px)` }}>
+                    <svg className="w-3 h-3 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
+                    </svg>
+                    <span className="text-[9px] text-gray-500 dark:text-gray-400 font-medium -mt-1">
+                      Suggested
+                    </span>
+                  </div>
+                </div>
                 <span className="text-xs text-gray-500 dark:text-gray-400">Formal</span>
               </div>
+              {/* Extra padding for suggestion label */}
+              <div className="h-4" />
             </div>
 
-            {/* Generate Button - more subtle */}
-            <Button
-              onClick={generateReply}
-              disabled={generatingReply}
-              variant="outline"
-              className="w-full text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 py-2 text-sm"
-            >
-              {generatingReply ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="h-4 w-4 animate-spin rounded-full border border-gray-500 border-t-transparent" />
-                  Generating...
-                </span>
-              ) : (
-                'Generate Reply'
-              )}
-            </Button>
+            {/* Generate Button - more subtle, hide when generating */}
+            {!generatingReply && (
+              <Button
+                onClick={generateReply}
+                variant="outline"
+                className="w-full text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 py-2 text-sm"
+              >
+                Generate Reply
+              </Button>
+            )}
           </div>
         )}
 

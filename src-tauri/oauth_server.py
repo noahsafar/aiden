@@ -1115,12 +1115,17 @@ IMPORTANT DISTINCTIONS:
 - "Do you want X or Y?" -> CHOICE with X and Y as options
 - "Are you available?" -> CHOICE with Yes/No
 
-Also detect formality:
-- Casual: "hey", "hi", slang, emojis, exclamation points, short sentences
-- Formal: "Dear", "Sincerely", "Regards", full sentences, proper structure
-- Neutral: everything in between
+Also detect formality as a score from 0 (very casual) to 100 (very formal):
+Consider these indicators:
+CASUAL (0-30): "hey", "hi", "haha", "lol", "omg", emojis like 😂👍, exclamation points!!!, short sentences, missing punctuation, all lowercase, slang like "gonna", "wanna", "kinda", abbreviations like "u", "ur", "thx"
+NEUTRAL (31-70): normal punctuation, standard greetings, complete sentences but not overly formal, standard business language
+FORMAL (71-100): "Dear", "Sincerely", "Regards", "Best regards", proper salutations, full proper sentences, indentations, numbered lists, "would you kindly", "I am writing to", "please note that"
 
-If there are genuinely NO questions requiring a response (pure informational email), return {{"questions": [], "suggested_formality": "neutral"}}.
+ALSO consider past emails sent to this person - if you typically use a certain tone with them, recommend staying consistent. Match their energy!
+
+Return "suggested_formality_score" as a number from 0 to 100.
+
+If there are genuinely NO questions requiring a response (pure informational email), return {{"questions": [], "suggested_formality_score": 50}}.
 
 Return ONLY valid JSON, no other text or explanation."""
 
@@ -1171,10 +1176,18 @@ Return ONLY valid JSON, no other text or explanation."""
 
                     if result_data:
                         questions = result_data.get('questions', [])
-                        suggested_formality = result_data.get('suggested_formality', 'neutral')
-                        # Validate formality value
-                        if suggested_formality not in ['casual', 'neutral', 'formal']:
-                            suggested_formality = 'neutral'
+                        # Get formality as a score (0-100), fallback to old categorical system
+                        suggested_formality_score = result_data.get('suggested_formality_score', 50)
+                        # If old categorical format returned, convert to score
+                        if isinstance(suggested_formality_score, str):
+                            if suggested_formality_score == 'casual':
+                                suggested_formality_score = 20
+                            elif suggested_formality_score == 'formal':
+                                suggested_formality_score = 80
+                            else:
+                                suggested_formality_score = 50
+                        # Ensure score is in valid range
+                        suggested_formality_score = max(0, min(100, int(suggested_formality_score)))
 
                         # FALLBACK: If AI found no questions but rule-based found some, use rule-based
                         if not questions and rule_based_questions:
@@ -1182,23 +1195,23 @@ Return ONLY valid JSON, no other text or explanation."""
                             questions = rule_based_questions
                     else:
                         questions = []
-                        suggested_formality = 'neutral'
+                        suggested_formality_score = 50
 
-                    print(f"Email analysis found {len(questions)} questions, suggested formality: {suggested_formality}")
-                    resp = {'success': True, 'questions': questions, 'suggested_formality': suggested_formality}
+                    print(f"Email analysis found {len(questions)} questions, suggested formality score: {suggested_formality_score}")
+                    resp = {'success': True, 'questions': questions, 'suggested_formality_score': suggested_formality_score}
                     self.wfile.write(json.dumps(resp).encode())
                 except json.JSONDecodeError as e:
                     print(f"Failed to parse AI response as JSON: {e}, result was: {result[:500]}")
                     # Use rule-based questions as fallback
                     if rule_based_questions:
                         print(f"Using rule-based questions after parse error: {rule_based_questions}")
-                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality': 'neutral'}
+                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50}
                     else:
-                        resp = {'success': True, 'questions': [], 'suggested_formality': 'neutral'}
+                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50}
                     self.wfile.write(json.dumps(resp).encode())
             else:
                 print(f"Failed to analyze email: {error}")
-                resp = {'success': True, 'questions': [], 'suggested_formality': 'neutral'}
+                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50}
                 self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:
