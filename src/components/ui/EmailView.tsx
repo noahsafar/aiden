@@ -806,9 +806,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
               {/* Show subject line */}
               {!isEditing && email?.subject && (
-                <div className="mb-3 pb-3 border-b border-blue-200 dark:border-blue-700">
+                <div className={`mb-3 pb-3 border-b ${hasSent ? 'border-green-200 dark:border-green-700' : 'border-blue-200 dark:border-blue-700'}`}>
                   <p className="text-sm text-gray-700 dark:text-gray-300">
-                    <span className="text-sm text-blue-600 dark:text-blue-400">Subject: </span>
+                    <span className={`text-sm ${hasSent ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`}>Subject: </span>
                     Re: {email.subject}
                   </p>
                 </div>
