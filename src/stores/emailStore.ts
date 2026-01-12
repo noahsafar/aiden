@@ -292,6 +292,8 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
         (window as any).emailQuestionData.set(emailId, {
           questions: result.questions || [],
           suggestedFormalityScore: suggestedScore,
+          requiresReply: result.requires_reply,
+          replyReasoning: result.reply_reasoning,
           loaded: true,
         });
       } else {
@@ -480,7 +482,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           sender: email.from || 'Unknown Sender',
           recipients: email.to || '',
           date: email.date || new Date().toISOString(),
-          body_text: email.bodyText || email.snippet || email.content || '',
+          body_text: email.bodyText || email.body_text || email.snippet || email.content || '',
+          body_html: email.bodyHtml || email.body_html || undefined,
           snippet: email.snippet || email.content?.substring(0, 100) || '',
           is_read: email.isRead !== false,
           is_starred: email.labels?.includes('STARRED') || false,

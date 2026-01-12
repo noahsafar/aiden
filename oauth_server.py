@@ -267,6 +267,126 @@ def extract_email_body(message):
         return None
 
 
+def extract_email_body_html(message, service=None):
+    """Extract HTML body from Gmail message and convert inline images to base64"""
+    try:
+        import base64
+        import re
+
+        payload = message.get('payload', {})
+        message_id = message.get('id')
+
+        # First, collect all inline images (attachments with Content-ID)
+        inline_images = {}
+        attachments_to_fetch = []  # Store (content_id, attachment_id, mime_type) tuples
+
+        def collect_images(part, path=None):
+            """Recursively collect all inline images"""
+            if path is None:
+                path = []
+
+            # Check if this part has a Content-ID (inline image)
+            headers = part.get('headers', [])
+            content_id = None
+            for header in headers:
+                if header['name'].lower() == 'content-id':
+                    content_id = header['value']
+                    # Strip angle brackets if present
+                    if content_id.startswith('<') and content_id.endswith('>'):
+                        content_id = content_id[1:-1]
+                    break
+
+            if content_id:
+                # This is an inline image
+                body_data = part.get('body', {}).get('data', '')
+                attachment_id = part.get('body', {}).get('attachmentId')
+                mime_type = part.get('mimeType', 'image/png')
+
+                if body_data:
+                    try:
+                        decoded = base64.urlsafe_b64decode(body_data)
+                        inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
+                    except Exception as e:
+                        print(f"Error decoding inline image data: {e}")
+                elif attachment_id:
+                    # For large attachments, store for later retrieval
+                    attachments_to_fetch.append((content_id, attachment_id, mime_type))
+
+            # Recurse into subparts
+            for subpart in part.get('parts', []):
+                collect_images(subpart)
+
+        collect_images(payload)
+
+        # Fetch large attachments if we have a service and message_id
+        if service and message_id and attachments_to_fetch:
+            for content_id, attachment_id, mime_type in attachments_to_fetch:
+                try:
+                    attachment = service.users().messages().attachments().get(
+                        userId='me',
+                        messageId=message_id,
+                        id=attachment_id
+                    ).execute()
+                    data = attachment.get('data', '')
+                    if data:
+                        decoded = base64.urlsafe_b64decode(data)
+                        inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
+                        print(f"Fetched inline image: {content_id}, size: {len(decoded)} bytes")
+                except Exception as e:
+                    print(f"Error fetching attachment {attachment_id}: {e}")
+
+        def find_html(part):
+            if part.get('mimeType') == 'text/html':
+                data = part.get('body', {}).get('data', '')
+                if data:
+                    decoded = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
+                    return decoded
+            for subpart in part.get('parts', []):
+                result = find_html(subpart)
+                if result:
+                    return result
+            return None
+
+        # Check main body first
+        body_data = payload.get('body', {}).get('data', '')
+        html_content = None
+        if body_data and payload.get('mimeType') == 'text/html':
+            html_content = base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
+        else:
+            # Check parts
+            parts = payload.get('parts', [])
+            for part in parts:
+                result = find_html(part)
+                if result:
+                    html_content = result
+                    break
+
+        if not html_content:
+            return None
+
+        # Replace cid: references with base64 data URLs
+        def replace_cid(match):
+            cid = match.group(1)
+            if cid in inline_images:
+                return inline_images[cid]
+            # Try with angle brackets
+            cid_bracketed = f"<{cid}>"
+            if cid_bracketed in inline_images:
+                return inline_images[cid_bracketed]
+            return match.group(0)  # Return original if not found
+
+        # Replace both cid:... and cid="..." formats
+        html_content = re.sub(r'cid:([^"\s>]+)', replace_cid, html_content)
+        html_content = re.sub(r'cid="([^"]+)"', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
+
+        return html_content
+    except Exception as e:
+        print(f"Error extracting HTML body: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def fetch_and_cache_sent_emails(creds, count=10):
     """Fetch recent sent emails and cache them for writing style analysis"""
     try:
@@ -725,7 +845,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
             if 'q' in query_params:
                 query = query_params['q'][0]
 
-            # Fetch messages
+            # Fetch messages - always use 'full' format to get body content
             results = service.users().messages().list(
                 userId='me',
                 maxResults=max_results,
@@ -737,15 +857,11 @@ class OAuthHandler(BaseHTTPRequestHandler):
             emails = []
             for message in messages:
                 try:
-                    # Get full message details with body if summaries are requested
-                    msg_format = 'full' if include_summaries else 'metadata'
-                    metadata_headers = ['From', 'To', 'Subject', 'Date', 'Snippet']
-
+                    # Always get full message to extract body content
                     msg = service.users().messages().get(
                         userId='me',
                         id=message['id'],
-                        format=msg_format,
-                        metadataHeaders=metadata_headers
+                        format='full'
                     ).execute()
 
                     # Extract headers
@@ -778,9 +894,14 @@ class OAuthHandler(BaseHTTPRequestHandler):
                         'sizeEstimate': msg.get('sizeEstimate', 0)
                     }
 
+                    # Always extract body content (both text and HTML)
+                    body_text = extract_email_body(msg) or ''
+                    body_html = extract_email_body_html(msg, service) or ''
+                    email_data['bodyText'] = body_text
+                    email_data['bodyHtml'] = body_html
+
                     # Generate summary if requested
                     if include_summaries:
-                        body_text = extract_email_body(msg) or ''
                         summary = summarize_email(subject, sender, body_text, snippet)
                         email_data['summary'] = summary
 
@@ -1088,6 +1209,8 @@ Return JSON with:
   - type: "choice" if options are provided OR if yes/no question, "text" for open-ended
   - question: the exact question being asked
   - options: array of choices (ONLY if the email provides specific options)
+- "requires_reply": true if the email needs a response, false if it's just informational/FYI
+- "reply_reasoning": brief explanation (max 15 words) of why a reply is or isn't needed
 
 DETAILED EXAMPLES (learn from these):
 
@@ -1115,6 +1238,55 @@ IMPORTANT DISTINCTIONS:
 - "Do you want X or Y?" -> CHOICE with X and Y as options
 - "Are you available?" -> CHOICE with Yes/No
 
+**REPLY REQUIRED DETERMINATION:**
+
+FIRST CHECK - Sender patterns (set requires_reply = false):
+- Newsletter indicators in sender: "newsletter@", "news@", "digest@", "updates@", "notifications@"
+- Newsletter indicators in subject: "[Newsletter]", "Digest", "Weekly Update", "Daily Briefing"
+- Mailing list patterns: "googlegroups.com", "yahoogroups.com", "groups.google.com", "+owner@"
+- No-reply addresses: "noreply@", "no-reply@", "donotreply@", "noreply@"
+- Automated services: "support@", "bot@", "automation@", "notification@"
+- Common newsletters: "Substack", "Medium Daily", "Hacker Newsletter", "The Information"
+
+SECOND CHECK - Explicit "no reply needed" phrases (set requires_reply = false):
+- "No need to respond", "No need to reply", "No reply needed"
+- "Don't worry about replying", "No need to get back to me"
+- "Just keeping you in the loop", "For your information", "FYI only"
+- "Just wanted to say hi", "Just saying hi", "Just wanted to share"
+- "Nothing to reply to", "No action required"
+- "For your records", "Just a heads up", "You're receiving this because"
+
+THIRD CHECK - Subject line patterns (set requires_reply = false):
+- "Invitation to", "Calendar notification", "Booking confirmation"
+- "Your order", "Receipt", "Purchase confirmation", "Payment received"
+- "Shipping confirmation", "Delivery update", "Your package"
+- "Password reset", "Verification code", "Your security code"
+- "Welcome to", "Getting started", "Your account is ready"
+- "[Automated]", "[Auto-reply]", "Out of Office", "OOO"
+
+FOURTH CHECK - Content patterns (set requires_reply = false):
+- Unsubscribe links at bottom ("unsubscribe", "manage preferences")
+- "View in browser", "View this email in your browser"
+- "You're receiving this email because you subscribed"
+- "This email was sent to", "Sent on behalf of"
+- Lots of HTML/links with minimal personal content
+- Generic greetings with no personal questions ("Hi everyone", "Dear subscriber")
+
+FIFTH CHECK - NOW set requires_reply = true if:
+- Contains direct questions to recipient (What, When, Where, How, Can you, Will you)
+- Requests a meeting/call with the recipient specifically
+- Asks for confirmation, approval, or decision from recipient
+- Asks for information, documents, or files from recipient
+- "Looking forward to hearing from you", "Please let me know", "Keep me posted"
+- Invites you specifically to something
+- Personally addressed with specific action needed
+
+Set requires_reply = false if:
+- Pure informational updates with no questions asked
+- Auto-generated confirmations, receipts, notifications
+- Marketing emails, newsletters, digests
+- "For your records" emails
+
 Also detect formality as a score from 0 (very casual) to 100 (very formal):
 Consider these indicators:
 CASUAL (0-30): "hey", "hi", "haha", "lol", "omg", emojis like 😂👍, exclamation points!!!, short sentences, missing punctuation, all lowercase, slang like "gonna", "wanna", "kinda", abbreviations like "u", "ur", "thx"
@@ -1125,7 +1297,7 @@ ALSO consider past emails sent to this person - if you typically use a certain t
 
 Return "suggested_formality_score" as a number from 0 to 100.
 
-If there are genuinely NO questions requiring a response (pure informational email), return {{"questions": [], "suggested_formality_score": 50}}.
+If there are genuinely NO questions requiring a response (pure informational email), return {{"questions": [], "requires_reply": false, "reply_reasoning": "Informational - no action needed", "suggested_formality_score": 50}}.
 
 Return ONLY valid JSON, no other text or explanation."""
 
@@ -1189,29 +1361,37 @@ Return ONLY valid JSON, no other text or explanation."""
                         # Ensure score is in valid range
                         suggested_formality_score = max(0, min(100, int(suggested_formality_score)))
 
+                        # Get requires_reply and reply_reasoning
+                        requires_reply = result_data.get('requires_reply', len(questions) > 0)
+                        reply_reasoning = result_data.get('reply_reasoning', '')
+
                         # FALLBACK: If AI found no questions but rule-based found some, use rule-based
                         if not questions and rule_based_questions:
                             print(f"AI found no questions, using rule-based fallback: {rule_based_questions}")
                             questions = rule_based_questions
+                            requires_reply = True
+                            reply_reasoning = "Questions found in email"
                     else:
                         questions = []
                         suggested_formality_score = 50
+                        requires_reply = False
+                        reply_reasoning = ''
 
-                    print(f"Email analysis found {len(questions)} questions, suggested formality score: {suggested_formality_score}")
-                    resp = {'success': True, 'questions': questions, 'suggested_formality_score': suggested_formality_score}
+                    print(f"Email analysis found {len(questions)} questions, requires_reply: {requires_reply}, suggested formality score: {suggested_formality_score}")
+                    resp = {'success': True, 'questions': questions, 'suggested_formality_score': suggested_formality_score, 'requires_reply': requires_reply, 'reply_reasoning': reply_reasoning}
                     self.wfile.write(json.dumps(resp).encode())
                 except json.JSONDecodeError as e:
                     print(f"Failed to parse AI response as JSON: {e}, result was: {result[:500]}")
                     # Use rule-based questions as fallback
                     if rule_based_questions:
                         print(f"Using rule-based questions after parse error: {rule_based_questions}")
-                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50}
+                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50, 'requires_reply': True, 'reply_reasoning': 'Questions found in email'}
                     else:
-                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50}
+                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': False, 'reply_reasoning': ''}
                     self.wfile.write(json.dumps(resp).encode())
             else:
                 print(f"Failed to analyze email: {error}")
-                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50}
+                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': False, 'reply_reasoning': ''}
                 self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:

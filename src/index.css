@@ -212,4 +212,50 @@
   .shadow-glow {
     box-shadow: 0 0 20px rgb(14 165 233 / 0.3);
   }
+
+  /* Email HTML content styles */
+  .email-html-content {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  .email-html-content img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 1rem 0;
+  }
+
+  .email-html-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+  }
+
+  .email-html-content td,
+  .email-html-content th {
+    padding: 0.5rem;
+    border: 1px solid currentColor;
+    opacity: 0.2;
+  }
+
+  .email-html-content a {
+    text-decoration: underline;
+  }
+
+  .email-html-content blockquote {
+    border-left: 3px solid rgb(156 163 175);
+    padding-left: 1rem;
+    margin: 1rem 0;
+    opacity: 0.8;
+  }
+
+  .dark .email-html-content td,
+  .dark .email-html-content th {
+    border-color: rgb(75 85 99);
+  }
+
+  .dark .email-html-content blockquote {
+    border-color: rgb(75 85 99);
+  }
 }

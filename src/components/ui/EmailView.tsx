@@ -2,6 +2,7 @@ import React, { useMemo, useEffect } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { Bookmark } from 'lucide-react';
+import DOMPurify from 'dompurify';
 
 // Helper to decode HTML entities
 function decodeHTMLEntities(text: string): string {
@@ -622,9 +623,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
-      {/* Action Bar */}
-      <div className={`${isSentEmail ? 'px-4 pb-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'} overflow-y-auto max-h-[50vh]`}>
+    <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 h-full overflow-hidden">
+      {/* Action Bar - scrollable when content is long, max 50% height */}
+      <div className={`${isSentEmail ? 'px-4 pb-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'} overflow-y-auto max-h-[50%] min-h-0 flex-shrink-0`}>
 
         {/* Summary Loading Indicator */}
         {isSummaryGenerating && !summary && (
@@ -965,7 +966,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       </div>
 
       {/* Email Content */}
-      <div className="flex-1 p-6 overflow-y-auto">
+      <div className="flex-1 p-6 overflow-y-auto min-h-0">
         <div className="max-w-4xl mx-auto">
           {isSentEmail && originalEmail ? (
             // Conversation view for sent emails
@@ -1061,12 +1062,24 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 </div>
               </div>
 
-              <div className="prose max-w-none">
-                <div className="whitespace-pre-wrap text-foreground">
-                  {decodeHTMLEntities(email.content?.startsWith(email.subject)
-                    ? email.content.substring(email.subject.length).trim()
-                    : email.content)}
-                </div>
+              <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:text-foreground">
+                {email.bodyHtml ? (
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html: DOMPurify.sanitize(email.bodyHtml, {
+                        ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 's', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'code', 'pre', 'div', 'span', 'img', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'hr', 'sup', 'sub', 'b', 'i'],
+                        ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'style', 'width', 'height', 'target', 'rel'],
+                      })
+                    }}
+                    className="text-foreground email-html-content"
+                  />
+                ) : (
+                  <div className="whitespace-pre-wrap text-foreground">
+                    {decodeHTMLEntities(email.content?.startsWith(email.subject)
+                      ? email.content.substring(email.subject.length).trim()
+                      : email.content)}
+                  </div>
+                )}
               </div>
 
               {email.hasAttachments && (

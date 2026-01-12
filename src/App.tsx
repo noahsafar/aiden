@@ -33,6 +33,7 @@ interface Email {
   subject: string;
   preview: string;
   content: string;
+  bodyHtml?: string;  // HTML version of email body
   timestamp: string;
   isRead: boolean;
   isStarred: boolean;
@@ -89,6 +90,7 @@ function App() {
       subject: email.subject,
       preview: email.snippet,
       content: email.body_text || email.snippet,
+      bodyHtml: email.body_html,  // Include HTML version
       timestamp: new Date(email.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isRead: email.is_read,
       isStarred: email.is_starred,
@@ -124,6 +126,7 @@ function App() {
       subject: email.subject,
       preview: email.snippet,
       content: email.body_text || email.snippet,
+      bodyHtml: email.body_html,
       timestamp: new Date(email.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isRead: email.is_read,
       isStarred: email.is_starred,
@@ -401,7 +404,7 @@ function App() {
                 </div>
 
                 {/* Email Content */}
-                <div className="flex-1">
+                <div className="flex-1 overflow-hidden">
                   {selectedEmail ? (
                     <EmailView
                       email={selectedEmail}

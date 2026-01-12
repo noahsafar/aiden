@@ -12,8 +12,25 @@ import { Button } from '@/components/ui/Button';
 import { useEmailStore, Email } from '@/stores/emailStore';
 import { formatDateTime } from '@/lib/utils';
 
+interface EmailQuestionData {
+  questions: string[];
+  suggestedFormalityScore: number;
+  requiresReply?: boolean;
+  replyReasoning?: string;
+  loaded: boolean;
+}
+
+// Helper function to get reply requirement data for an email
+function getEmailReplyData(emailId: string): EmailQuestionData | undefined {
+  if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
+    return (window as any).emailQuestionData.get(emailId);
+  }
+  return undefined;
+}
+
 export function EmailList() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [, setReplyData] = useState<Map<string, EmailQuestionData>>(new Map());
   const {
     emails,
     selectedEmail,
@@ -40,7 +57,39 @@ export function EmailList() {
     setSearchQuery(searchQuery);
   }, [searchQuery, setSearchQuery]);
 
+  // Trigger re-render when reply data changes
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
+      setReplyData(new Map((window as any).emailQuestionData));
+    }
+  }, [emails]);
+
   const filteredEmails = getFilteredEmails();
+
+  // Component for the action badge
+  const ActionBadge = ({ emailId }: { emailId: string }) => {
+    const data = getEmailReplyData(emailId);
+
+    if (!data?.loaded) {
+      return null;
+    }
+
+    const requiresReply = data.requiresReply;
+
+    if (requiresReply) {
+      return (
+        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 border border-amber-200">
+          Action Required
+        </span>
+      );
+    }
+
+    return (
+      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500 border border-gray-200">
+        FYI
+      </span>
+    );
+  };
 
   const getCategoryColor = (category: Email['category']) => {
     switch (category) {
@@ -98,51 +147,58 @@ export function EmailList() {
           </div>
         ) : (
           <div className="divide-y divide-gray-200">
-            {filteredEmails.map((email) => (
-              <div
-                key={email.id}
-                onClick={() => selectEmail(email)}
-                className={`p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
-                  selectedEmail?.id === email.id ? 'bg-blue-50' : ''
-                } ${!email.is_read ? 'bg-blue-50/30' : ''}`}
-              >
-                <div className="flex items-start justify-between mb-1">
-                  <div className="flex items-center space-x-2">
-                    <span className={`text-sm font-medium ${!email.is_read ? 'font-bold' : ''}`}>
-                      {email.sender}
+            {filteredEmails.map((email) => {
+              const replyData = getEmailReplyData(email.id);
+              const isFyi = replyData?.loaded && replyData.requiresReply === false;
+
+              return (
+                <div
+                  key={email.id}
+                  onClick={() => selectEmail(email)}
+                  className={`p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
+                    selectedEmail?.id === email.id ? 'bg-blue-50' : ''
+                  } ${!email.is_read ? 'bg-blue-50/30' : ''} ${
+                    isFyi ? 'opacity-60' : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-1">
+                    <div className="flex items-center space-x-2 flex-wrap">
+                      <span className={`text-sm font-medium ${!email.is_read ? 'font-bold' : ''}`}>
+                        {email.sender}
+                      </span>
+                      <span className={`text-xs px-2 py-1 rounded-full ${getCategoryColor(email.category)}`}>
+                        {email.category}
+                      </span>
+                      <ActionBadge emailId={email.id} />
+                      {getStatusIcon(email) && (
+                        <div className="text-gray-400">
+                          {getStatusIcon(email)}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500 flex items-center">
+                      <ClockIcon className="h-3 w-3 mr-1" />
+                      {formatDateTime(email.date)}
                     </span>
-                    <span className={`text-xs px-2 py-1 rounded-full ${getCategoryColor(email.category)}`}>
-                      {email.category}
-                    </span>
-                    {getStatusIcon(email) && (
-                      <div className="text-gray-400">
-                        {getStatusIcon(email)}
-                      </div>
-                    )}
                   </div>
-                  <span className="text-xs text-gray-500 flex items-center">
-                    <ClockIcon className="h-3 w-3 mr-1" />
-                    {formatDateTime(email.date)}
-                  </span>
-                </div>
 
-                <h3 className={`text-sm mb-1 ${!email.is_read ? 'font-semibold' : ''}`}>
-                  {email.subject || 'No Subject'}
-                </h3>
+                  <h3 className={`text-sm mb-1 ${!email.is_read ? 'font-semibold' : ''}`}>
+                    {email.subject || 'No Subject'}
+                  </h3>
 
-                {/* Show AI summary if available, otherwise show snippet */}
-                {email.summary ? (
-                  <div className="flex items-start gap-2">
-                    <SparklesIcon className="h-3 w-3 text-purple-500 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm text-gray-700 line-clamp-2">
-                      {email.summary}
+                  {/* Show AI summary if available, otherwise show snippet */}
+                  {email.summary ? (
+                    <div className="flex items-start gap-2">
+                      <SparklesIcon className="h-3 w-3 text-purple-500 mt-0.5 flex-shrink-0" />
+                      <p className="text-sm text-gray-700 line-clamp-2">
+                        {email.summary}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-600 truncate">
+                      {email.snippet}
                     </p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-600 truncate">
-                    {email.snippet}
-                  </p>
-                )}
+                  )}
 
                 <div className="flex items-center justify-between mt-2">
                   <div className="flex space-x-2">
@@ -185,8 +241,9 @@ export function EmailList() {
                     <span className="text-xs text-gray-500">📎</span>
                   )}
                 </div>
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
