@@ -6,6 +6,7 @@ import { EmailView } from '@/components/ui/EmailView';
 import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
 import { TestPage } from '@/components/TestPage';
+import { Settings as SettingsPage } from '@/pages/Settings';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useAuthStore } from '@/stores/authStore';
@@ -14,12 +15,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Search,
   Bell,
-  Settings,
   Moon,
   Sun,
   Mail,
   Sparkles,
-  LogOut
+  LogOut,
+  Settings as SettingsIcon
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -345,6 +346,11 @@ function App() {
                 </div>
 
                 <div className="flex items-center space-x-2">
+                  <Link to="/settings">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Settings">
+                      <SettingsIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                    </Button>
+                  </Link>
                   <Button variant="ghost" size="icon" className="h-8 w-8 relative">
                     <Bell className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                     <span className="absolute top-1 right-1 h-2 w-2 bg-error-500 rounded-full"></span>
@@ -484,6 +490,18 @@ function App() {
                 <TestPage />
               </div>
             </div>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+
+      {/* Settings route - protected */}
+      <Route
+        path="/settings"
+        element={
+          isAuthenticated ? (
+            <SettingsPage />
           ) : (
             <Navigate to="/login" replace />
           )
