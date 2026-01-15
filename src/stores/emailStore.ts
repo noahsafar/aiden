@@ -64,6 +64,189 @@ async function sendNotification(title: string, body: string): Promise<void> {
   }
 }
 
+// Smart notification check - consults backend settings before notifying
+interface NotificationCheckResult {
+  should_notify: boolean;
+  should_batch: boolean;
+  reason: string;
+}
+
+let cachedSettings: any = null;
+let settingsCacheTime = 0;
+const SETTINGS_CACHE_TTL = 60000; // Cache settings for 1 minute
+
+async function getSettings() {
+  const now = Date.now();
+  if (cachedSettings && (now - settingsCacheTime) < SETTINGS_CACHE_TTL) {
+    return cachedSettings;
+  }
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    cachedSettings = await invoke('get_settings');
+    settingsCacheTime = now;
+    return cachedSettings;
+  } catch (e) {
+    console.error('Failed to get settings:', e);
+    // Return default settings if fetch fails
+    return {
+      enable_notifications: true,
+      notification_mode: 'smart',
+      batch_notifications_enabled: true,
+      quiet_hours_enabled: false,
+      vip_senders: [],
+      emergency_keywords: ['emergency', '911', 'urgent', 'critical', 'immediate', 'asap', 'fire'],
+    };
+  }
+}
+
+// Check if we should send a notification based on smart settings
+async function shouldSendNotification(sender: string, subject: string, category: string): Promise<NotificationCheckResult> {
+  try {
+    const settings = await getSettings();
+
+    if (!settings.enable_notifications) {
+      return { should_notify: false, should_batch: false, reason: 'Notifications disabled' };
+    }
+
+    // Check for emergency keywords that bypass everything
+    const subjectLower = subject.toLowerCase();
+    const senderLower = sender.toLowerCase();
+    for (const keyword of (settings.emergency_keywords || [])) {
+      if (subjectLower.includes(keyword.toLowerCase()) || senderLower.includes(keyword.toLowerCase())) {
+        console.log(`[Smart Notifications] Emergency keyword detected: ${keyword}`);
+        return { should_notify: true, should_batch: false, reason: `Emergency: ${keyword}` };
+      }
+    }
+
+    // Check quiet hours
+    if (settings.quiet_hours_enabled) {
+      const now = new Date();
+      const currentTime = now.getHours() + now.getMinutes() / 60;
+      const [startHour, startMin] = settings.quiet_hours_start.split(':').map(Number);
+      const [endHour, endMin] = settings.quiet_hours_end.split(':').map(Number);
+      const startTime = startHour + startMin / 60;
+      const endTime = endHour + endMin / 60;
+
+      // Handle overnight quiet hours (e.g., 22:00 to 08:00)
+      const inQuietHours = startTime > endTime
+        ? (currentTime >= startTime || currentTime < endTime)
+        : (currentTime >= startTime && currentTime < endTime);
+
+      if (inQuietHours) {
+        // VIPs and urgent emails bypass quiet hours
+        const isVip = (settings.vip_senders || []).some((vip: string) =>
+          senderLower.includes(vip.toLowerCase())
+        );
+        const isUrgent = category.toLowerCase() === 'urgent';
+
+        if (isVip) {
+          return { should_notify: true, should_batch: false, reason: 'VIP during quiet hours' };
+        } else if (isUrgent) {
+          return { should_notify: true, should_batch: false, reason: 'Urgent during quiet hours' };
+        } else {
+          return { should_notify: false, should_batch: true, reason: 'Quiet hours' };
+        }
+      }
+    }
+
+    // Apply notification mode logic
+    const categoryLower = category.toLowerCase();
+    const isImportantSender = (settings.important_senders || []).some((imp: string) =>
+      senderLower.includes(imp.toLowerCase())
+    );
+
+    switch (settings.notification_mode) {
+      case 'all':
+        return {
+          should_notify: true,
+          should_batch: settings.batch_notifications_enabled,
+          reason: 'All mode'
+        };
+      case 'smart':
+        if (categoryLower === 'urgent' || categoryLower === 'important' || isImportantSender) {
+          return { should_notify: true, should_batch: false, reason: 'Smart: high priority' };
+        }
+        if (categoryLower === 'normal' || categoryLower === 'low') {
+          return { should_notify: false, should_batch: true, reason: 'Smart: batch normal/low' };
+        }
+        return {
+          should_notify: true,
+          should_batch: settings.batch_notifications_enabled,
+          reason: 'Smart: default'
+        };
+      case 'vip_only':
+        if (categoryLower === 'urgent' || categoryLower === 'important' || isImportantSender) {
+          return { should_notify: true, should_batch: false, reason: 'VIP mode: high priority' };
+        }
+        return { should_notify: false, should_batch: true, reason: 'VIP mode: not priority' };
+      default:
+        return {
+          should_notify: true,
+          should_batch: settings.batch_notifications_enabled,
+          reason: 'Default'
+        };
+    }
+  } catch (e) {
+    console.error('[Smart Notifications] Check failed, allowing notification:', e);
+    return { should_notify: true, should_batch: false, reason: 'Error - default allow' };
+  }
+}
+
+// Batch notification queue
+interface QueuedNotification {
+  emailId: string;
+  sender: string;
+  subject: string;
+  summary: string;
+  timestamp: number;
+}
+
+const notificationQueue: QueuedNotification[] = [];
+let batchTimeout: NodeJS.Timeout | null = null;
+const BATCH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes default
+
+function processBatchedNotifications() {
+  if (notificationQueue.length === 0) return;
+
+  const batch = notificationQueue.splice(0, notificationQueue.length);
+  const count = batch.length;
+
+  if (count === 1) {
+    const notif = batch[0];
+    sendNotification(`New email from ${notif.sender.split('<')[0].trim()}`, notif.summary);
+  } else {
+    // Send a batch notification
+    sendNotification(
+      `You have ${count} new emails`,
+      batch.map(n => n.sender.split('<')[0].trim()).slice(0, 3).join(', ') +
+      (count > 3 ? ` and ${count - 3} more` : '')
+    );
+  }
+}
+
+function queueNotification(emailId: string, sender: string, subject: string, summary: string) {
+  notificationQueue.push({
+    emailId,
+    sender,
+    subject,
+    summary,
+    timestamp: Date.now()
+  });
+
+  // Clear existing timeout and set a new one
+  if (batchTimeout) clearTimeout(batchTimeout);
+
+  batchTimeout = setTimeout(() => {
+    processBatchedNotifications();
+  }, BATCH_INTERVAL_MS);
+}
+
+// Export for testing
+export function getNotificationQueueSize() {
+  return notificationQueue.length;
+}
+
 export interface Email {
   id: string;
   gmail_id: string;
@@ -225,10 +408,28 @@ async function generateSummaryForEmail(emailId: string): Promise<void> {
           const summaryText = result.summary.length > 150
             ? result.summary.substring(0, 147) + '...'
             : result.summary;
-          sendNotification(`New email from ${senderName}`, summaryText);
-          useEmailStore.setState((state) => ({
-            notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
-          }));
+
+          // Check smart notification settings
+          const notifCheck = await shouldSendNotification(
+            email.sender,
+            email.subject,
+            email.category || 'Normal'
+          );
+
+          console.log(`[Smart Notifications] Check result:`, notifCheck);
+
+          if (notifCheck.should_notify) {
+            sendNotification(`New email from ${senderName}`, summaryText);
+            useEmailStore.setState((state) => ({
+              notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
+            }));
+          } else if (notifCheck.should_batch) {
+            // Queue for batch notification
+            queueNotification(emailId, senderName, email.subject, summaryText);
+            console.log(`[Smart Notifications] Queued for batching: ${emailId}`);
+          } else {
+            console.log(`[Smart Notifications] Notification suppressed: ${notifCheck.reason}`);
+          }
         }
       } else {
         console.log(`[AI Processing] Summary API returned no summary for ${emailId}:`, result);
@@ -893,7 +1094,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }));
   },
 
-  sendEmailNotification: (emailId, summary, reply) => {
+  sendEmailNotification: async (emailId, summary, reply) => {
     const state = get();
     if (state.notifiedEmailIds.has(emailId)) return; // Already notified
 
@@ -902,10 +1103,23 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
     const senderName = email.sender.split('<')[0].trim() || email.sender;
 
-    sendNotification(`Email from ${senderName}`, summary);
-    set((state) => ({
-      notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
-    }));
+    // Check smart notification settings
+    const notifCheck = await shouldSendNotification(
+      email.sender,
+      email.subject,
+      email.category || 'Normal'
+    );
+
+    console.log(`[Smart Notifications] Manual notification check:`, notifCheck);
+
+    if (notifCheck.should_notify) {
+      sendNotification(`Email from ${senderName}`, summary);
+      set((state) => ({
+        notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
+      }));
+    } else if (notifCheck.should_batch) {
+      queueNotification(emailId, senderName, email.subject, summary);
+    }
   },
 
   getFilteredEmails: () => {

@@ -34,6 +34,15 @@ pub struct AppSettings {
     pub working_hours_start: String,
     pub working_hours_end: String,
     pub timezone: String,
+    // Smart notification settings
+    pub notification_mode: String,  // "all", "smart", "vip_only"
+    pub quiet_hours_enabled: bool,
+    pub quiet_hours_start: String,   // "22:00"
+    pub quiet_hours_end: String,     // "08:00"
+    pub batch_notifications_enabled: bool,
+    pub batch_interval_minutes: u64, // How long to batch before sending
+    pub vip_senders: Vec<String>,    // Senders that always trigger immediate notification
+    pub emergency_keywords: Vec<String>, // Keywords that bypass quiet hours
 }
 
 impl Default for AppSettings {
@@ -53,6 +62,23 @@ impl Default for AppSettings {
             working_hours_start: "09:00".to_string(),
             working_hours_end: "17:00".to_string(),
             timezone: "UTC".to_string(),
+            // Smart notification defaults
+            notification_mode: "smart".to_string(),  // smart is the default
+            quiet_hours_enabled: false,
+            quiet_hours_start: "22:00".to_string(),
+            quiet_hours_end: "08:00".to_string(),
+            batch_notifications_enabled: true,
+            batch_interval_minutes: 15,
+            vip_senders: vec![],
+            emergency_keywords: vec![
+                "emergency".to_string(),
+                "911".to_string(),
+                "urgent".to_string(),
+                "critical".to_string(),
+                "immediate".to_string(),
+                "asap".to_string(),
+                "fire".to_string(),
+            ],
         }
     }
 }
@@ -464,3 +490,103 @@ pub async fn check_oauth_server_running() -> Result<bool, String> {
         Ok(false)
     }
 }
+
+/// Check if a notification should be sent based on smart notification settings
+/// Returns a tuple: (should_notify: bool, should_batch: bool, reason: String)
+#[command]
+pub async fn should_send_notification(
+    sender: String,
+    subject: String,
+    category: String,
+    settings: AppSettings,
+) -> Result<(bool, bool, String), String> {
+    // If notifications are disabled, don't send
+    if !settings.enable_notifications {
+        return Ok((false, false, "Notifications are disabled".to_string()));
+    }
+
+    let sender_lower = sender.to_lowercase();
+    let subject_lower = subject.to_lowercase();
+    let category_lower = category.to_lowercase();
+
+    // Check for emergency keywords that bypass ALL settings
+    for keyword in &settings.emergency_keywords {
+        if subject_lower.contains(&keyword.to_lowercase())
+            || sender_lower.contains(&keyword.to_lowercase()) {
+            return Ok((true, false, format!("Emergency keyword detected: {}", keyword)));
+        }
+    }
+
+    // Check quiet hours
+    if settings.quiet_hours_enabled {
+        if let (Ok(current), Ok(start), Ok(end)) = (
+            chrono::Local::now().format("%H:%M").to_string().parse::<String>(),
+            settings.quiet_hours_start.parse::<f32>(),
+            settings.quiet_hours_end.parse::<f32>(),
+        ) {
+            let current_time = current.parse::<f32>().unwrap_or(0.0);
+            // Handle overnight quiet hours (e.g., 22:00 to 08:00)
+            let in_quiet_hours = if start > end {
+                // Overnight period
+                current_time >= start || current_time < end
+            } else {
+                // Same day period
+                current_time >= start && current_time < end
+            };
+
+            if in_quiet_hours {
+                // Only VIPs can bypass quiet hours
+                let is_vip = settings.vip_senders.iter()
+                    .any(|vip| sender_lower.contains(&vip.to_lowercase()));
+
+                if is_vip {
+                    return Ok((true, false, "VIP sender during quiet hours".to_string()));
+                } else if !is_vip && category_lower == "urgent" {
+                    return Ok((true, false, "Urgent email during quiet hours".to_string()));
+                } else {
+                    return Ok((false, true, "Quiet hours - will batch".to_string()));
+                }
+            }
+        }
+    }
+
+    // Check VIP senders (always immediate notification)
+    let is_vip = settings.vip_senders.iter()
+        .any(|vip| sender_lower.contains(&vip.to_lowercase()));
+
+    if is_vip {
+        return Ok((true, false, "VIP sender".to_string()));
+    }
+
+    // Check important senders list
+    let is_important_sender = settings.important_senders.iter()
+        .any(|imp| sender_lower.contains(&imp.to_lowercase()));
+
+    // Apply notification mode logic
+    match settings.notification_mode.as_str() {
+        "all" => {
+            // All notifications, but can still batch if enabled
+            return Ok((true, settings.batch_notifications_enabled, "All notifications mode".to_string()));
+        }
+        "smart" => {
+            // Smart mode: immediate for urgent/important, batch for normal/low
+            if category_lower == "urgent" || category_lower == "important" || is_important_sender {
+                return Ok((true, false, "Smart mode - high priority".to_string()));
+            } else if category_lower == "normal" || category_lower == "low" {
+                return Ok((false, true, "Smart mode - batch normal/low emails".to_string()));
+            }
+            return Ok((true, settings.batch_notifications_enabled, "Smart mode - default".to_string()));
+        }
+        "vip_only" => {
+            // Only notify for VIP, urgent, or important senders
+            if category_lower == "urgent" || category_lower == "important" || is_important_sender {
+                return Ok((true, false, "VIP mode - high priority".to_string()));
+            }
+            return Ok((false, true, "VIP mode - not a priority sender".to_string()));
+        }
+        _ => {
+            return Ok((true, settings.batch_notifications_enabled, "Default mode".to_string()));
+        }
+    }
+}
+

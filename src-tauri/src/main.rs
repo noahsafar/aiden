@@ -36,6 +36,9 @@ fn main() {
             settings::proxy_generate_reply,
             settings::proxy_analyze_email,
             settings::check_server_health,
+            settings::get_settings,
+            settings::save_settings,
+            settings::should_send_notification,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
