@@ -217,26 +217,41 @@
   .email-html-content {
     overflow-wrap: break-word;
     word-break: break-word;
+    /* Preserve email formatting */
+    line-height: normal;
   }
 
   .email-html-content img {
     max-width: 100%;
     height: auto;
-    display: block;
-    margin: 1rem 0;
+    display: inline-block;
+    margin: 0.5rem 0;
+    object-fit: contain;
+    /* Ensure images are visible */
+    min-height: 20px;
+    background-color: transparent;
   }
 
+  /* Ensure images with explicit dimensions respect them */
+  .email-html-content img[width],
+  .email-html-content img[height] {
+    max-width: none;
+  }
+
+  /* Email table styles - preserve original layout */
   .email-html-content table {
-    width: 100%;
+    width: auto;
+    max-width: 100%;
     border-collapse: collapse;
-    margin: 1rem 0;
+    margin: 0;
+    display: table;
   }
 
   .email-html-content td,
   .email-html-content th {
-    padding: 0.5rem;
-    border: 1px solid currentColor;
-    opacity: 0.2;
+    padding: 0;
+    /* Don't force borders on email tables */
+    border: 0;
   }
 
   .email-html-content a {

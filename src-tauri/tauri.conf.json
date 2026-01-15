@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://localhost:* https://* ws://localhost:* wss://*; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http://localhost:* https: http:; object-src 'none'; base-uri 'self'; form-action 'self';",
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://localhost:* https://* ws://localhost:* wss://*; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; object-src 'none'; base-uri 'self'; form-action 'self';",
       "capabilities": ["default"]
     },
     "macOSPrivateApi": true,

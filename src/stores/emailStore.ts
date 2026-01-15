@@ -78,6 +78,7 @@ export interface Email {
   is_read: boolean;
   is_starred: boolean;
   has_attachments: boolean;
+  attachments?: EmailAttachment[];
   status: 'Unhandled' | 'Saved' | 'Replied' | 'Archived';
   category: 'Urgent' | 'Important' | 'Normal' | 'Low';
   summary?: string;
@@ -87,6 +88,13 @@ export interface Email {
   // For sent emails: reference to the original email being replied to
   inReplyTo?: string;  // original email ID
   originalEmail?: Email;  // full original email data (populated when viewing sent emails)
+}
+
+export interface EmailAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
 }
 
 export interface EmailState {
@@ -487,7 +495,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           snippet: email.snippet || email.content?.substring(0, 100) || '',
           is_read: email.isRead !== false,
           is_starred: email.labels?.includes('STARRED') || false,
-          has_attachments: email.labels?.includes('ATTACHMENT') || false,
+          has_attachments: email.hasAttachments || email.labels?.includes('ATTACHMENT') || false,
+          attachments: email.attachments || [],
           status: 'Unhandled' as const,
           category: 'Normal' as const,
           requires_reply: !email.isRead && !email.from?.toLowerCase().includes('me'),

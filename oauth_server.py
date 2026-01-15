@@ -267,6 +267,50 @@ def extract_email_body(message):
         return None
 
 
+def extract_attachments(message):
+    """Extract attachment information from Gmail message"""
+    try:
+        attachments = []
+        payload = message.get('payload', {})
+
+        def extract_from_parts(parts):
+            for part in parts:
+                # Check if this part is an attachment (has filename or attachmentId)
+                body = part.get('body', {})
+                filename = part.get('filename', '')
+                attachment_id = body.get('attachmentId')
+                mime_type = part.get('mimeType', '')
+                size = body.get('size', 0)
+
+                # It's an attachment if it has a filename and is not inline (no Content-ID)
+                headers = part.get('headers', [])
+                has_content_id = any(
+                    h['name'].lower() == 'content-id'
+                    for h in headers
+                )
+
+                if filename and not has_content_id:
+                    attachments.append({
+                        'id': attachment_id or '',
+                        'filename': filename,
+                        'mimeType': mime_type,
+                        'size': size
+                    })
+
+                # Recurse into nested parts
+                if 'parts' in part:
+                    extract_from_parts(part['parts'])
+
+        # Start extraction from root payload
+        if 'parts' in payload:
+            extract_from_parts(payload['parts'])
+
+        return attachments
+    except Exception as e:
+        print(f"Error extracting attachments: {e}")
+        return []
+
+
 def extract_email_body_html(message, service=None):
     """Extract HTML body from Gmail message and convert inline images to base64"""
     try:
@@ -276,7 +320,7 @@ def extract_email_body_html(message, service=None):
         payload = message.get('payload', {})
         message_id = message.get('id')
 
-        # First, collect all inline images (attachments with Content-ID)
+        # First, collect ALL inline images (attachments with Content-ID)
         inline_images = {}
         attachments_to_fetch = []  # Store (content_id, attachment_id, mime_type) tuples
 
@@ -306,6 +350,7 @@ def extract_email_body_html(message, service=None):
                     try:
                         decoded = base64.urlsafe_b64decode(body_data)
                         inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
+                        print(f"Decoded inline image: {content_id}, size: {len(decoded)} bytes")
                     except Exception as e:
                         print(f"Error decoding inline image data: {e}")
                 elif attachment_id:
@@ -317,6 +362,8 @@ def extract_email_body_html(message, service=None):
                 collect_images(subpart)
 
         collect_images(payload)
+
+        print(f"Found {len(inline_images)} inline images, {len(attachments_to_fetch)} need fetching")
 
         # Fetch large attachments if we have a service and message_id
         if service and message_id and attachments_to_fetch:
@@ -362,7 +409,10 @@ def extract_email_body_html(message, service=None):
                     break
 
         if not html_content:
+            print("No HTML content found in email")
             return None
+
+        print(f"Extracted HTML content, length: {len(html_content)}")
 
         # Replace cid: references with base64 data URLs
         def replace_cid(match):
@@ -375,9 +425,15 @@ def extract_email_body_html(message, service=None):
                 return inline_images[cid_bracketed]
             return match.group(0)  # Return original if not found
 
-        # Replace both cid:... and cid="..." formats
+        # Replace various cid: formats found in emails
+        # Format 1: src="cid:..."
+        html_content = re.sub(r'src=["\']cid:([^"\']+)["\']', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
+        # Format 2: src=cid:... (no quotes)
+        html_content = re.sub(r'src=cid:([^\s>]+)', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
+        # Format 3: standalone cid:... references
         html_content = re.sub(r'cid:([^"\s>]+)', replace_cid, html_content)
-        html_content = re.sub(r'cid="([^"]+)"', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
+
+        print(f"Replaced CID references, inline_images keys: {list(inline_images.keys())}")
 
         return html_content
     except Exception as e:
@@ -880,6 +936,10 @@ class OAuthHandler(BaseHTTPRequestHandler):
                     subject = headers.get('Subject', '(No Subject)')
                     snippet = decode_html_entities(msg.get('snippet', ''))
 
+                    # Extract attachments from the message
+                    attachments = extract_attachments(msg)
+                    has_attachments = len(attachments) > 0
+
                     email_data = {
                         'id': msg['id'],
                         'threadId': msg.get('threadId', ''),
@@ -891,7 +951,9 @@ class OAuthHandler(BaseHTTPRequestHandler):
                         'timestamp': timestamp,
                         'isRead': not msg.get('labelIds', []) or 'UNREAD' not in msg.get('labelIds', []),
                         'labels': msg.get('labelIds', []),
-                        'sizeEstimate': msg.get('sizeEstimate', 0)
+                        'sizeEstimate': msg.get('sizeEstimate', 0),
+                        'hasAttachments': has_attachments,
+                        'attachments': attachments
                     }
 
                     # Always extract body content (both text and HTML)

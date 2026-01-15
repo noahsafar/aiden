@@ -1,7 +1,7 @@
 import React, { useMemo, useEffect } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
-import { Bookmark } from 'lucide-react';
+import { Bookmark, File, Image, FileText, Archive, Music, Video } from 'lucide-react';
 import DOMPurify from 'dompurify';
 
 // Helper to decode HTML entities
@@ -10,6 +10,134 @@ function decodeHTMLEntities(text: string): string {
   const textarea = document.createElement('textarea');
   textarea.innerHTML = text;
   return textarea.value;
+}
+
+// Helper to get file icon based on mime type
+function getFileIcon(mimeType: string): React.ReactNode {
+  const type = mimeType.toLowerCase();
+  if (type.startsWith('image/')) return <Image size={20} />;
+  if (type.startsWith('video/')) return <Video size={20} />;
+  if (type.startsWith('audio/')) return <Music size={20} />;
+  if (type.includes('pdf')) return <FileText size={20} />;
+  if (type.includes('zip') || type.includes('rar') || type.includes('tar') || type.includes('gzip')) return <Archive size={20} />;
+  return <File size={20} />;
+}
+
+// Helper to format file size
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+}
+
+// Component to render email HTML content properly
+// Handles full HTML documents with <html>, <head>, <body> tags
+function EmailHtmlContent({ html }: { html: string }) {
+  const processedHtml = React.useMemo(() => {
+    if (!html) return '';
+
+    let cleanHtml = html;
+
+    // If the HTML contains a full document, extract just the body content
+    // or render the full document in an iframe-like way
+    if (cleanHtml.includes('<html') || cleanHtml.includes('<body')) {
+      // Extract content from body tags if present
+      const bodyMatch = cleanHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      if (bodyMatch) {
+        cleanHtml = bodyMatch[1];
+      } else {
+        // If no body tag but has html tag, extract everything after the head
+        const headEndMatch = cleanHtml.match(/<\/head[^>]*>([\s\S]*?)$/i);
+        if (headEndMatch) {
+          cleanHtml = headEndMatch[1];
+        }
+      }
+    }
+
+    // Configure DOMPurify for email HTML - more permissive for rich email content
+    // Allow all common email HTML tags and attributes
+    DOMPurify.addHook('uponSanitizeAttribute', function (node, data) {
+      // Allow data-* attributes
+      if (data.attrName.startsWith('data-')) {
+        data.keepAttr = true;
+      }
+      // Allow special email attributes
+      if (['bgcolor', 'cellpadding', 'cellspacing', 'valign', 'align', 'nowrap', 'border',
+           'colspan', 'rowspan', 'vspace', 'hspace', 'frameborder', 'scrolling', 'target',
+           'xmlns', 'xmlns:v', 'xmlns:o', 'w', 'h', 'fill', 'stroke', 'shape', 'type',
+           'coords', 'shape', 'usemap', 'name', 'id', 'xmlns:xlink', 'xlink:href',
+           'xml:space', 'filter', 'opacity'].includes(data.attrName.toLowerCase())) {
+        data.keepAttr = true;
+      }
+    });
+
+    const sanitized = DOMPurify.sanitize(cleanHtml, {
+      // Allow all standard HTML plus email-specific tags
+      ALLOWED_TAGS: [
+        // Basic HTML
+        'p', 'br', 'strong', 'em', 'u', 's', 'a', 'ul', 'ol', 'li',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'code', 'pre',
+        'div', 'span', 'img', 'hr', 'sup', 'sub', 'b', 'i', 'small', 'big',
+        // Tables
+        'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'col', 'colgroup',
+        // Forms (sometimes in emails)
+        'form', 'input', 'button', 'label', 'select', 'option', 'textarea',
+        // Other email elements
+        'font', 'center', 'map', 'area', 'object', 'param', 'embed', 'video', 'audio',
+        'source', 'track', 'iframe', 'style', 'link', 'meta', 'title', 'head', 'body',
+        'noscript', 'script', 'base', 'template', 'section', 'article', 'aside',
+        'nav', 'main', 'header', 'footer', 'figure', 'figcaption', 'details', 'summary'
+      ],
+      ALLOWED_ATTR: [
+        // Standard attributes
+        'href', 'src', 'alt', 'title', 'class', 'style', 'width', 'height', 'target', 'rel',
+        'id', 'name', 'type', 'value', 'placeholder', 'for', 'label',
+        // Email/table attributes
+        'bgcolor', 'background', 'cellpadding', 'cellspacing', 'valign', 'align',
+        'border', 'colspan', 'rowspan', 'nowrap', 'frameborder', 'scrolling',
+        'marginwidth', 'marginheight', 'hspace', 'vspace',
+        // Image attributes
+        'usemap', 'ismap', 'longdesc',
+        // Link attributes
+        'charset', 'hreflang', 'media', 'sizes', 'rev',
+        // Meta/link attributes
+        'http-equiv', 'content', 'scheme',
+        // Script attributes
+        'async', 'defer', 'crossorigin', 'integrity',
+        // SVG attributes
+        'fill', 'stroke', 'stroke-width', 'd', 'viewBox', 'preserveAspectRatio',
+        'xmlns', 'xmlns:xlink', 'xlink:href', 'xlink:title', 'xlink:type',
+        'version', 'baseProfile', 'xml:space',
+        // Data attributes
+        /^data-.*$/
+      ],
+      ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+      ALLOW_UNKNOWN_PROTOCOLS: false,
+      // Allow comments (some emails use conditional comments)
+      KEEP_CONTENT: true,
+      // Don't strip empty tags (emails use them for spacing)
+      WHOLE_DOCUMENT: false,
+      // Return as a fragment
+      RETURN_DOM_FRAGMENT: false,
+      FORCE_BODY: false
+    });
+
+    return sanitized;
+  }, [html]);
+
+  return (
+    <div
+      className="email-html-content"
+      dangerouslySetInnerHTML={{ __html: processedHtml }}
+      style={{
+        width: '100%',
+        overflow: 'auto',
+        // Ensure email content takes appropriate width
+        maxWidth: '100%'
+      }}
+    />
+  );
 }
 
 interface EmailViewProps {
@@ -48,7 +176,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [hasEdited, setHasEdited] = React.useState(false);
   const [localAiReply, setLocalAiReply] = React.useState<string | null>(null); // Local state for immediate display
   const [lastError, setLastError] = React.useState<string>(''); // For debugging
-  const [serverRunning, setServerRunning] = React.useState<boolean | null>(null); // Server health status
 
   // Question/answer flow state - store answers as a map of question index -> answer
   const [pendingQuestions, setPendingQuestions] = React.useState<any[]>([]);
@@ -298,23 +425,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
     }
   };
 
-  // Check if the OAuth server is running
-  const checkServerHealth = async (): Promise<boolean> => {
-    try {
-      const response = await fetch('http://localhost:8081/health', {
-        method: 'GET',
-        signal: AbortSignal.timeout(2000), // 2 second timeout
-      });
-      const isRunning = response.ok;
-      setServerRunning(isRunning);
-      return isRunning;
-    } catch (error) {
-      console.log('[checkServerHealth] Server not responding:', error);
-      setServerRunning(false);
-      return false;
-    }
-  };
-
   // Analyze email to extract questions and detect suggested formality
   const analyzeEmailForQuestions = async () => {
     if (!fullEmail) return;
@@ -418,12 +528,10 @@ export const EmailView: React.FC<EmailViewProps> = ({
         const state = getEmailState(email.id);
         state.questionsLoaded = true;
       }
-      setServerRunning(true);
     } catch (error) {
       console.error('[analyzeEmail] Failed to analyze email:', error);
       setPendingQuestions([]);
       setQuestionsLoaded(true); // Mark as loaded so we show the "no questions" message
-      setServerRunning(false);
       setLastError('Analysis failed: ' + String(error));
     } finally {
       setAnalyzingQuestions(false);
@@ -673,21 +781,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
         {/* Questions Section - only show after analysis is complete and no ai reply yet */}
         {!analyzingQuestions && questionsLoaded && !displayAiReply && summary && (
           <div className="mt-4 space-y-4">
-            {/* Server not running warning */}
-            {serverRunning === false && (
-              <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-                <div className="flex items-center gap-2">
-                  <svg className="w-5 h-5 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <div>
-                    <p className="text-sm font-medium text-red-700 dark:text-red-300">Backend server not running</p>
-                    <p className="text-xs text-red-600 dark:text-red-400">Please restart the app or run with <code>npm run tauri dev</code></p>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Questions list */}
             {pendingQuestions.length > 0 ? (
               <div className="space-y-3">
@@ -1063,16 +1156,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
               </div>
 
               <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:text-foreground">
-                {email.bodyHtml ? (
-                  <div
-                    dangerouslySetInnerHTML={{
-                      __html: DOMPurify.sanitize(email.bodyHtml, {
-                        ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 's', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'code', 'pre', 'div', 'span', 'img', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'hr', 'sup', 'sub', 'b', 'i'],
-                        ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'style', 'width', 'height', 'target', 'rel'],
-                      })
-                    }}
-                    className="text-foreground email-html-content"
-                  />
+                {email.bodyHtml || email.body_html ? (
+                  <EmailHtmlContent html={email.bodyHtml || email.body_html} />
                 ) : (
                   <div className="whitespace-pre-wrap text-foreground">
                     {decodeHTMLEntities(email.content?.startsWith(email.subject)
@@ -1082,15 +1167,24 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 )}
               </div>
 
-              {email.hasAttachments && (
-                <div className="mt-6 p-4 bg-surface-variant rounded-lg">
-                  <h3 className="text-sm font-semibold text-foreground mb-2">Attachments</h3>
-                  {email.attachments?.map((att: any, index: number) => (
-                    <div key={index} className="flex items-center justify-between p-2 bg-surface rounded border">
-                      <span className="text-sm text-foreground">{att.name}</span>
-                      <span className="text-xs text-muted">{att.size}</span>
-                    </div>
-                  ))}
+              {email.hasAttachments && email.attachments && email.attachments.length > 0 && (
+                <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Attachments ({email.attachments.length})</h3>
+                  <div className="space-y-2">
+                    {email.attachments.map((att: any, index: number) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-white dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                            {getFileIcon(att.mimeType || att.filename)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">{att.filename || att.name || 'Unnamed attachment'}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{att.mimeType || 'Unknown type'} • {formatFileSize(att.size)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </>
