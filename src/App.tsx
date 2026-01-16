@@ -392,7 +392,7 @@ function App() {
                           ? 'Emails you send will appear here.'
                           : currentFilter === 'saved'
                           ? 'Emails you bookmark will appear here.'
-                          : 'Emails that arrive after you logged in will appear here automatically.'}
+                          : 'Emails that arrive will appear here.'}
                       </p>
                     </div>
                   ) : (
