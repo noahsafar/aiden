@@ -2,19 +2,15 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 
 type ThemeMode = 'light' | 'dark' | 'auto';
-type FontSize = 'small' | 'medium' | 'large';
 
 interface ThemeSettings {
   theme: ThemeMode;
-  font_size: FontSize;
 }
 
 interface ThemeState {
   themeMode: ThemeMode;
   isDark: boolean;
-  fontSize: FontSize;
   setTheme: (theme: ThemeMode) => void;
-  setFontSize: (size: FontSize) => void;
   toggleTheme: () => void;
   loadThemeFromSettings: () => Promise<void>;
 }
@@ -42,23 +38,15 @@ function applyTheme(isDark: boolean) {
   }
 }
 
-// Font size multipliers
-const fontSizes = {
-  small: 0.875,
-  medium: 1,
-  large: 1.125,
-};
-
-// Apply font size to DOM
-function applyFontSize(fontSize: FontSize) {
+// Set default font size to large (1.125rem)
+function applyDefaultFontSize() {
   const root = document.documentElement;
-  root.style.fontSize = `${fontSizes[fontSize]}rem`;
+  root.style.fontSize = '1.125rem';
 }
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
   themeMode: 'auto',
   isDark: calculateDarkMode('auto'),
-  fontSize: 'medium',
 
   setTheme: (themeMode: ThemeMode) => {
     const isDark = calculateDarkMode(themeMode);
@@ -67,17 +55,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
     // Save to settings
     invoke('save_settings', {
-      settings: { ...get().themeMode, theme: themeMode }
-    }).catch(console.error);
-  },
-
-  setFontSize: (fontSize: FontSize) => {
-    set({ fontSize });
-    applyFontSize(fontSize);
-
-    // Save to settings
-    invoke('save_settings', {
-      settings: { ...get().fontSize, font_size: fontSize }
+      settings: { theme: themeMode }
     }).catch(console.error);
   },
 
@@ -98,20 +76,24 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     try {
       const settings = await invoke<ThemeSettings>('get_settings');
       const themeMode = settings?.theme || 'auto';
-      const fontSize = settings?.font_size || 'medium';
       const isDark = calculateDarkMode(themeMode);
-      set({ themeMode, isDark, fontSize });
+      set({ themeMode, isDark });
       applyTheme(isDark);
-      applyFontSize(fontSize);
+      applyDefaultFontSize();
     } catch (e) {
       // Use defaults if settings fail to load
       const isDark = calculateDarkMode('auto');
-      set({ themeMode: 'auto', isDark, fontSize: 'medium' });
+      set({ themeMode: 'auto', isDark });
       applyTheme(isDark);
-      applyFontSize('medium');
+      applyDefaultFontSize();
     }
   },
 }));
+
+// Apply default font size on load
+if (typeof window !== 'undefined') {
+  applyDefaultFontSize();
+}
 
 // Listen for system theme changes when in auto mode
 if (typeof window !== 'undefined') {

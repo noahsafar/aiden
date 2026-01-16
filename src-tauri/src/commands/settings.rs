@@ -31,7 +31,6 @@ pub struct GenerateReplyResponse {
 pub struct AppSettings {
     // Appearance
     pub theme: String,  // "light", "dark", "auto"
-    pub font_size: String,  // "small", "medium", "large"
     // Notifications
     pub enable_notifications: bool,
     pub show_notification_preview: bool,
@@ -55,7 +54,6 @@ impl Default for AppSettings {
         Self {
             // Appearance defaults
             theme: "auto".to_string(),
-            font_size: "medium".to_string(),
             // Notification defaults
             enable_notifications: true,
             show_notification_preview: true,
