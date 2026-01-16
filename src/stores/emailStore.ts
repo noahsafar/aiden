@@ -285,6 +285,13 @@ export interface Email {
   key_points?: string[];
   requires_reply: boolean;
   ai_generated_reply?: string;
+  meeting_request?: {
+    is_meeting: boolean;
+    proposed_times?: string[];
+    duration_minutes?: number;
+    attendees?: string[];
+    subject?: string;
+  };
   // For sent emails: reference to the original email being replied to
   inReplyTo?: string;  // original email ID
   originalEmail?: Email;  // full original email data (populated when viewing sent emails)
@@ -520,6 +527,7 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
           suggestedFormalityScore: suggestedScore,
           requiresReply: result.requires_reply,
           replyReasoning: result.reply_reasoning,
+          meetingRequest: result.meeting_request || { is_meeting: false },
           loaded: true,
         });
       } else {

@@ -406,7 +406,6 @@ export function Settings() {
                       />
                       <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-2">
                         <span>5 min</span>
-                        <span>30 min</span>
                         <span>60 min</span>
                       </div>
                     </div>

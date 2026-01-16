@@ -72,6 +72,43 @@
     @apply outline-2 outline-primary-500 outline-offset-2 rounded-sm;
   }
 
+  /* Range slider styling - centered thumb */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #2563eb;
+    cursor: pointer;
+    margin: 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #2563eb;
+    cursor: pointer;
+    border: none;
+    margin: 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  .dark input[type="range"]::-webkit-slider-thumb {
+    background: #3b82f6;
+  }
+
+  .dark input[type="range"]::-moz-range-thumb {
+    background: #3b82f6;
+  }
+
   /* Scrollbar styling */
   ::-webkit-scrollbar {
     width: 8px;

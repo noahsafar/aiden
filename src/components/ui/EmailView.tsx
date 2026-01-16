@@ -462,6 +462,10 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setFormalityScore(suggestedScore);
       setQuestionsLoaded(true);
       setAnalyzingQuestions(false);
+      // Set meeting request
+      if (globalQuestionData.meetingRequest) {
+        setMeetingRequest(globalQuestionData.meetingRequest);
+      }
       // Save to email state map
       if (email?.id) {
         const state = getEmailState(email.id);
@@ -540,6 +544,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
         const state = getEmailState(email.id);
         state.suggestedFormalityScore = suggestedScore;
         state.formalityScore = suggestedScore;
+      }
+
+      // Set meeting request from API response
+      if (result.meeting_request) {
+        setMeetingRequest(result.meeting_request);
       }
 
       // Mark that we've successfully loaded questions (even if empty)
@@ -796,6 +805,18 @@ export const EmailView: React.FC<EmailViewProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {/* Meeting Suggestions - show when a meeting request is detected */}
+        {!analyzingQuestions && questionsLoaded && meetingRequest?.is_meeting && (
+          <MeetingSuggestions
+            meetingRequest={meetingRequest}
+            emailSubject={email.subject}
+            senderEmail={fullEmail?.sender || email.sender || ''}
+            onCreated={() => {
+              // Optionally refresh the calendar or show a confirmation
+            }}
+          />
         )}
 
         {/* Questions Section - only show after analysis is complete and no ai reply yet */}
