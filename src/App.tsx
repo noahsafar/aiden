@@ -309,22 +309,22 @@ function App() {
         path="/dashboard"
         element={
           isAuthenticated ? (
-            <div className="h-screen bg-background overflow-hidden">
+            <div className="h-screen bg-background overflow-hidden flex flex-col min-w-0">
               {/* Top Navigation Bar */}
-              <div className="h-14 bg-surface border-b border-border flex items-center justify-between pl-2 pr-4 z-10">
-                <div className="flex items-center gap-0">
+              <div className="h-14 bg-surface border-b border-border flex items-center justify-between pl-2 pr-4 z-10 flex-shrink-0 min-w-0">
+                <div className="flex items-center gap-0 min-w-0">
                   <img
                     src={logo}
                     alt="Aiden Logo"
-                    className="h-8 w-8"
+                    className="h-8 w-8 flex-shrink-0"
                   />
-                  <h1 className="text-xl font-bold text-gray-900 dark:text-white">Aiden</h1>
-                  <span className="ml-4 text-sm text-gray-500">
-                    {user ? `${user.email}` : 'Not logged in'}
+                  <h1 className="text-lg font-bold text-gray-900 dark:text-white truncate">Aiden</h1>
+                  <span className="ml-2 text-sm text-gray-500 hidden sm:block truncate">
+                    {user ? user.email : 'Not logged in'}
                   </span>
                 </div>
 
-                <div className="flex-1 max-w-xl mx-8">
+                <div className="flex-1 max-w-xl mx-4 hidden md:block">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
@@ -335,7 +335,7 @@ function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1 flex-shrink-0">
                   <Link to="/settings">
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="Settings">
                       <SettingsIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
@@ -348,24 +348,24 @@ function App() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 px-3 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                    className="h-8 px-2 sm:px-3 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                     onClick={signOut}
                   >
-                    <LogOut className="h-4 w-4 mr-1" />
-                    <span className="text-sm">Sign Out</span>
+                    <LogOut className="h-4 w-4 sm:mr-1" />
+                    <span className="text-sm hidden sm:inline">Sign Out</span>
                   </Button>
                 </div>
               </div>
 
               {/* Main Content Area */}
-              <div className="flex h-[calc(100vh-3.5rem)]">
+              <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
                 {/* Sidebar */}
                 <Sidebar
                   inboxCount={inboxCount}
                 />
 
                 {/* Email List */}
-                <div className="w-96 border-r border-gray-200/60 dark:border-gray-700/60">
+                <div className="w-80 min-w-60 max-w-96 border-r border-gray-200/60 dark:border-gray-700/60 flex-shrink-0">
                   {filteredEmails.length === 0 && !emailsLoading ? (
                     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                       <Mail className="h-12 w-12 text-gray-400 mb-4" />
@@ -391,7 +391,7 @@ function App() {
                 </div>
 
                 {/* Email Content */}
-                <div className="flex-1 overflow-hidden">
+                <div className="flex-1 min-w-0 overflow-hidden">
                   {selectedEmail ? (
                     <EmailView
                       email={selectedEmail}
