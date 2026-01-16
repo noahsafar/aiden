@@ -201,7 +201,7 @@ function App() {
 
     const interval = setInterval(() => {
       fetchEmails();
-    }, 60000); // Poll every 60 seconds to reduce CPU usage
+    }, 10000); // Poll every 10 seconds
 
     return () => clearInterval(interval);
   }, [isAuthenticated, fetchEmails]);

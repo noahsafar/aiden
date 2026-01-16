@@ -6,15 +6,11 @@ import { useAuthStore } from '@/stores/authStore';
 import logo from '/aiden-logo.png';
 
 interface AppSettings {
-  polling_interval_minutes: number;
   enable_notifications: boolean;
   enable_auto_reply: boolean;
   auto_reply_delay_minutes: number;
   urgent_keywords: string[];
   important_senders: string[];
-  working_hours_start: string;
-  working_hours_end: string;
-  timezone: string;
   // Smart notification settings
   notification_mode: 'all' | 'smart' | 'vip_only';
   quiet_hours_enabled: boolean;
@@ -27,15 +23,11 @@ interface AppSettings {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  polling_interval_minutes: 5,
   enable_notifications: true,
   enable_auto_reply: false,
   auto_reply_delay_minutes: 30,
   urgent_keywords: ['urgent', 'emergency', 'asap', 'immediately'],
   important_senders: [],
-  working_hours_start: '09:00',
-  working_hours_end: '17:00',
-  timezone: 'UTC',
   notification_mode: 'smart',
   quiet_hours_enabled: false,
   quiet_hours_start: '22:00',
@@ -527,23 +519,6 @@ export function Settings() {
                   onChange={() => updateSetting('enable_auto_reply', !settings.enable_auto_reply)}
                   color="yellow"
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Check for new emails every
-                </label>
-                <select
-                  value={settings.polling_interval_minutes}
-                  onChange={(e) => updateSetting('polling_interval_minutes', Number(e.target.value))}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
-                >
-                  <option value={1}>1 minute</option>
-                  <option value={5}>5 minutes</option>
-                  <option value={10}>10 minutes</option>
-                  <option value={15}>15 minutes</option>
-                  <option value={30}>30 minutes</option>
-                </select>
               </div>
             </div>
           </section>
