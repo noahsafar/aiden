@@ -29,8 +29,12 @@ pub struct GenerateReplyResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppSettings {
+    // Appearance
+    pub theme: String,  // "light", "dark", "auto"
+    pub font_size: String,  // "small", "medium", "large"
+    // Notifications
     pub enable_notifications: bool,
-    pub important_senders: Vec<String>,
+    pub show_notification_preview: bool,
     // Smart notification settings
     pub notification_mode: String,  // "all", "smart", "vip_only"
     pub quiet_hours_enabled: bool,
@@ -40,15 +44,23 @@ pub struct AppSettings {
     pub batch_interval_minutes: u64, // How long to batch before sending
     pub vip_senders: Vec<String>,    // Senders that always trigger immediate notification
     pub emergency_keywords: Vec<String>, // Keywords that bypass quiet hours
+    pub important_senders: Vec<String>,
+    // Email behavior
+    pub visible_categories: Vec<String>,  // Which categories to show in inbox
+    pub mark_as_read_on_view: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            // Appearance defaults
+            theme: "auto".to_string(),
+            font_size: "medium".to_string(),
+            // Notification defaults
             enable_notifications: true,
-            important_senders: vec![],
+            show_notification_preview: true,
             // Smart notification defaults
-            notification_mode: "smart".to_string(),  // smart is the default
+            notification_mode: "smart".to_string(),
             quiet_hours_enabled: false,
             quiet_hours_start: "22:00".to_string(),
             quiet_hours_end: "08:00".to_string(),
@@ -64,6 +76,10 @@ impl Default for AppSettings {
                 "asap".to_string(),
                 "fire".to_string(),
             ],
+            important_senders: vec![],
+            // Email behavior defaults
+            visible_categories: vec!["Urgent".to_string(), "Important".to_string(), "Normal".to_string(), "Low".to_string()],
+            mark_as_read_on_view: true,
         }
     }
 }

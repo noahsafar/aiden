@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useEmailStore } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { Bookmark, File, Image, FileText, Archive, Music, Video } from 'lucide-react';
@@ -167,7 +168,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onDelete = () => {},
   onAction = () => {}
 }) => {
-  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply } = useEmailStore();
+  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead } = useEmailStore();
 
   const [isEditing, setIsEditing] = React.useState(false);
   const [editedReply, setEditedReply] = React.useState('');
@@ -307,9 +308,24 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
   // Save state before email changes, then load new email's state
   const prevEmailIdRef = React.useRef<string | null>(null);
+  const hasMarkedAsReadRef = React.useRef<Set<string>>(new Set());
 
   React.useEffect(() => {
     const currentEmailId = email?.id || null;
+
+    // Mark email as read when viewed (if setting enabled and not already read)
+    if (currentEmailId && !isSentEmail && fullEmail && !fullEmail.is_read) {
+      invoke('get_settings').then((settings: any) => {
+        if (settings.mark_as_read_on_view !== false && !hasMarkedAsReadRef.current.has(currentEmailId)) {
+          markAsRead(currentEmailId);
+          hasMarkedAsReadRef.current.add(currentEmailId);
+        }
+      }).catch(() => {
+        // Default to marking as read if settings fail to load
+        markAsRead(currentEmailId);
+        hasMarkedAsReadRef.current.add(currentEmailId);
+      });
+    }
 
     // Save previous email's state before switching
     if (prevEmailIdRef.current && prevEmailIdRef.current !== currentEmailId) {

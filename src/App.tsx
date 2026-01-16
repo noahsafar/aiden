@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useAuthStore } from '@/stores/authStore';
 import { useEmailStore } from '@/stores/emailStore';
+import { useThemeStore } from '@/stores/themeStore';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -61,10 +62,10 @@ interface Email {
 
 function App() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
   const [appStartTime] = useState(Date.now());
-  const { signOut, isAuthenticated, isLoading, initialize, setState, user } = useAuthStore();
+  const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
   const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter } = useEmailStore();
+  const { isDark, toggleTheme, loadThemeFromSettings } = useThemeStore();
 
   // Convert email store format to UI format - use useCallback to avoid recreating on every render
   const convertToUIEmail = React.useCallback((email: any): Email => {
@@ -173,6 +174,9 @@ function App() {
   useEffect(() => {
     // Initialize authentication state on app load
     const initAuth = async () => {
+      // Load theme from settings first
+      await loadThemeFromSettings();
+
       // Start OAuth server automatically (Tauri only)
       try {
         const { invoke } = await import('@tauri-apps/api/core');
@@ -193,7 +197,7 @@ function App() {
     };
 
     initAuth();
-  }, [initialize, isAuthenticated]);
+  }, [initialize, isAuthenticated, loadThemeFromSettings]);
 
   // Set up polling for new emails every 10 seconds
   useEffect(() => {
@@ -205,14 +209,6 @@ function App() {
 
     return () => clearInterval(interval);
   }, [isAuthenticated, fetchEmails]);
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [isDarkMode]);
 
   // Set up notification click handler to focus window
   useEffect(() => {
@@ -258,7 +254,7 @@ function App() {
   };
 
   const handleThemeToggle = () => {
-    setIsDarkMode(!isDarkMode);
+    toggleTheme();
   };
 
   const handleCompose = () => {
@@ -356,7 +352,7 @@ function App() {
                     <span className="absolute top-1 right-1 h-2 w-2 bg-error-500 rounded-full"></span>
                   </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleThemeToggle}>
-                    {isDarkMode ? (
+                    {isDark ? (
                       <Sun className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                     ) : (
                       <Moon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
@@ -378,7 +374,7 @@ function App() {
               <div className="flex h-[calc(100vh-3.5rem)]">
                 {/* Sidebar */}
                 <Sidebar
-                  isDarkMode={isDarkMode}
+                  isDark={isDark}
                   onThemeToggle={handleThemeToggle}
                   inboxCount={inboxCount}
                 />
@@ -467,7 +463,7 @@ function App() {
                     </Button>
                   </Link>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleThemeToggle}>
-                    {isDarkMode ? (
+                    {isDark ? (
                       <Sun className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                     ) : (
                       <Moon className="h-4 w-4 text-gray-600 dark:text-gray-400" />

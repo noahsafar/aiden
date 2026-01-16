@@ -51,14 +51,17 @@ export async function fetchWithTimeout(url: string, options: RequestInit = {}, t
 
 // Lazy load notification API only in Tauri
 let sendTauriNotification: any = null;
-async function sendNotification(title: string, body: string): Promise<void> {
+async function sendNotification(title: string, body?: string): Promise<void> {
   if (!isTauri) return;
   try {
     if (!sendTauriNotification) {
       const plugin = await import('@tauri-apps/plugin-notification');
       sendTauriNotification = plugin.sendNotification;
     }
-    await sendTauriNotification({ title, body, icon: '/icons/icon.png' });
+    const settings = await getSettings();
+    // If preview is disabled, only send the title
+    const notificationBody = (settings.show_notification_preview !== false) ? (body || '') : '';
+    await sendTauriNotification({ title, body: notificationBody, icon: '/icons/icon.png' });
   } catch (e) {
     console.error('Notification error:', e);
   }
