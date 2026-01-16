@@ -340,6 +340,51 @@ fn parse_gmail_message(message: GmailMessageDetail) -> Result<Email, String> {
     })
 }
 
+#[derive(Debug, Serialize)]
+struct ModifyRequest {
+    #[serde(rename = "addLabelIds")]
+    add_label_ids: Option<Vec<String>>,
+    #[serde(rename = "removeLabelIds")]
+    remove_label_ids: Option<Vec<String>>,
+}
+
+#[command]
+pub async fn modify_email(access_token: String, message_id: String, remove_labels: Option<Vec<String>>) -> Result<(), String> {
+    let rate_limiter = get_rate_limiter();
+    rate_limiter.acquire().await?;
+
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}",
+        message_id
+    );
+
+    let modify_request = ModifyRequest {
+        add_label_ids: None,
+        remove_label_ids: remove_labels,
+    };
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .json(&modify_request)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to modify message: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Gmail API error: {}", response.status()));
+    }
+
+    Ok(())
+}
+
+#[command]
+pub async fn mark_email_as_read(access_token: String, message_id: String) -> Result<(), String> {
+    modify_email(access_token, message_id, Some(vec!["UNREAD".to_string()])).await
+}
+
 // Helper function to decode base64url encoding
 fn decode_base64_url(encoded: &str) -> Result<String, String> {
     // Replace URL-safe characters

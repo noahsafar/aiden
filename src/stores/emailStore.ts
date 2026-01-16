@@ -867,6 +867,28 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   markAsRead: async (emailId) => {
     try {
+      const state = get();
+      const email = state.emails.find(e => e.id === emailId);
+
+      if (!email) {
+        console.warn('Email not found:', emailId);
+        return;
+      }
+
+      // Get access token
+      const authStore = useAuthStore.getState();
+      const accessToken = authStore.token?.access_token || localStorage.getItem('aiden_access_token');
+
+      if (isTauri && accessToken && accessToken !== 'mock_access_token_dev') {
+        // Call Tauri command to mark as read in Gmail
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          await invoke('mark_email_as_read', { accessToken, messageId: email.gmail_id });
+        } catch (error) {
+          console.error('Failed to mark as read via Gmail API:', error);
+        }
+      }
+
       // Update local state
       set((state) => ({
         emails: state.emails.map(email =>
@@ -876,8 +898,6 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           ? { ...state.selectedEmail, is_read: true }
           : state.selectedEmail,
       }));
-
-      // TODO: Call Gmail API to mark as read
     } catch (error) {
       console.error('Failed to mark email as read:', error);
     }

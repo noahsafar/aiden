@@ -23,6 +23,7 @@ fn main() {
             gmail::fetch_emails,
             gmail::send_email,
             gmail::get_profile,
+            gmail::mark_email_as_read,
             // AI commands
             ai::generate_reply,
             ai::summarize_email,
