@@ -25,14 +25,16 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-# OAuth Scopes for Gmail access (matching working aiden-ai implementation)
+# OAuth Scopes for Gmail and Calendar access
 SCOPES = [
     'openid',  # Add at beginning - Google adds this automatically
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/gmail.modify',
     'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/userinfo.profile'
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar.events',
 ]
 
 # OAuth Configuration
@@ -736,6 +738,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_callback()
         elif self.path.startswith('/emails'):
             self.handle_emails()
+        elif self.path.startswith('/calendar'):
+            self.handle_calendar()
         elif self.path == '/':
             # Root endpoint with simple status
             self.end_headers()
@@ -760,6 +764,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_edit_reply()
         elif self.path.startswith('/summarize'):
             self.handle_summarize()
+        elif self.path.startswith('/calendar'):
+            self.handle_calendar()
         else:
             self.send_error(404)
 
@@ -1359,7 +1365,15 @@ ALSO consider past emails sent to this person - if you typically use a certain t
 
 Return "suggested_formality_score" as a number from 0 to 100.
 
-If there are genuinely NO questions requiring a response (pure informational email), return {{"questions": [], "requires_reply": false, "reply_reasoning": "Informational - no action needed", "suggested_formality_score": 50}}.
+MEETING REQUEST DETECTION:
+Check if this email is requesting a meeting/call. Return a "meeting_request" object with:
+- "is_meeting": true if this email requests a meeting, call, sync, or get-together
+- "proposed_times": array of time mentions found (e.g., "Tuesday", "2pm", "next week")
+- "duration_minutes": estimated duration if mentioned (default 60)
+- "attendees": list of email addresses found in the email besides the recipient
+- "subject": the meeting subject/topic
+
+If there are genuinely NO questions requiring a response (pure informational email), return {{"questions": [], "requires_reply": false, "reply_reasoning": "Informational - no action needed", "suggested_formality_score": 50, "meeting_request": {{"is_meeting": false}}}}.
 
 Return ONLY valid JSON, no other text or explanation."""
 
@@ -1427,6 +1441,9 @@ Return ONLY valid JSON, no other text or explanation."""
                         requires_reply = result_data.get('requires_reply', len(questions) > 0)
                         reply_reasoning = result_data.get('reply_reasoning', '')
 
+                        # Get meeting_request if present
+                        meeting_request = result_data.get('meeting_request', {'is_meeting': False})
+
                         # FALLBACK: If AI found no questions but rule-based found some, use rule-based
                         if not questions and rule_based_questions:
                             print(f"AI found no questions, using rule-based fallback: {rule_based_questions}")
@@ -1438,22 +1455,51 @@ Return ONLY valid JSON, no other text or explanation."""
                         suggested_formality_score = 50
                         requires_reply = False
                         reply_reasoning = ''
+                        meeting_request = {'is_meeting': False}
 
                     print(f"Email analysis found {len(questions)} questions, requires_reply: {requires_reply}, suggested formality score: {suggested_formality_score}")
-                    resp = {'success': True, 'questions': questions, 'suggested_formality_score': suggested_formality_score, 'requires_reply': requires_reply, 'reply_reasoning': reply_reasoning}
+                    resp = {
+                        'success': True,
+                        'questions': questions,
+                        'suggested_formality_score': suggested_formality_score,
+                        'requires_reply': requires_reply,
+                        'reply_reasoning': reply_reasoning,
+                        'meeting_request': meeting_request
+                    }
                     self.wfile.write(json.dumps(resp).encode())
                 except json.JSONDecodeError as e:
                     print(f"Failed to parse AI response as JSON: {e}, result was: {result[:500]}")
                     # Use rule-based questions as fallback
                     if rule_based_questions:
                         print(f"Using rule-based questions after parse error: {rule_based_questions}")
-                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50, 'requires_reply': True, 'reply_reasoning': 'Questions found in email'}
+                        resp = {
+                            'success': True,
+                            'questions': rule_based_questions,
+                            'suggested_formality_score': 50,
+                            'requires_reply': True,
+                            'reply_reasoning': 'Questions found in email',
+                            'meeting_request': {'is_meeting': False}
+                        }
                     else:
-                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': False, 'reply_reasoning': ''}
+                        resp = {
+                            'success': True,
+                            'questions': [],
+                            'suggested_formality_score': 50,
+                            'requires_reply': False,
+                            'reply_reasoning': '',
+                            'meeting_request': {'is_meeting': False}
+                        }
                     self.wfile.write(json.dumps(resp).encode())
             else:
                 print(f"Failed to analyze email: {error}")
-                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': False, 'reply_reasoning': ''}
+                resp = {
+                    'success': True,
+                    'questions': [],
+                    'suggested_formality_score': 50,
+                    'requires_reply': False,
+                    'reply_reasoning': '',
+                    'meeting_request': {'is_meeting': False}
+                }
                 self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:
@@ -1738,6 +1784,220 @@ Edit the email draft according to the user's instructions. Keep the same general
     def log_message(self, format_str, *args):
         """Suppress server log messages"""
         pass
+
+    def handle_calendar(self):
+        """Handle calendar API requests"""
+        try:
+            # Get credentials
+            creds = get_stored_credentials()
+            if not creds:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'Not authenticated'}).encode())
+                return
+
+            # Parse request body for POST
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length) if content_length > 0 else b'{}'
+            request_data = json.loads(post_data.decode('utf-8')) if post_data else {}
+
+            # Build calendar service
+            service = build('calendar', 'v3', credentials=creds)
+
+            action = request_data.get('action', 'list')
+
+            if action == 'list':
+                # Fetch calendar events
+                time_min = request_data.get('time_min')
+                time_max = request_data.get('time_max')
+                max_results = request_data.get('max_results', 20)
+
+                # Get current time if not specified
+                if not time_min:
+                    time_min = datetime.datetime.utcnow().isoformat() + 'Z'
+
+                # Build request parameters
+                params = {
+                    'calendarId': 'primary',
+                    'timeMin': time_min,
+                    'maxResults': max_results,
+                    'singleEvents': True,
+                    'orderBy': 'startTime'
+                }
+                if time_max:
+                    params['timeMax'] = time_max
+
+                events_result = service.events().list(**params).execute()
+                events = events_result.get('items', [])
+
+                calendar_events = []
+                for event in events:
+                    start_data = event.get('start', {})
+                    end_data = event.get('end', {})
+
+                    calendar_events.append({
+                        'id': event['id'],
+                        'summary': event.get('summary', 'No Title'),
+                        'description': event.get('description'),
+                        'location': event.get('location'),
+                        'start_datetime': start_data.get('dateTime', start_data.get('date')),
+                        'end_datetime': end_data.get('dateTime', end_data.get('date')),
+                        'status': event.get('status'),
+                    })
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'events': calendar_events,
+                    'total': len(calendar_events)
+                }).encode())
+
+            elif action == 'create_event':
+                # Create a new calendar event
+                summary = request_data.get('summary')
+                start_datetime = request_data.get('start_datetime')
+                end_datetime = request_data.get('end_datetime')
+                description = request_data.get('description')
+                location = request_data.get('location')
+                attendees = request_data.get('attendees', [])
+
+                if not summary or not start_datetime or not end_datetime:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': 'Missing required fields'}).encode())
+                    return
+
+                # Build event body
+                event_body = {
+                    'summary': summary,
+                    'start': {
+                        'dateTime': start_datetime,
+                    },
+                    'end': {
+                        'dateTime': end_datetime,
+                    },
+                }
+
+                if description:
+                    event_body['description'] = description
+                if location:
+                    event_body['location'] = location
+                if attendees:
+                    event_body['attendees'] = [{'email': email} for email in attendees]
+
+                # Create event
+                created_event = service.events().insert(calendarId='primary', body=event_body).execute()
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'event': {
+                        'id': created_event['id'],
+                        'summary': created_event.get('summary'),
+                        'html_link': created_event.get('htmlLink'),
+                    }
+                }).encode())
+
+            elif action == 'find_free_slots':
+                # Find free time slots for a meeting
+                duration_minutes = request_data.get('duration_minutes', 60)
+                start_date = request_data.get('start_date')
+                end_date = request_data.get('end_date')
+                working_hours_start = request_data.get('working_hours_start', '09:00')
+                working_hours_end = request_data.get('working_hours_end', '17:00')
+
+                if not start_date:
+                    start_date = datetime.datetime.utcnow().date().isoformat()
+                if not end_date:
+                    # Default to 7 days from now
+                    end_date = (datetime.datetime.utcnow() + datetime.timedelta(days=7)).date().isoformat()
+
+                # Get events for the date range
+                events_result = service.events().list(
+                    calendarId='primary',
+                    timeMin=f"{start_date}T00:00:00Z",
+                    timeMax=f"{end_date}T23:59:59Z",
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                existing_events = events_result.get('items', [])
+
+                # Find free slots (simplified - looks for gaps between events)
+                free_slots = []
+                busy_times = []
+
+                for event in existing_events:
+                    start_str = event.get('start', {}).get('dateTime')
+                    end_str = event.get('end', {}).get('dateTime')
+                    if start_str and end_str:
+                        try:
+                            start = datetime.datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                            end = datetime.datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                            busy_times.append((start, end))
+                        except:
+                            pass
+
+                # Generate potential slots (every 30 minutes during working hours)
+                # This is a simplified implementation - a full one would be more sophisticated
+                potential_slots = []
+                current_date = datetime.datetime.fromisoformat(start_date)
+                end_date_obj = datetime.datetime.fromisoformat(end_date)
+
+                while current_date <= end_date_obj:
+                    # Generate slots for this day
+                    day_start = current_date.replace(hour=9, minute=0, second=0, microsecond=0)
+                    day_end = current_date.replace(hour=17, minute=0, second=0, microsecond=0)
+
+                    # Generate hourly slots
+                    slot_time = day_start
+                    while slot_time + datetime.timedelta(minutes=duration_minutes) <= day_end:
+                        slot_end = slot_time + datetime.timedelta(minutes=duration_minutes)
+
+                        # Check if this slot overlaps with any busy time
+                        is_free = True
+                        for busy_start, busy_end in busy_times:
+                            if not (slot_end <= busy_start or slot_time >= busy_end):
+                                is_free = False
+                                break
+
+                        if is_free:
+                            potential_slots.append({
+                                'start': slot_time.isoformat(),
+                                'end': slot_end.isoformat(),
+                                'date': slot_time.strftime('%A, %B %d'),
+                                'time': slot_time.strftime('%I:%M %p'),
+                            })
+
+                        slot_time += datetime.timedelta(minutes=30)
+
+                    current_date += datetime.timedelta(days=1)
+
+                # Return top 5 suggestions
+                suggested_slots = sorted(potential_slots, key=lambda x: x['start'])[:5]
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'free_slots': suggested_slots,
+                    'total': len(suggested_slots)
+                }).encode())
+
+            else:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'Unknown action'}).encode())
+
+        except Exception as e:
+            print(f"Error in handle_calendar: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
 
 def get_stored_credentials():
     """Get stored credentials if they exist and are valid"""

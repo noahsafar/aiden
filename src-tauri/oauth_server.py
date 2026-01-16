@@ -25,14 +25,16 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-# OAuth Scopes for Gmail access (matching working aiden-ai implementation)
+# OAuth Scopes for Gmail and Calendar access
 SCOPES = [
     'openid',  # Add at beginning - Google adds this automatically
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/gmail.modify',
     'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/userinfo.profile'
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar.events',
 ]
 
 # OAuth Configuration

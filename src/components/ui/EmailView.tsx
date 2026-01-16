@@ -2,6 +2,7 @@ import React, { useMemo, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useEmailStore } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
+import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
 import { Bookmark, File, Image, FileText, Archive, Music, Video } from 'lucide-react';
 import DOMPurify from 'dompurify';
 
@@ -187,6 +188,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [formalityScore, setFormalityScore] = React.useState<FormalityScore>(50); // 0-100
   const [suggestedFormalityScore, setSuggestedFormalityScore] = React.useState<FormalityScore>(50);
   const [summaryComplete, setSummaryComplete] = React.useState(false);
+
+  // Meeting request state
+  const [meetingRequest, setMeetingRequest] = React.useState<any>({ is_meeting: false });
 
   // Unsend state
   const [isSending, setIsSending] = React.useState(false);
