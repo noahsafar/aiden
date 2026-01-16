@@ -105,6 +105,9 @@ async function shouldSendNotification(sender: string, subject: string, category:
   try {
     const settings = await getSettings();
 
+    // Update batch interval from settings
+    currentBatchIntervalMs = (settings.batch_interval_minutes || 15) * 60 * 1000;
+
     if (!settings.enable_notifications) {
       return { should_notify: false, should_batch: false, reason: 'Notifications disabled' };
     }
@@ -204,7 +207,18 @@ interface QueuedNotification {
 
 const notificationQueue: QueuedNotification[] = [];
 let batchTimeout: NodeJS.Timeout | null = null;
-const BATCH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes default
+let currentBatchIntervalMs = 15 * 60 * 1000; // Will be loaded from settings
+
+// Load batch interval from settings and update it
+async function updateBatchInterval() {
+  try {
+    const settings = await getSettings();
+    currentBatchIntervalMs = (settings.batch_interval_minutes || 15) * 60 * 1000;
+  } catch (e) {
+    console.error('[emailStore] Failed to load batch interval from settings:', e);
+    currentBatchIntervalMs = 15 * 60 * 1000; // fallback to 15 minutes
+  }
+}
 
 function processBatchedNotifications() {
   if (notificationQueue.length === 0) return;
@@ -239,7 +253,7 @@ function queueNotification(emailId: string, sender: string, subject: string, sum
 
   batchTimeout = setTimeout(() => {
     processBatchedNotifications();
-  }, BATCH_INTERVAL_MS);
+  }, currentBatchIntervalMs);
 }
 
 // Export for testing

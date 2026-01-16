@@ -1,6 +1,10 @@
 use tauri::command;
+use tauri::AppHandle;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GenerateReplyRequest {
@@ -25,15 +29,8 @@ pub struct GenerateReplyResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppSettings {
-    pub polling_interval_minutes: u64,
     pub enable_notifications: bool,
-    pub enable_auto_reply: bool,
-    pub auto_reply_delay_minutes: u64,
-    pub urgent_keywords: Vec<String>,
     pub important_senders: Vec<String>,
-    pub working_hours_start: String,
-    pub working_hours_end: String,
-    pub timezone: String,
     // Smart notification settings
     pub notification_mode: String,  // "all", "smart", "vip_only"
     pub quiet_hours_enabled: bool,
@@ -48,20 +45,8 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            polling_interval_minutes: 5,
             enable_notifications: true,
-            enable_auto_reply: false,
-            auto_reply_delay_minutes: 30,
-            urgent_keywords: vec![
-                "urgent".to_string(),
-                "emergency".to_string(),
-                "asap".to_string(),
-                "immediately".to_string(),
-            ],
             important_senders: vec![],
-            working_hours_start: "09:00".to_string(),
-            working_hours_end: "17:00".to_string(),
-            timezone: "UTC".to_string(),
             // Smart notification defaults
             notification_mode: "smart".to_string(),  // smart is the default
             quiet_hours_enabled: false,
@@ -83,26 +68,51 @@ impl Default for AppSettings {
     }
 }
 
+fn get_settings_file_path() -> Result<PathBuf, String> {
+    let app_dir = dirs::config_dir()
+        .ok_or("Could not find config directory")?
+        .join("aiden");
+
+    fs::create_dir_all(&app_dir)
+        .map_err(|e| format!("Failed to create config directory: {}", e))?;
+
+    Ok(app_dir.join("notification_settings.json"))
+}
+
 #[command]
 pub async fn get_settings() -> Result<AppSettings, String> {
-    // For now, return default settings
-    // In a real app, you'd load these from storage
-    Ok(AppSettings::default())
+    let settings_file = get_settings_file_path()?;
+
+    if settings_file.exists() {
+        let content = fs::read_to_string(&settings_file)
+            .map_err(|e| format!("Failed to read settings file: {}", e))?;
+        let settings: AppSettings = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse settings file: {}", e))?;
+        Ok(settings)
+    } else {
+        // Return default settings and save them
+        let default = AppSettings::default();
+        save_settings_to_disk(&default)?;
+        Ok(default)
+    }
 }
 
 #[command]
 pub async fn save_settings(settings: AppSettings) -> Result<(), String> {
-    // For now, just return success
-    // In a real app, you'd save these to storage
-    println!("Settings saved: {:?}", settings);
-    Ok(())
+    save_settings_to_disk(&settings)
 }
 
-#[command]
-pub async fn update_polling_interval(interval_minutes: u64) -> Result<(), String> {
-    // For now, just return success
-    // In a real app, you'd update the background task
-    println!("Polling interval updated to: {} minutes", interval_minutes);
+fn save_settings_to_disk(settings: &AppSettings) -> Result<(), String> {
+    let settings_file = get_settings_file_path()?;
+    let content = serde_json::to_string_pretty(settings)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+
+    let mut file = fs::File::create(&settings_file)
+        .map_err(|e| format!("Failed to create settings file: {}", e))?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("Failed to write settings file: {}", e))?;
+
+    println!("Settings saved to: {:?}", settings_file);
     Ok(())
 }
 

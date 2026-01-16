@@ -7,9 +7,6 @@ import logo from '/aiden-logo.png';
 
 interface AppSettings {
   enable_notifications: boolean;
-  enable_auto_reply: boolean;
-  auto_reply_delay_minutes: number;
-  urgent_keywords: string[];
   important_senders: string[];
   // Smart notification settings
   notification_mode: 'all' | 'smart' | 'vip_only';
@@ -24,9 +21,6 @@ interface AppSettings {
 
 const DEFAULT_SETTINGS: AppSettings = {
   enable_notifications: true,
-  enable_auto_reply: false,
-  auto_reply_delay_minutes: 30,
-  urgent_keywords: ['urgent', 'emergency', 'asap', 'immediately'],
   important_senders: [],
   notification_mode: 'smart',
   quiet_hours_enabled: false,
@@ -498,30 +492,6 @@ export function Settings() {
               </div>
             </section>
           )}
-
-          {/* Email Processing Section */}
-          <section className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
-              <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
-                <Zap className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
-              </div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Email Processing</h2>
-            </div>
-
-            <div className="p-6 space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Auto-send Replies</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatically send AI-generated replies</p>
-                </div>
-                <Switch
-                  checked={settings.enable_auto_reply}
-                  onChange={() => updateSetting('enable_auto_reply', !settings.enable_auto_reply)}
-                  color="yellow"
-                />
-              </div>
-            </div>
-          </section>
         </div>
       </main>
     </div>
