@@ -16,8 +16,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Search,
   Bell,
-  Moon,
-  Sun,
   Mail,
   Sparkles,
   LogOut,
@@ -65,7 +63,7 @@ function App() {
   const [appStartTime] = useState(Date.now());
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
   const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter } = useEmailStore();
-  const { isDark, toggleTheme, loadThemeFromSettings } = useThemeStore();
+  const { loadThemeFromSettings } = useThemeStore();
 
   // Convert email store format to UI format - use useCallback to avoid recreating on every render
   const convertToUIEmail = React.useCallback((email: any): Email => {
@@ -253,10 +251,6 @@ function App() {
     // Handle email actions (star, archive, delete, etc.)
   };
 
-  const handleThemeToggle = () => {
-    toggleTheme();
-  };
-
   const handleCompose = () => {
     console.log('Open compose modal');
     // Open compose modal
@@ -351,13 +345,6 @@ function App() {
                     <Bell className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                     <span className="absolute top-1 right-1 h-2 w-2 bg-error-500 rounded-full"></span>
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleThemeToggle}>
-                    {isDark ? (
-                      <Sun className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    ) : (
-                      <Moon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    )}
-                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -374,8 +361,6 @@ function App() {
               <div className="flex h-[calc(100vh-3.5rem)]">
                 {/* Sidebar */}
                 <Sidebar
-                  isDark={isDark}
-                  onThemeToggle={handleThemeToggle}
                   inboxCount={inboxCount}
                 />
 
@@ -462,13 +447,6 @@ function App() {
                       Back to Dashboard
                     </Button>
                   </Link>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleThemeToggle}>
-                    {isDark ? (
-                      <Sun className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    ) : (
-                      <Moon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    )}
-                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"

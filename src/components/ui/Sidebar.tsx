@@ -9,16 +9,12 @@ import {
 interface SidebarProps {
   className?: string;
   children?: React.ReactNode;
-  isDarkMode?: boolean;
-  onThemeToggle?: () => void;
   inboxCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   className = '',
   children,
-  isDarkMode = false,
-  onThemeToggle = () => {},
   inboxCount
 }) => {
   const { currentFilter, setCurrentFilter, emails, sentEmails } = useEmailStore();
