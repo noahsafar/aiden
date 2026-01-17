@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { serverURL } from '@/api/emails';
 
 // Function to start Python OAuth server
 const startPythonOAuthServer = async () => {
@@ -177,7 +178,8 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
 
       try {
         // Call Python OAuth server to trigger the OAuth flow
-        const response = await fetch('http://localhost:8081/auth', {
+        const baseURL = await serverURL();
+        const response = await fetch(`${baseURL}/auth`, {
           method: 'GET',
           mode: 'cors',
           headers: {

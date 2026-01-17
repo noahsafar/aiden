@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
 import { Bookmark, File, Image, FileText, Archive, Music, Video } from 'lucide-react';
 import DOMPurify from 'dompurify';
+import { serverURL } from '@/api/emails';
 
 // Helper to decode HTML entities
 function decodeHTMLEntities(text: string): string {
@@ -420,7 +421,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
     setIsAiEditing(true);
     try {
-      const response = await fetch('http://localhost:8081/edit-reply', {
+      const baseURL = await serverURL();
+      const response = await fetch(`${baseURL}/edit-reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -490,7 +492,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
         body_length: bodyText.length,
       });
 
-      const response = await fetch('http://localhost:8081/analyze-email', {
+      const baseURL = await serverURL();
+      const response = await fetch(`${baseURL}/analyze-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -618,7 +621,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
     try {
       console.log('[generateReply] Sending request to backend...');
-      const response = await fetch('http://localhost:8081/generate-reply', {
+      const baseURL = await serverURL();
+      const response = await fetch(`${baseURL}/generate-reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),

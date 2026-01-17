@@ -30,7 +30,33 @@ export interface SummarizeResponse {
   error?: string;
 }
 
-const OAUTH_SERVER_URL = 'http://localhost:8081';
+// Try to find the oauth server on ports 8081-8085
+async function getOAuthServerURL(): Promise<string> {
+  const ports = [8081, 8082, 8083, 8084, 8085];
+  for (const port of ports) {
+    try {
+      const response = await fetch(`http://localhost:${port}/`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(500)
+      });
+      if (response.ok) {
+        return `http://localhost:${port}`;
+      }
+    } catch {
+      // Port not available, try next
+    }
+  }
+  return 'http://localhost:8081'; // fallback
+}
+
+let cachedServerURL: string | null = null;
+
+async function serverURL(): Promise<string> {
+  if (!cachedServerURL) {
+    cachedServerURL = await getOAuthServerURL();
+  }
+  return cachedServerURL;
+}
 
 export async function fetchEmails(
   accessToken: string,
@@ -39,7 +65,8 @@ export async function fetchEmails(
   includeSummaries: boolean = true
 ): Promise<EmailResponse> {
   try {
-    const url = new URL(`${OAUTH_SERVER_URL}/emails`);
+    const baseURL = await serverURL();
+    const url = new URL(`${baseURL}/emails`);
     url.searchParams.append('maxResults', maxResults.toString());
     url.searchParams.append('q', query);
     url.searchParams.append('includeSummaries', includeSummaries.toString());
@@ -79,7 +106,8 @@ export async function summarizeEmail(
   snippet: string
 ): Promise<SummarizeResponse> {
   try {
-    const response = await fetch('http://localhost:8081/summarize', {
+    const baseURL = await serverURL();
+    const response = await fetch(`${baseURL}/summarize`, {
       method: 'POST',
       mode: 'cors',
       headers: {
@@ -107,6 +135,9 @@ export async function summarizeEmail(
     };
   }
 }
+
+// Export serverURL for other files to use
+export { serverURL };
 
 // Helper function to convert Gmail email format to app's Email format
 export function convertGmailEmail(gmailEmail: GmailEmail): any {

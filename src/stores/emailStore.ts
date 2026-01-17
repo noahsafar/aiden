@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { fetchGmailEmails, convertGmailEmailToApp } from '@/api/gmail';
 import { useAuthStore } from '@/stores/authStore';
+import { serverURL } from '@/api/emails';
 
 // Check if running in Tauri
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
@@ -395,8 +396,9 @@ async function generateSummaryForEmail(emailId: string): Promise<void> {
       return;
     }
 
+    const baseURL = await serverURL();
     console.log(`[AI Processing] Calling summarize API for ${emailId}`);
-    const response = await fetchWithTimeout('http://localhost:8081/summarize', {
+    const response = await fetchWithTimeout(`${baseURL}/summarize`, {
       method: 'POST',
       mode: 'cors',
       headers: { 'Content-Type': 'application/json' },
@@ -492,8 +494,9 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
       return;
     }
 
+    const baseURL = await serverURL();
     console.log(`[AI Processing] Calling analyze-email API for ${emailId}`);
-    const response = await fetchWithTimeout('http://localhost:8081/analyze-email', {
+    const response = await fetchWithTimeout(`${baseURL}/analyze-email`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -565,7 +568,8 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
     }
 
     console.log(`[AI Processing] Calling reply API for ${emailId}`);
-    const response = await fetchWithTimeout('http://localhost:8081/generate-reply', {
+    const baseURL = await serverURL();
+    const response = await fetchWithTimeout(`${baseURL}/generate-reply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -688,7 +692,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
       // Use Python OAuth server to fetch emails
       try {
-        const response = await fetch('http://localhost:8081/emails', {
+        const baseURL = await serverURL();
+        const response = await fetch(`${baseURL}/emails`, {
           method: 'GET',
           mode: 'cors',
           headers: {
@@ -1041,7 +1046,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       }
 
       // Use Python OAuth server to send email
-      const response = await fetch('http://localhost:8081/send-email', {
+      const baseURL = await serverURL();
+      const response = await fetch(`${baseURL}/send-email`, {
         method: 'POST',
         mode: 'cors',
         headers: {
