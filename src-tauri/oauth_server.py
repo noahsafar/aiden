@@ -1122,11 +1122,67 @@ class OAuthHandler(BaseHTTPRequestHandler):
             subject = data.get('subject', '')
             body_text = data.get('body_text', '') or ''
 
+            # RULE-BASED MEETING DETECTION (runs before AI check)
+            import re as regex_module
+            text_lower = (subject + ' ' + body_text).lower()
+            meeting_keywords = ['meet', 'meeting', 'call', 'schedule', 'available', 'free', 'zoom', 'teams', 'hangout']
+            time_keywords = ['tomorrow', 'today', 'next week', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'am', 'pm', 'morning', 'afternoon', 'evening']
+            question_indicators = ['?', 'can we', 'are you', 'would you', 'let me know']
+
+            is_meeting_request = (
+                any(kw in text_lower for kw in meeting_keywords) and
+                any(kw in text_lower for kw in time_keywords) and
+                (any(ind in text_lower for ind in question_indicators) or 'available' in text_lower or 'free' in text_lower)
+            )
+
+            # Exclude past meetings (notes, minutes, etc.)
+            past_meeting_indicators = ['meeting notes', 'minutes', 'recording', 'agenda for', 'follow-up to', 'summary of']
+            is_meeting_request = is_meeting_request and not any(ind in text_lower for ind in past_meeting_indicators)
+
+            # Extract proposed times
+            proposed_times = []
+            time_patterns = [
+                r'(tomorrow|today|monday|tuesday|wednesday|thursday|friday)\s+(at\s+)?(\d{1,2})(:(\d{2}))?\s*(am|pm)',
+                r'next\s+(monday|tuesday|wednesday|thursday|friday)',
+            ]
+            for pattern in time_patterns:
+                matches = regex_module.findall(pattern, text_lower)
+                for match in matches:
+                    if isinstance(match, tuple):
+                        proposed_times.append(' '.join(m for m in match if m).strip())
+                    else:
+                        proposed_times.append(match.strip())
+
+            print(f"DEBUG: meeting_keywords found: {any(kw in text_lower for kw in meeting_keywords)}, time_keywords found: {any(kw in text_lower for kw in time_keywords)}, question_indicators found: {any(ind in text_lower for ind in question_indicators)}")
+            print(f"DEBUG: is_meeting_request: {is_meeting_request}, proposed_times: {proposed_times}")
+
             if not OPENAI_API_KEY:
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'success': False, 'error': 'OPENAI_API_KEY not configured'}).encode())
-                return
+                # Without API key, use rule-based detection only
+                if is_meeting_request:
+                    meeting_request = {
+                        'is_meeting': True,
+                        'proposed_times': proposed_times[:5] if proposed_times else [],
+                        'duration_minutes': 60,
+                        'subject': subject
+                    }
+                    print(f"RULE-BASED (no API key): Returning meeting request: {meeting_request}")
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    resp = {
+                        'success': True,
+                        'questions': [],
+                        'suggested_formality_score': 50,
+                        'requires_reply': True,
+                        'reply_reasoning': 'Meeting request detected',
+                        'meeting_request': meeting_request
+                    }
+                    self.wfile.write(json.dumps(resp).encode())
+                    return
+                else:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': 'OPENAI_API_KEY not configured'}).encode())
+                    return
 
             # Get past emails with this sender to determine relationship formality
             creds = get_stored_credentials()
@@ -1254,38 +1310,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
                             "options": unique_options
                         })
 
-            # RULE-BASED MEETING DETECTION (fallback if AI doesn't detect it)
-            import re as regex_module
-            text_lower = (subject + ' ' + body_text).lower()
-            meeting_keywords = ['meet', 'meeting', 'call', 'schedule', 'available', 'free', 'zoom', 'teams', 'hangout']
-            time_keywords = ['tomorrow', 'today', 'next week', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'am', 'pm', 'morning', 'afternoon', 'evening']
-            question_indicators = ['?', 'can we', 'are you', 'would you', 'let me know']
-
-            is_meeting_request = (
-                any(kw in text_lower for kw in meeting_keywords) and
-                any(kw in text_lower for kw in time_keywords) and
-                (any(ind in text_lower for ind in question_indicators) or 'available' in text_lower or 'free' in text_lower)
-            )
-
-            # Exclude past meetings (notes, minutes, etc.)
-            past_meeting_indicators = ['meeting notes', 'minutes', 'recording', 'agenda for', 'follow-up to', 'summary of']
-            is_meeting_request = is_meeting_request and not any(ind in text_lower for ind in past_meeting_indicators)
-
-            # Extract proposed times
-            proposed_times = []
-            time_patterns = [
-                r'(tomorrow|today|monday|tuesday|wednesday|thursday|friday)\s+(at\s+)?(\d{1,2})(:(\d{2}))?\s*(am|pm)',
-                r'next\s+(monday|tuesday|wednesday|thursday|friday)',
-            ]
-            for pattern in time_patterns:
-                matches = regex_module.findall(pattern, text_lower)
-                for match in matches:
-                    if isinstance(match, tuple):
-                        proposed_times.append(' '.join(m for m in match if m).strip())
-                    else:
-                        proposed_times.append(match.strip())
-
-            # Rule-based meeting request object
+            # Create rule_based_meeting from the detection done earlier
             rule_based_meeting = None
             if is_meeting_request:
                 rule_based_meeting = {
