@@ -2180,6 +2180,128 @@ Edit the email draft according to the user's instructions. Keep the same general
                 }
                 self.wfile.write(json.dumps(response).encode())
 
+            elif action == 'fetch_events':
+                # Fetch calendar events for a date range
+                from datetime import datetime, timedelta
+                import pytz
+
+                # Extract the nested data object
+                request_data = data.get('data', {})
+                start_date = request_data.get('start_date')  # ISO date string or 'today'
+                end_date = request_data.get('end_date')  # ISO date string or date range end
+
+                # Parse dates
+                pacific = pytz.timezone('America/Los_Angeles')
+                utc_now = datetime.utcnow()
+                now_pacific = utc_now.replace(tzinfo=pytz.UTC).astimezone(pacific)
+
+                if start_date == 'today' or not start_date:
+                    start_datetime = now_pacific.replace(hour=0, minute=0, second=0, microsecond=0)
+                else:
+                    from dateutil import parser as date_parser
+                    start_datetime = date_parser.parse(start_date)
+                    if start_datetime.tzinfo is None:
+                        start_datetime = pacific.localize(start_datetime)
+
+                if end_date:
+                    from dateutil import parser as date_parser
+                    end_datetime = date_parser.parse(end_date)
+                    if end_datetime.tzinfo is None:
+                        end_datetime = pacific.localize(end_datetime)
+                    # End at end of day
+                    end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+                else:
+                    # Default to 30 days from start
+                    end_datetime = start_datetime + timedelta(days=30)
+
+                # Fetch events
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    timeMin=start_datetime.isoformat(),
+                    timeMax=end_datetime.isoformat(),
+                    singleEvents=True,
+                    orderBy='startTime',
+                    maxResults=100
+                ).execute()
+
+                events = events_result.get('items', [])
+
+                # Format events for frontend
+                formatted_events = []
+                for event in events:
+                    summary = event.get('summary', 'No title')
+                    start_data = event.get('start', {})
+                    end_data = event.get('end', {})
+
+                    # Check if this is an all-day event (has 'date' field) or timed event (has 'dateTime' field)
+                    if 'date' in start_data:
+                        # All-day event
+                        from dateutil import parser as date_parser
+                        date_str = start_data.get('date')
+                        start_dt = date_parser.parse(date_str)
+                        if start_dt.tzinfo is None:
+                            start_dt = pacific.localize(start_dt)
+
+                        end_str = end_data.get('date', date_str)
+                        end_dt = date_parser.parse(end_str)
+                        if end_dt.tzinfo is None:
+                            end_dt = pacific.localize(end_dt)
+
+                        formatted_events.append({
+                            'id': event.get('id'),
+                            'summary': summary,
+                            'start': start_dt.isoformat(),
+                            'end': end_dt.isoformat(),
+                            'date': start_dt.strftime('%Y-%m-%d'),
+                            'time': 'All day',
+                            'end_time': '',
+                            'all_day': True
+                        })
+                    elif 'dateTime' in start_data:
+                        # Timed event
+                        from dateutil import parser as date_parser
+                        start_str = start_data.get('dateTime')
+                        end_str = end_data.get('dateTime')
+
+                        if not start_str:
+                            continue
+
+                        start_dt = date_parser.parse(start_str)
+                        if start_dt.tzinfo is None:
+                            start_dt = pacific.localize(start_dt)
+                        else:
+                            start_dt = start_dt.astimezone(pacific)
+
+                        # Some events might not have end time, use start + 1 hour as default
+                        if end_str:
+                            end_dt = date_parser.parse(end_str)
+                        else:
+                            end_dt = start_dt + timedelta(hours=1)
+
+                        if end_dt.tzinfo is None:
+                            end_dt = pacific.localize(end_dt)
+                        else:
+                            end_dt = end_dt.astimezone(pacific)
+
+                        formatted_events.append({
+                            'id': event.get('id'),
+                            'summary': summary,
+                            'start': start_dt.isoformat(),
+                            'end': end_dt.isoformat(),
+                            'date': start_dt.strftime('%Y-%m-%d'),
+                            'time': start_dt.strftime('%I:%M %p').lstrip('0'),
+                            'end_time': end_dt.strftime('%I:%M %p').lstrip('0'),
+                            'all_day': False
+                        })
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'events': formatted_events
+                }
+                self.wfile.write(json.dumps(response).encode())
+
             else:
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()

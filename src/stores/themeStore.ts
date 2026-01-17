@@ -11,6 +11,7 @@ interface ThemeState {
   themeMode: ThemeMode;
   isDark: boolean;
   setTheme: (theme: ThemeMode) => void;
+  setThemeWithoutSave: (theme: ThemeMode) => void;
   toggleTheme: () => void;
   loadThemeFromSettings: () => Promise<void>;
 }
@@ -57,6 +58,12 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     invoke('save_settings', {
       settings: { theme: themeMode }
     }).catch(console.error);
+  },
+
+  setThemeWithoutSave: (themeMode: ThemeMode) => {
+    const isDark = calculateDarkMode(themeMode);
+    set({ themeMode, isDark });
+    applyTheme(isDark);
   },
 
   toggleTheme: () => {

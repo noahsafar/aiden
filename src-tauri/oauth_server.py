@@ -130,7 +130,7 @@ def call_ollama(messages, max_tokens=300, timeout=60):
         return None, f"Ollama error: {str(e)}"
 
 
-def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=15, use_ollama_fallback=True):
+def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=5, use_ollama_fallback=True):
     """Call OpenAI API with exponential backoff retry on rate limit (429) errors.
     Falls back to Ollama if OpenAI fails and use_ollama_fallback is True."""
     import requests
@@ -720,6 +720,62 @@ def detect_relationship_type(sender_string, past_emails):
 
     return 'neutral'
 
+def parse_natural_time(time_str: str, reference_time):
+    """Parse natural language time expressions like 'tomorrow at 2pm', 'Wednesday at 3pm'"""
+    import re
+    from datetime import timedelta, datetime
+    import pytz
+
+    time_str = time_str.lower().strip()
+    pacific = pytz.timezone('America/Los_Angeles')
+
+    # Extract time if present (e.g., "2pm", "2:30pm", "2 pm")
+    time_match = re.search(r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)', time_str)
+    hour = None
+    minute = 0
+
+    if time_match:
+        hour = int(time_match.group(1))
+        if time_match.group(2):
+            minute = int(time_match.group(2))
+        ampm = time_match.group(3)
+        if ampm == 'pm' and hour != 12:
+            hour += 12
+        elif ampm == 'am' and hour == 12:
+            hour = 0
+
+    # Parse day
+    day_offset = 0
+
+    if 'tomorrow' in time_str:
+        day_offset = 1
+    elif 'today' in time_str:
+        day_offset = 0
+    else:
+        # Check for day names
+        days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        current_weekday = reference_time.weekday()
+        for i, day in enumerate(days):
+            if day in time_str:
+                days_until = (i - current_weekday) % 7
+                if days_until == 0:
+                    # If same day, check if we've passed the time
+                    if hour is not None and reference_time.hour > hour:
+                        days_until = 7
+                day_offset = days_until
+                break
+
+    # Build the datetime
+    result_date = reference_time + timedelta(days=day_offset)
+
+    if hour is not None:
+        result_date = result_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    else:
+        # No specific time, default to 2pm
+        result_date = result_date.replace(hour=14, minute=0, second=0, microsecond=0)
+
+    return result_date
+
 class OAuthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Add CORS headers to all responses
@@ -1114,9 +1170,13 @@ class OAuthHandler(BaseHTTPRequestHandler):
     def handle_analyze_email(self):
         """Analyze email to extract questions that need user input and suggest formality level"""
         try:
+            print("[DEBUG] handle_analyze_email: Starting...")
             content_length = int(self.headers.get('Content-Length', 0))
+            print(f"[DEBUG] Content-Length: {content_length}")
             post_data = self.rfile.read(content_length)
+            print(f"[DEBUG] Read {len(post_data)} bytes")
             data = json.loads(post_data.decode('utf-8'))
+            print(f"[DEBUG] Parsed data: sender={data.get('sender')}, subject={data.get('subject')[:50] if data.get('subject') else ''}")
 
             sender = data.get('sender', '')
             subject = data.get('subject', '')
@@ -1156,33 +1216,28 @@ class OAuthHandler(BaseHTTPRequestHandler):
             print(f"DEBUG: meeting_keywords found: {any(kw in text_lower for kw in meeting_keywords)}, time_keywords found: {any(kw in text_lower for kw in time_keywords)}, question_indicators found: {any(ind in text_lower for ind in question_indicators)}")
             print(f"DEBUG: is_meeting_request: {is_meeting_request}, proposed_times: {proposed_times}")
 
-            if not OPENAI_API_KEY:
-                # Without API key, use rule-based detection only
-                if is_meeting_request:
-                    meeting_request = {
-                        'is_meeting': True,
-                        'proposed_times': proposed_times[:5] if proposed_times else [],
-                        'duration_minutes': 60,
-                        'subject': subject
-                    }
-                    print(f"RULE-BASED (no API key): Returning meeting request: {meeting_request}")
-                    self.send_header('Content-type', 'application/json')
-                    self.end_headers()
-                    resp = {
-                        'success': True,
-                        'questions': [],
-                        'suggested_formality_score': 50,
-                        'requires_reply': True,
-                        'reply_reasoning': 'Meeting request detected',
-                        'meeting_request': meeting_request
-                    }
-                    self.wfile.write(json.dumps(resp).encode())
-                    return
-                else:
-                    self.send_header('Content-type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({'success': False, 'error': 'OPENAI_API_KEY not configured'}).encode())
-                    return
+            # RULE-BASED: If meeting detected, return immediately without calling OpenAI
+            # This is faster and more reliable than waiting for OpenAI API
+            if is_meeting_request:
+                meeting_request = {
+                    'is_meeting': True,
+                    'proposed_times': proposed_times[:5] if proposed_times else [],
+                    'duration_minutes': 60,
+                    'subject': subject
+                }
+                print(f"RULE-BASED: Meeting request detected, returning immediately: {meeting_request}")
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                resp = {
+                    'success': True,
+                    'questions': [],
+                    'suggested_formality_score': 50,
+                    'requires_reply': True,
+                    'reply_reasoning': 'Meeting request detected',
+                    'meeting_request': meeting_request
+                }
+                self.wfile.write(json.dumps(resp).encode())
+                return
 
             # Get past emails with this sender to determine relationship formality
             creds = get_stored_credentials()
@@ -1500,6 +1555,39 @@ Return ONLY valid JSON, no other text or explanation."""
 
                     if result_data:
                         questions = result_data.get('questions', [])
+
+                        # Get meeting_request data first
+                        meeting_request = result_data.get('meeting_request', {'is_meeting': False})
+                        if not isinstance(meeting_request, dict) or not meeting_request:
+                            meeting_request = {'is_meeting': False}
+                        # Ensure meeting_request has required fields
+                        if 'is_meeting' not in meeting_request:
+                            meeting_request['is_meeting'] = False
+                        if 'proposed_times' not in meeting_request:
+                            meeting_request['proposed_times'] = []
+                        if 'duration_minutes' not in meeting_request:
+                            meeting_request['duration_minutes'] = 60
+                        if 'subject' not in meeting_request:
+                            meeting_request['subject'] = subject
+
+                        # Filter out availability questions when meeting is detected
+                        # The meeting UI will handle scheduling, so don't duplicate with Yes/No questions
+                        if meeting_request.get('is_meeting'):
+                            availability_keywords = ['free', 'available', 'work', 'good time', 'schedule']
+                            filtered_questions = []
+                            for q in questions:
+                                q_text = q.get('question', '').lower()
+                                # Keep questions that aren't just about availability for the proposed times
+                                is_availability_question = any(kw in q_text for kw in availability_keywords)
+                                # Also check if options are just Yes/No (typical for availability)
+                                is_yes_no = set(q.get('options', [])) == {'Yes', 'No'} or set(q.get('options', [])) == {'yes', 'no'}
+
+                                if not (is_availability_question and is_yes_no):
+                                    filtered_questions.append(q)
+                                else:
+                                    print(f"Filtering out availability question (handled by meeting UI): {q.get('question')}")
+                            questions = filtered_questions
+
                         # Get formality as a score (0-100), fallback to old categorical system
                         suggested_formality_score = result_data.get('suggested_formality_score', 50)
                         # If old categorical format returned, convert to score
@@ -1516,20 +1604,6 @@ Return ONLY valid JSON, no other text or explanation."""
                         # Get requires_reply and reply_reasoning
                         requires_reply = result_data.get('requires_reply', len(questions) > 0)
                         reply_reasoning = result_data.get('reply_reasoning', '')
-
-                        # Get meeting_request data
-                        meeting_request = result_data.get('meeting_request', {'is_meeting': False})
-                        if not isinstance(meeting_request, dict) or not meeting_request:
-                            meeting_request = {'is_meeting': False}
-                        # Ensure meeting_request has required fields
-                        if 'is_meeting' not in meeting_request:
-                            meeting_request['is_meeting'] = False
-                        if 'proposed_times' not in meeting_request:
-                            meeting_request['proposed_times'] = []
-                        if 'duration_minutes' not in meeting_request:
-                            meeting_request['duration_minutes'] = 60
-                        if 'subject' not in meeting_request:
-                            meeting_request['subject'] = subject
 
                         # FALLBACK: If AI didn't detect meeting but rule-based did, use rule-based
                         if not meeting_request.get('is_meeting') and rule_based_meeting:
@@ -1878,7 +1952,120 @@ Edit the email draft according to the user's instructions. Keep the same general
                 self.wfile.write(json.dumps(response).encode())
                 return
 
-            if action == 'find_free_slots':
+            if action == 'check_conflict':
+                # Check if proposed times have conflicts in calendar
+                proposed_times = data.get('proposed_times', [])
+                duration_minutes = data.get('duration_minutes', 60)
+                print(f"[DEBUG check_conflict] proposed_times={proposed_times}, duration={duration_minutes}")
+
+                from datetime import datetime, timedelta
+                import pytz
+                from dateutil import parser as date_parser
+
+                pacific = pytz.timezone('America/Los_Angeles')
+                utc_now = datetime.utcnow()
+                now_pacific = utc_now.replace(tzinfo=pytz.UTC).astimezone(pacific)
+
+                conflict_results = []
+
+                for time_str in proposed_times:
+                    try:
+                        print(f"[DEBUG check_conflict] Parsing time_str='{time_str}'")
+                        # Parse the proposed time string (e.g., "tomorrow at 2pm", "Wednesday at 3pm")
+                        parsed_dt = parse_natural_time(time_str, now_pacific)
+                        print(f"[DEBUG check_conflict] parsed_dt={parsed_dt}")
+
+                        if parsed_dt:
+                            # Check for conflicts in a 2-hour window around the proposed time
+                            window_start = parsed_dt - timedelta(minutes=30)
+                            window_end = parsed_dt + timedelta(minutes=90)
+
+                            # Query Calendar API for events in this window
+                            events_result = calendar_service.events().list(
+                                calendarId='primary',
+                                timeMin=window_start.isoformat(),
+                                timeMax=window_end.isoformat(),
+                                singleEvents=True,
+                                orderBy='startTime'
+                            ).execute()
+
+                            events = events_result.get('items', [])
+
+                            # Check if any events overlap with the proposed time slot
+                            slot_end = parsed_dt + timedelta(minutes=duration_minutes)
+                            has_conflict = False
+                            conflicting_events = []
+
+                            for event in events:
+                                event_start_str = event.get('start', {}).get('dateTime')
+                                if event_start_str:
+                                    event_start = date_parser.parse(event_start_str)
+                                    # Convert to Pacific if naive
+                                    if event_start.tzinfo is None:
+                                        event_start = pacific.localize(event_start)
+                                    else:
+                                        event_start = event_start.astimezone(pacific)
+
+                                    event_end_str = event.get('end', {}).get('dateTime')
+                                    if event_end_str:
+                                        event_end = date_parser.parse(event_end_str)
+                                        if event_end.tzinfo is None:
+                                            event_end = pacific.localize(event_end)
+                                        else:
+                                            event_end = event_end.astimezone(pacific)
+
+                                        # Check for overlap
+                                        if not (event_end <= parsed_dt or event_start >= slot_end):
+                                            has_conflict = True
+                                            conflicting_events.append({
+                                                'summary': event.get('summary', 'Busy'),
+                                                'start': event_start.strftime('%I:%M %p').lstrip('0'),
+                                                'end': event_end.strftime('%I:%M %p').lstrip('0')
+                                            })
+
+                            # Format the proposed time for display
+                            display_date = parsed_dt.strftime('%A, %B %d')
+                            display_time = parsed_dt.strftime('%I:%M %p').lstrip('0')
+
+                            conflict_results.append({
+                                'original_time': time_str,
+                                'date': display_date,
+                                'time': display_time,
+                                'start': parsed_dt.isoformat(),
+                                'end': slot_end.isoformat(),
+                                'has_conflict': has_conflict,
+                                'conflicting_events': conflicting_events
+                            })
+                        else:
+                            # Couldn't parse, keep original
+                            conflict_results.append({
+                                'original_time': time_str,
+                                'date': 'Unknown date',
+                                'time': time_str,
+                                'has_conflict': None,  # Unknown
+                                'conflicting_events': []
+                            })
+                    except Exception as e:
+                        import traceback
+                        print(f"Error checking conflict for '{time_str}': {e}")
+                        traceback.print_exc()
+                        conflict_results.append({
+                            'original_time': time_str,
+                            'date': 'Error checking',
+                            'time': time_str,
+                            'has_conflict': None,
+                            'conflicting_events': []
+                        })
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'conflicts': conflict_results
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'find_free_slots':
                 # Find free time slots for a meeting
                 duration_minutes = data.get('duration_minutes', 60)
 
@@ -1960,16 +2147,14 @@ Edit the email draft according to the user's instructions. Keep the same general
                     self.wfile.write(json.dumps(response).encode())
                     return
 
-                # Create event body
+                # Create event body - don't specify timeZone so Google uses the timezone from the ISO string
                 event_body = {
                     'summary': summary,
                     'start': {
                         'dateTime': start_datetime,
-                        'timeZone': 'America/Los_Angeles',
                     },
                     'end': {
                         'dateTime': end_datetime,
-                        'timeZone': 'America/Los_Angeles',
                     },
                 }
 
@@ -1992,6 +2177,128 @@ Edit the email draft according to the user's instructions. Keep the same general
                     'success': True,
                     'event_id': created_event.get('id'),
                     'html_link': created_event.get('htmlLink')
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'fetch_events':
+                # Fetch calendar events for a date range
+                from datetime import datetime, timedelta
+                import pytz
+
+                # Extract the nested data object
+                request_data = data.get('data', {})
+                start_date = request_data.get('start_date')  # ISO date string or 'today'
+                end_date = request_data.get('end_date')  # ISO date string or date range end
+
+                # Parse dates
+                pacific = pytz.timezone('America/Los_Angeles')
+                utc_now = datetime.utcnow()
+                now_pacific = utc_now.replace(tzinfo=pytz.UTC).astimezone(pacific)
+
+                if start_date == 'today' or not start_date:
+                    start_datetime = now_pacific.replace(hour=0, minute=0, second=0, microsecond=0)
+                else:
+                    from dateutil import parser as date_parser
+                    start_datetime = date_parser.parse(start_date)
+                    if start_datetime.tzinfo is None:
+                        start_datetime = pacific.localize(start_datetime)
+
+                if end_date:
+                    from dateutil import parser as date_parser
+                    end_datetime = date_parser.parse(end_date)
+                    if end_datetime.tzinfo is None:
+                        end_datetime = pacific.localize(end_datetime)
+                    # End at end of day
+                    end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+                else:
+                    # Default to 30 days from start
+                    end_datetime = start_datetime + timedelta(days=30)
+
+                # Fetch events
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    timeMin=start_datetime.isoformat(),
+                    timeMax=end_datetime.isoformat(),
+                    singleEvents=True,
+                    orderBy='startTime',
+                    maxResults=100
+                ).execute()
+
+                events = events_result.get('items', [])
+
+                # Format events for frontend
+                formatted_events = []
+                for event in events:
+                    summary = event.get('summary', 'No title')
+                    start_data = event.get('start', {})
+                    end_data = event.get('end', {})
+
+                    # Check if this is an all-day event (has 'date' field) or timed event (has 'dateTime' field)
+                    if 'date' in start_data:
+                        # All-day event
+                        from dateutil import parser as date_parser
+                        date_str = start_data.get('date')
+                        start_dt = date_parser.parse(date_str)
+                        if start_dt.tzinfo is None:
+                            start_dt = pacific.localize(start_dt)
+
+                        end_str = end_data.get('date', date_str)
+                        end_dt = date_parser.parse(end_str)
+                        if end_dt.tzinfo is None:
+                            end_dt = pacific.localize(end_dt)
+
+                        formatted_events.append({
+                            'id': event.get('id'),
+                            'summary': summary,
+                            'start': start_dt.isoformat(),
+                            'end': end_dt.isoformat(),
+                            'date': start_dt.strftime('%Y-%m-%d'),
+                            'time': 'All day',
+                            'end_time': '',
+                            'all_day': True
+                        })
+                    elif 'dateTime' in start_data:
+                        # Timed event
+                        from dateutil import parser as date_parser
+                        start_str = start_data.get('dateTime')
+                        end_str = end_data.get('dateTime')
+
+                        if not start_str:
+                            continue
+
+                        start_dt = date_parser.parse(start_str)
+                        if start_dt.tzinfo is None:
+                            start_dt = pacific.localize(start_dt)
+                        else:
+                            start_dt = start_dt.astimezone(pacific)
+
+                        # Some events might not have end time, use start + 1 hour as default
+                        if end_str:
+                            end_dt = date_parser.parse(end_str)
+                        else:
+                            end_dt = start_dt + timedelta(hours=1)
+
+                        if end_dt.tzinfo is None:
+                            end_dt = pacific.localize(end_dt)
+                        else:
+                            end_dt = end_dt.astimezone(pacific)
+
+                        formatted_events.append({
+                            'id': event.get('id'),
+                            'summary': summary,
+                            'start': start_dt.isoformat(),
+                            'end': end_dt.isoformat(),
+                            'date': start_dt.strftime('%Y-%m-%d'),
+                            'time': start_dt.strftime('%I:%M %p').lstrip('0'),
+                            'end_time': end_dt.strftime('%I:%M %p').lstrip('0'),
+                            'all_day': False
+                        })
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'events': formatted_events
                 }
                 self.wfile.write(json.dumps(response).encode())
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { Bell, Moon, Users, Zap, Check, LogOut, ArrowLeft, Palette, Eye } from 'lucide-react';
@@ -78,7 +78,7 @@ function isValidEmail(email: string): boolean {
 export function Settings() {
   const navigate = useNavigate();
   const { signOut, user } = useAuthStore();
-  const { setTheme } = useThemeStore();
+  const { setTheme, setThemeWithoutSave, themeMode: currentThemeMode } = useThemeStore();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -87,21 +87,28 @@ export function Settings() {
   const [vipEmailInput, setVipEmailInput] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
   const [emailError, setEmailError] = useState('');
+  const originalThemeRef = useRef<'light' | 'dark' | 'auto'>('auto');
+  const isLoadedRef = useRef(false);
 
   // Load settings on mount
   useEffect(() => {
     invoke<AppSettings>('get_settings')
       .then(loaded => {
-        setSettings({ ...DEFAULT_SETTINGS, ...loaded });
+        const loadedSettings = { ...DEFAULT_SETTINGS, ...loaded };
+        setSettings(loadedSettings);
+        originalThemeRef.current = loadedSettings.theme;
+        isLoadedRef.current = true;
         setLoading(false);
       })
       .catch(() => {
         setSettings(DEFAULT_SETTINGS);
+        originalThemeRef.current = DEFAULT_SETTINGS.theme;
+        isLoadedRef.current = true;
         setLoading(false);
       });
   }, []);
 
-  // Track changes
+  // Track changes (except theme - theme is tracked separately for preview)
   useEffect(() => {
     if (!loading) {
       setHasChanges(true);
@@ -112,6 +119,9 @@ export function Settings() {
     setSaving(true);
     try {
       await invoke('save_settings', { settings });
+      // Now persist the theme
+      setTheme(settings.theme);
+      originalThemeRef.current = settings.theme;
       setSaved(true);
       setHasChanges(false);
       setTimeout(() => setSaved(false), 2000);
@@ -121,6 +131,21 @@ export function Settings() {
       setSaving(false);
     }
   };
+
+  // Revert theme when navigating away without saving
+  const handleNavigateAway = () => {
+    setThemeWithoutSave(originalThemeRef.current);
+    navigate('/dashboard');
+  };
+
+  // Also revert on unmount (in case user navigates via browser back button)
+  useEffect(() => {
+    return () => {
+      if (isLoadedRef.current) {
+        setThemeWithoutSave(originalThemeRef.current);
+      }
+    };
+  }, []);
 
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -181,7 +206,7 @@ export function Settings() {
       {/* Header - matches dashboard style */}
       <header className="h-14 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 z-10">
         <div className="flex items-center gap-0">
-          <Link to="/dashboard" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors mr-2" title="Back to Dashboard">
+          <Link to="/dashboard" onClick={(e) => { e.preventDefault(); handleNavigateAway(); }} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors mr-2" title="Back to Dashboard">
             <ArrowLeft className="h-4 w-4 text-gray-600 dark:text-gray-400" />
           </Link>
           <img
@@ -608,7 +633,7 @@ export function Settings() {
                     <button
                       key={themeOption}
                       onClick={() => {
-                        setTheme(themeOption);
+                        setThemeWithoutSave(themeOption);
                         updateSetting('theme', themeOption);
                       }}
                       className={`relative p-4 rounded-xl border-2 text-left transition-all capitalize ${

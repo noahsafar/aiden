@@ -126,6 +126,32 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-muted;
   }
+
+  /* Thin scrollbar for compact areas like calendar cells */
+  .thin-scroll::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .thin-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .thin-scroll::-webkit-scrollbar-thumb {
+    background: rgb(203 213 225);
+    border-radius: 2px;
+  }
+
+  .thin-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(148 163 184);
+  }
+
+  .dark .thin-scroll::-webkit-scrollbar-thumb {
+    background: rgb(71 85 105);
+  }
+
+  .dark .thin-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(100 116 139);
+  }
 }
 
 /* Component layer styles */

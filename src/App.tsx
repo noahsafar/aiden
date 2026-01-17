@@ -7,6 +7,7 @@ import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
 import { TestPage } from '@/components/TestPage';
 import { Settings as SettingsPage } from '@/pages/Settings';
+import { Calendar } from '@/pages/Calendar';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useAuthStore } from '@/stores/authStore';
@@ -19,7 +20,8 @@ import {
   Mail,
   Sparkles,
   LogOut,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Calendar as CalendarIcon
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -336,6 +338,11 @@ function App() {
                 </div>
 
                 <div className="flex items-center space-x-1 flex-shrink-0">
+                  <Link to="/calendar">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Calendar">
+                      <CalendarIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                    </Button>
+                  </Link>
                   <Link to="/settings">
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="Settings">
                       <SettingsIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
@@ -476,6 +483,18 @@ function App() {
         element={
           isAuthenticated ? (
             <SettingsPage />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+
+      {/* Calendar route - protected */}
+      <Route
+        path="/calendar"
+        element={
+          isAuthenticated ? (
+            <Calendar />
           ) : (
             <Navigate to="/login" replace />
           )
