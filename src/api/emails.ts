@@ -40,12 +40,14 @@ async function getOAuthServerURL(): Promise<string> {
         signal: AbortSignal.timeout(500)
       });
       if (response.ok) {
+        console.log(`[serverURL] Found oauth server on port ${port}`);
         return `http://localhost:${port}`;
       }
     } catch {
       // Port not available, try next
     }
   }
+  console.log(`[serverURL] No oauth server found, using default 8081`);
   return 'http://localhost:8081'; // fallback
 }
 

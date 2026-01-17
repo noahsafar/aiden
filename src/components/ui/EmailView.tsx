@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useEmailStore } from '@/stores/emailStore';
+import { useEmailStore, fetchWithTimeout } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
 import { Bookmark, File, Image, FileText, Archive, Music, Video } from 'lucide-react';
@@ -153,16 +153,6 @@ interface EmailViewProps {
 
 type FormalityScore = number; // 0-100, where 0=casual, 50=neutral, 100=formal
 
-// Store email-specific state in a map to preserve it when switching between emails
-const emailStateMap = new Map<string, {
-  pendingQuestions: any[];
-  userAnswers: Record<number, string>;
-  formalityScore: FormalityScore;
-  suggestedFormalityScore: FormalityScore;
-  questionsLoaded: boolean;
-  summaryComplete: boolean;
-}>();
-
 export const EmailView: React.FC<EmailViewProps> = ({
   email = null,
   onReply = () => {},
@@ -171,6 +161,20 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onAction = () => {}
 }) => {
   const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead } = useEmailStore();
+
+  // Type definition for email state
+  interface EmailState {
+    pendingQuestions: any[];
+    userAnswers: Record<number, string>;
+    formalityScore: number;
+    suggestedFormalityScore: number;
+    questionsLoaded: boolean;
+    summaryComplete: boolean;
+    meetingRequest: any;
+  }
+
+  // Per-email state map to preserve state when switching between emails
+  const emailStateMap = React.useRef(new Map<string, EmailState>());
 
   const [isEditing, setIsEditing] = React.useState(false);
   const [editedReply, setEditedReply] = React.useState('');
@@ -204,17 +208,18 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
   // Get or create email-specific state
   const getEmailState = (emailId: string) => {
-    if (!emailStateMap.has(emailId)) {
-      emailStateMap.set(emailId, {
+    if (!emailStateMap.current.has(emailId)) {
+      emailStateMap.current.set(emailId, {
         pendingQuestions: [],
         userAnswers: {},
         formalityScore: 50,
         suggestedFormalityScore: 50,
         questionsLoaded: false,
         summaryComplete: false,
+        meetingRequest: { is_meeting: false },
       });
     }
-    return emailStateMap.get(emailId)!;
+    return emailStateMap.current.get(emailId)!;
   };
 
   // Save current state to map for this email
@@ -227,19 +232,21 @@ export const EmailView: React.FC<EmailViewProps> = ({
       state.suggestedFormalityScore = suggestedFormalityScore;
       state.questionsLoaded = questionsLoaded;
       state.summaryComplete = summaryComplete;
+      state.meetingRequest = meetingRequest;
     }
   };
 
   // Load state from map for this email
   const loadEmailState = () => {
-    if (email?.id && emailStateMap.has(email.id)) {
-      const state = emailStateMap.get(email.id)!;
+    if (email?.id && emailStateMap.current.has(email.id)) {
+      const state = emailStateMap.current.get(email.id)!;
       setPendingQuestions([...state.pendingQuestions]);
       setUserAnswers({...state.userAnswers});
       setFormalityScore(state.suggestedFormalityScore); // Always start at suggested position
       setSuggestedFormalityScore(state.suggestedFormalityScore);
       setQuestionsLoaded(state.questionsLoaded);
       setSummaryComplete(state.summaryComplete);
+      setMeetingRequest(state.meetingRequest || { is_meeting: false });
       return true;
     }
     // Also check for background-generated questions in window global
@@ -255,14 +262,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setSuggestedFormalityScore(suggestedScore);
         setFormalityScore(suggestedScore);
         setQuestionsLoaded(true);
-        // Initialize empty answers
-        setUserAnswers({});
-        // Save to email state map
-        const state = getEmailState(email.id);
-        state.pendingQuestions = globalQuestionData.questions;
-        state.suggestedFormalityScore = suggestedScore;
-        state.formalityScore = suggestedScore;
-        state.questionsLoaded = true;
+        setSummaryComplete(true);
+        setMeetingRequest(globalQuestionData.meetingRequest || { is_meeting: false });
         return true;
       }
     }
@@ -335,7 +336,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
     // Save previous email's state before switching
     if (prevEmailIdRef.current && prevEmailIdRef.current !== currentEmailId) {
       // Save previous email state
-      const prevState = emailStateMap.get(prevEmailIdRef.current);
+      const prevState = emailStateMap.current.get(prevEmailIdRef.current);
       if (prevState) {
         prevState.pendingQuestions = pendingQuestions;
         prevState.userAnswers = userAnswers;
@@ -343,6 +344,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         prevState.suggestedFormalityScore = suggestedFormalityScore;
         prevState.questionsLoaded = questionsLoaded;
         prevState.summaryComplete = summaryComplete;
+        prevState.meetingRequest = meetingRequest;
       }
     }
 
@@ -360,6 +362,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setSuggestedFormalityScore(50);
       setSummaryComplete(false);
       setQuestionsLoaded(false);
+      setMeetingRequest({ is_meeting: false });
     } else if (prevEmailIdRef.current !== currentEmailId) {
       // New email - try to load saved state
       const loaded = loadEmailState();
@@ -372,6 +375,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setSuggestedFormalityScore(50);
         setSummaryComplete(false);
         setQuestionsLoaded(false);
+        setMeetingRequest({ is_meeting: false });
       }
 
       // Set edited reply from new email's AI reply
@@ -390,31 +394,33 @@ export const EmailView: React.FC<EmailViewProps> = ({
       const state = getEmailState(email.id);
       const globalQuestionData = (window as any).emailQuestionData?.get(email.id);
 
-      // Check if we have pre-generated questions from background
-      if (globalQuestionData && globalQuestionData.loaded) {
-        console.log('[useEffect] Loading pre-generated questions:', globalQuestionData.questions);
-        setPendingQuestions(globalQuestionData.questions);
-        // Convert old categorical format to score if needed
-        const suggestedScore = typeof globalQuestionData.suggestedFormality === 'number'
-          ? globalQuestionData.suggestedFormality
-          : globalQuestionData.suggestedFormalityScore || 50;
-        setSuggestedFormalityScore(suggestedScore);
-        setFormalityScore(suggestedScore);
+      // Check if we have pre-generated questions from background or already loaded in state
+      if ((globalQuestionData && globalQuestionData.loaded) || (state.questionsLoaded && state.pendingQuestions)) {
+        const dataSource = globalQuestionData?.loaded ? globalQuestionData : state;
+        console.log('[useEffect] Loading saved/pre-generated questions:', dataSource.pendingQuestions);
+        setPendingQuestions(dataSource.pendingQuestions || []);
+        setUserAnswers(dataSource.userAnswers || {});
+        setSuggestedFormalityScore(dataSource.suggestedFormalityScore || 50);
+        setFormalityScore(dataSource.formalityScore || 50);
+        setMeetingRequest(dataSource.meetingRequest || { is_meeting: false });
         setQuestionsLoaded(true);
-        // Save to state
-        state.pendingQuestions = globalQuestionData.questions;
-        state.suggestedFormalityScore = suggestedScore;
-        state.formalityScore = suggestedScore;
-        state.questionsLoaded = true;
-        state.summaryComplete = true;
-        setSummaryComplete(true);
+        setSummaryComplete(dataSource.summaryComplete || true);
+        // Update state if loading from global
+        if (globalQuestionData?.loaded) {
+          state.pendingQuestions = globalQuestionData.questions;
+          state.suggestedFormalityScore = globalQuestionData.suggestedFormalityScore;
+          state.formalityScore = globalQuestionData.formalityScore;
+          state.questionsLoaded = true;
+          state.summaryComplete = true;
+          state.meetingRequest = globalQuestionData.meetingRequest || { is_meeting: false };
+        }
       } else {
         // No pre-generated questions, trigger analysis
-        console.log('[useEffect] No pre-generated questions, triggering analysis');
+        console.log('[useEffect] No saved questions, triggering analysis');
         analyzeEmailForQuestions();
       }
     }
-  }, [summary, aiReply, isSentEmail, hasSent, email?.id, questionsLoaded]);
+  }, [summary, displayAiReply, isSentEmail, hasSent, email?.id]);
 
   const handleAiEdit = async () => {
     if (!aiEditPrompt.trim() || !editedReply) return;
@@ -422,14 +428,14 @@ export const EmailView: React.FC<EmailViewProps> = ({
     setIsAiEditing(true);
     try {
       const baseURL = await serverURL();
-      const response = await fetch(`${baseURL}/edit-reply`, {
+      const response = await fetchWithTimeout(`${baseURL}/edit-reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           current_reply: editedReply,
           edit_prompt: aiEditPrompt,
         }),
-      });
+      }, 60000);
 
       const result = await response.json();
       if (result.success) {
@@ -493,7 +499,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       });
 
       const baseURL = await serverURL();
-      const response = await fetch(`${baseURL}/analyze-email`, {
+      const response = await fetchWithTimeout(`${baseURL}/analyze-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -501,7 +507,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
           subject: email.subject,
           body_text: bodyText,
         }),
-      });
+      }, 60000); // 60 second timeout
 
       if (!response.ok) {
         throw new Error(`Server returned ${response.status}`);
@@ -559,6 +565,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       if (email?.id) {
         const state = getEmailState(email.id);
         state.questionsLoaded = true;
+        state.meetingRequest = result.meeting_request || { is_meeting: false };
       }
     } catch (error) {
       console.error('[analyzeEmail] Failed to analyze email:', error);
@@ -622,11 +629,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
     try {
       console.log('[generateReply] Sending request to backend...');
       const baseURL = await serverURL();
-      const response = await fetch(`${baseURL}/generate-reply`, {
+      const response = await fetchWithTimeout(`${baseURL}/generate-reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
-      });
+      }, 60000);
 
       console.log('[generateReply] Got response, status:', response.status);
 
@@ -813,15 +820,19 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
         {/* Meeting Suggestions - show when a meeting request is detected */}
         {!analyzingQuestions && questionsLoaded && meetingRequest?.is_meeting && (
-          <MeetingSuggestions
-            meetingRequest={meetingRequest}
-            emailSubject={email.subject}
-            senderEmail={fullEmail?.sender || email.sender || ''}
-            onCreated={() => {
-              // Optionally refresh the calendar or show a confirmation
-            }}
-          />
+          <>
+            {console.log('[EmailView] Showing meeting suggestions', meetingRequest)}
+            <MeetingSuggestions
+              meetingRequest={meetingRequest}
+              emailSubject={email.subject}
+              senderEmail={fullEmail?.sender || email.sender || ''}
+              onCreated={() => {
+                // Optionally refresh the calendar or show a confirmation
+              }}
+            />
+          </>
         )}
+        {!analyzingQuestions && questionsLoaded && !meetingRequest?.is_meeting && console.log('[EmailView] Meeting NOT detected, meetingRequest:', meetingRequest)}
 
         {/* Questions Section - only show after analysis is complete and no ai reply yet */}
         {!analyzingQuestions && questionsLoaded && !displayAiReply && summary && (
