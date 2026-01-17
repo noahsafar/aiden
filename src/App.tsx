@@ -16,7 +16,6 @@ import { useThemeStore } from '@/stores/themeStore';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Search,
-  Bell,
   Mail,
   Sparkles,
   LogOut,
@@ -348,10 +347,6 @@ function App() {
                       <SettingsIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                     </Button>
                   </Link>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 relative">
-                    <Bell className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    <span className="absolute top-1 right-1 h-2 w-2 bg-error-500 rounded-full"></span>
-                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"

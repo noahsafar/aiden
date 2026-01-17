@@ -222,12 +222,6 @@ export function Settings() {
 
         <div className="flex items-center space-x-2">
           <button
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors relative"
-          >
-            <Bell className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-            <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>
-          </button>
-          <button
             onClick={signOut}
             className="px-3 py-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg font-medium text-sm transition-colors flex items-center gap-1"
           >
