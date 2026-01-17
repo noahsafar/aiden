@@ -762,6 +762,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_edit_reply()
         elif self.path.startswith('/summarize'):
             self.handle_summarize()
+        elif self.path.startswith('/calendar'):
+            self.handle_calendar()
         else:
             self.send_error(404)
 
@@ -1252,7 +1254,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
                             "options": unique_options
                         })
 
-            prompt = f"""You are analyzing an email to extract questions that need user input. Be VERY thorough and aggressive in finding questions.
+            prompt = f"""You are analyzing an email to extract questions that need user input and detect meeting requests. Be VERY thorough.
 
 Email from: {sender}
 Subject: {subject}
@@ -1268,6 +1270,18 @@ CRITICAL - Find ANY question that requires the recipient to respond:
 4. "Can you/will you/are you X?" - yes/no question
 5. "What/When/Where/How/Who/Why" questions - text input (unless they give options)
 
+MEETING REQUEST DETECTION:
+Check if this email is requesting a meeting, call, or scheduling. Look for:
+- "meet", "meeting", "call", "schedule", "available", "free"
+- "are you free", "can we meet", "let's schedule"
+- "tomorrow", "next week", specific day names, times like "2pm", "3:00"
+- Questions about availability or timing
+
+For meeting requests, extract:
+- proposed_times: any specific times mentioned (e.g., ["tomorrow 2pm", "Wednesday afternoon"])
+- duration_minutes: default to 60 if not specified, or look for "30 min", "1 hour", etc.
+- attendees: extract email addresses mentioned
+
 Return JSON with:
 - "questions": array of questions. Each has:
   - type: "choice" if options are provided OR if yes/no question, "text" for open-ended
@@ -1275,32 +1289,39 @@ Return JSON with:
   - options: array of choices (ONLY if the email provides specific options)
 - "requires_reply": true if the email needs a response, false if it's just informational/FYI
 - "reply_reasoning": brief explanation (max 15 words) of why a reply is or isn't needed
+- "meeting_request": object with:
+  - "is_meeting": true if this is a meeting/scheduling request, false otherwise
+  - "proposed_times": array of time strings mentioned (e.g., ["Tuesday 2pm", "Wednesday afternoon"])
+  - "duration_minutes": meeting duration in minutes (default 60)
+  - "subject": meeting subject/title
 
 DETAILED EXAMPLES (learn from these):
 
 Choice questions (with 2+ options):
 - "We're ordering pizza or burgers?" -> {{"type": "choice", "question": "What do you want for lunch?", "options": ["Pizza", "Burgers"]}}
-- "Pizza or burgers for lunch?" -> {{"type": "choice", "question": "What would you like for lunch?", "options": ["Pizza", "Burgers"]}}
-- "Do you want tea or coffee?" -> {{"type": "choice", "question": "What would you like to drink?", "options": ["Tea", "Coffee"]}}
 - "Can you make it Monday or Tuesday?" -> {{"type": "choice", "question": "Which day works better?", "options": ["Monday", "Tuesday"]}}
-- "Morning or afternoon?" -> {{"type": "choice", "question": "Which do you prefer?", "options": ["Morning", "Afternoon"]}}
 - "Are you coming?" -> {{"type": "choice", "question": "Are you coming?", "options": ["Yes", "No"]}}
-- "Can you make it?" -> {{"type": "choice", "question": "Can you make it?", "options": ["Yes", "No"]}}
-- "Should I bring X or Y?" -> {{"type": "choice", "question": "Which would you prefer?", "options": ["X", "Y"]}}
 
 Text input questions (no specific options given):
 - "When are you free?" -> {{"type": "text", "question": "When are you free?", "options": []}}
 - "What time works for you?" -> {{"type": "text", "question": "What time works for you?", "options": []}}
-- "Where should we meet?" -> {{"type": "text", "question": "Where should we meet?", "options": []}}
-- "What's your address?" -> {{"type": "text", "question": "What's your address?", "options": []}}
-- "How many people?" -> {{"type": "text", "question": "How many people?", "options": []}}
+
+Meeting request examples:
+- "Can we meet tomorrow at 2pm?" -> {{"is_meeting": true, "proposed_times": ["tomorrow at 2pm"], "duration_minutes": 60}}
+- "Are you free next week to discuss?" -> {{"is_meeting": true, "proposed_times": ["next week"], "duration_minutes": 60}}
+- "Let's schedule a call for Tuesday afternoon" -> {{"is_meeting": true, "proposed_times": ["Tuesday afternoon"], "duration_minutes": 60}}
+- "Are you available Wednesday or Thursday at 3pm?" -> {{"is_meeting": true, "proposed_times": ["Wednesday at 3pm", "Thursday at 3pm"], "duration_minutes": 60}}
+
+Non-meeting examples:
+- "Here's the report you asked for" -> {{"is_meeting": false}}
+- "Meeting notes from yesterday" -> {{"is_meeting": false}} (past meeting, not a request)
 
 IMPORTANT DISTINCTIONS:
 - If email says "X or Y" -> it's a CHOICE question with those options
 - If email asks "Can you X?" without options -> it's a CHOICE with Yes/No
 - If email asks "When/Where/What/How" without specific options -> it's TEXT input
 - "Do you want X or Y?" -> CHOICE with X and Y as options
-- "Are you available?" -> CHOICE with Yes/No
+- "Are you available?" -> CHOICE with Yes/No, AND is a meeting request
 
 **REPLY REQUIRED DETERMINATION:**
 
@@ -1429,6 +1450,20 @@ Return ONLY valid JSON, no other text or explanation."""
                         requires_reply = result_data.get('requires_reply', len(questions) > 0)
                         reply_reasoning = result_data.get('reply_reasoning', '')
 
+                        # Get meeting_request data
+                        meeting_request = result_data.get('meeting_request', {'is_meeting': False})
+                        if not isinstance(meeting_request, dict) or not meeting_request:
+                            meeting_request = {'is_meeting': False}
+                        # Ensure meeting_request has required fields
+                        if 'is_meeting' not in meeting_request:
+                            meeting_request['is_meeting'] = False
+                        if 'proposed_times' not in meeting_request:
+                            meeting_request['proposed_times'] = []
+                        if 'duration_minutes' not in meeting_request:
+                            meeting_request['duration_minutes'] = 60
+                        if 'subject' not in meeting_request:
+                            meeting_request['subject'] = subject
+
                         # FALLBACK: If AI found no questions but rule-based found some, use rule-based
                         if not questions and rule_based_questions:
                             print(f"AI found no questions, using rule-based fallback: {rule_based_questions}")
@@ -1440,22 +1475,23 @@ Return ONLY valid JSON, no other text or explanation."""
                         suggested_formality_score = 50
                         requires_reply = False
                         reply_reasoning = ''
+                        meeting_request = {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
 
-                    print(f"Email analysis found {len(questions)} questions, requires_reply: {requires_reply}, suggested formality score: {suggested_formality_score}")
-                    resp = {'success': True, 'questions': questions, 'suggested_formality_score': suggested_formality_score, 'requires_reply': requires_reply, 'reply_reasoning': reply_reasoning}
+                    print(f"Email analysis found {len(questions)} questions, requires_reply: {requires_reply}, suggested formality score: {suggested_formality_score}, is_meeting: {meeting_request.get('is_meeting', False)}")
+                    resp = {'success': True, 'questions': questions, 'suggested_formality_score': suggested_formality_score, 'requires_reply': requires_reply, 'reply_reasoning': reply_reasoning, 'meeting_request': meeting_request}
                     self.wfile.write(json.dumps(resp).encode())
                 except json.JSONDecodeError as e:
                     print(f"Failed to parse AI response as JSON: {e}, result was: {result[:500]}")
                     # Use rule-based questions as fallback
                     if rule_based_questions:
                         print(f"Using rule-based questions after parse error: {rule_based_questions}")
-                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50, 'requires_reply': True, 'reply_reasoning': 'Questions found in email'}
+                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50, 'requires_reply': True, 'reply_reasoning': 'Questions found in email', 'meeting_request': {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}}
                     else:
-                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': False, 'reply_reasoning': ''}
+                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': False, 'reply_reasoning': '', 'meeting_request': {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}}
                     self.wfile.write(json.dumps(resp).encode())
             else:
                 print(f"Failed to analyze email: {error}")
-                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': False, 'reply_reasoning': ''}
+                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': False, 'reply_reasoning': '', 'meeting_request': {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}}
                 self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:
@@ -1735,6 +1771,166 @@ Edit the email draft according to the user's instructions. Keep the same general
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             response = {'success': False, 'error': f'Failed to generate summary: {str(e)}'}
+            self.wfile.write(json.dumps(response).encode())
+
+    def handle_calendar(self):
+        """Handle calendar operations - find free slots or create events"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            action = data.get('action', '')
+            creds = get_stored_credentials()
+
+            if not creds:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': 'Not authenticated. Please sign in first.'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Build Calendar service
+            try:
+                calendar_service = build('calendar', 'v3', credentials=creds)
+            except Exception as e:
+                print(f"Error building calendar service: {e}")
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': f'Calendar service error: {str(e)}'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            if action == 'find_free_slots':
+                # Find free time slots for a meeting
+                duration_minutes = data.get('duration_minutes', 60)
+
+                from datetime import datetime, timedelta
+                import pytz
+
+                # Get current time in user's timezone
+                utc_now = datetime.utcnow()
+                pacific = pytz.timezone('America/Los_Angeles')
+                now_pacific = utc_now.replace(tzinfo=pytz.UTC).astimezone(pacific)
+
+                # Look for slots starting from tomorrow 9am
+                start_date = now_pacific + timedelta(days=1)
+                start_date = start_date.replace(hour=9, minute=0, second=0, microsecond=0)
+
+                # Look for the next 7 business days
+                free_slots = []
+                current_date = start_date
+
+                for day_offset in range(14):  # Check up to 14 days
+                    # Skip weekends
+                    if current_date.weekday() >= 5:  # 5=Saturday, 6=Sunday
+                        current_date += timedelta(days=1)
+                        continue
+
+                    # Business hours: 9am to 5pm
+                    slot_start = current_date.replace(hour=9, minute=0)
+                    slot_end = slot_start + timedelta(hours=8)  # 9am-5pm
+
+                    # Suggest a few time slots per day
+                    suggested_times = [
+                        (slot_start + timedelta(hours=0)),  # 9am
+                        (slot_start + timedelta(hours=2)),  # 11am
+                        (slot_start + timedelta(hours=4)),  # 1pm
+                        (slot_start + timedelta(hours=6)),  # 3pm
+                    ]
+
+                    for slot_time in suggested_times[:3]:  # Max 3 per day
+                        slot_end_time = slot_time + timedelta(minutes=duration_minutes)
+
+                        # Check if slot ends before 5pm
+                        if slot_end_time.hour < 17:
+                            date_str = slot_time.strftime('%A, %B %d')
+                            time_str = slot_time.strftime('%I:%M %p').lstrip('0')
+
+                            free_slots.append({
+                                'date': date_str,
+                                'time': time_str,
+                                'start': slot_time.isoformat(),
+                                'end': slot_end_time.isoformat()
+                            })
+
+                            if len(free_slots) >= 6:  # Max 6 slots total
+                                break
+
+                    current_date += timedelta(days=1)
+                    if len(free_slots) >= 6:
+                        break
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'free_slots': free_slots
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'create_event':
+                # Create a calendar event
+                summary = data.get('summary', 'Meeting')
+                start_datetime = data.get('start_datetime')
+                end_datetime = data.get('end_datetime')
+                attendees = data.get('attendees', [])
+
+                if not start_datetime or not end_datetime:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Missing start or end time'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Create event body
+                event_body = {
+                    'summary': summary,
+                    'start': {
+                        'dateTime': start_datetime,
+                        'timeZone': 'America/Los_Angeles',
+                    },
+                    'end': {
+                        'dateTime': end_datetime,
+                        'timeZone': 'America/Los_Angeles',
+                    },
+                }
+
+                # Add attendees if provided
+                if attendees:
+                    event_body['attendees'] = [{'email': email} for email in attendees]
+
+                # Create the event
+                created_event = calendar_service.events().insert(
+                    calendarId='primary',
+                    body=event_body,
+                    sendUpdates='all'  # Send invitations to attendees
+                ).execute()
+
+                print(f"Created calendar event: {created_event.get('htmlLink')}")
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'event_id': created_event.get('id'),
+                    'html_link': created_event.get('htmlLink')
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            else:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': f'Unknown action: {action}'}
+                self.wfile.write(json.dumps(response).encode())
+
+        except Exception as e:
+            print(f"Error in calendar handler: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {'success': False, 'error': f'Calendar error: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
 
     def log_message(self, format_str, *args):
