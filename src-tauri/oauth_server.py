@@ -1254,6 +1254,48 @@ class OAuthHandler(BaseHTTPRequestHandler):
                             "options": unique_options
                         })
 
+            # RULE-BASED MEETING DETECTION (fallback if AI doesn't detect it)
+            import re as regex_module
+            text_lower = (subject + ' ' + body_text).lower()
+            meeting_keywords = ['meet', 'meeting', 'call', 'schedule', 'available', 'free', 'zoom', 'teams', 'hangout']
+            time_keywords = ['tomorrow', 'today', 'next week', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'am', 'pm', 'morning', 'afternoon', 'evening']
+            question_indicators = ['?', 'can we', 'are you', 'would you', 'let me know']
+
+            is_meeting_request = (
+                any(kw in text_lower for kw in meeting_keywords) and
+                any(kw in text_lower for kw in time_keywords) and
+                (any(ind in text_lower for ind in question_indicators) or 'available' in text_lower or 'free' in text_lower)
+            )
+
+            # Exclude past meetings (notes, minutes, etc.)
+            past_meeting_indicators = ['meeting notes', 'minutes', 'recording', 'agenda for', 'follow-up to', 'summary of']
+            is_meeting_request = is_meeting_request and not any(ind in text_lower for ind in past_meeting_indicators)
+
+            # Extract proposed times
+            proposed_times = []
+            time_patterns = [
+                r'(tomorrow|today|monday|tuesday|wednesday|thursday|friday)\s+(at\s+)?(\d{1,2})(:(\d{2}))?\s*(am|pm)',
+                r'next\s+(monday|tuesday|wednesday|thursday|friday)',
+            ]
+            for pattern in time_patterns:
+                matches = regex_module.findall(pattern, text_lower)
+                for match in matches:
+                    if isinstance(match, tuple):
+                        proposed_times.append(' '.join(m for m in match if m).strip())
+                    else:
+                        proposed_times.append(match.strip())
+
+            # Rule-based meeting request object
+            rule_based_meeting = None
+            if is_meeting_request:
+                rule_based_meeting = {
+                    'is_meeting': True,
+                    'proposed_times': proposed_times[:5] if proposed_times else [],
+                    'duration_minutes': 60,
+                    'subject': subject
+                }
+                print(f"RULE-BASED: Detected meeting request with proposed_times: {proposed_times[:5] if proposed_times else []}")
+
             prompt = f"""You are analyzing an email to extract questions that need user input and detect meeting requests. Be VERY thorough.
 
 Email from: {sender}
@@ -1464,6 +1506,13 @@ Return ONLY valid JSON, no other text or explanation."""
                         if 'subject' not in meeting_request:
                             meeting_request['subject'] = subject
 
+                        # FALLBACK: If AI didn't detect meeting but rule-based did, use rule-based
+                        if not meeting_request.get('is_meeting') and rule_based_meeting:
+                            print(f"AI didn't detect meeting, using rule-based fallback: {rule_based_meeting}")
+                            meeting_request = rule_based_meeting
+                            requires_reply = True
+                            reply_reasoning = "Meeting request detected"
+
                         # FALLBACK: If AI found no questions but rule-based found some, use rule-based
                         if not questions and rule_based_questions:
                             print(f"AI found no questions, using rule-based fallback: {rule_based_questions}")
@@ -1475,7 +1524,8 @@ Return ONLY valid JSON, no other text or explanation."""
                         suggested_formality_score = 50
                         requires_reply = False
                         reply_reasoning = ''
-                        meeting_request = {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
+                        # Use rule-based meeting detection if AI failed completely
+                        meeting_request = rule_based_meeting if rule_based_meeting else {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
 
                     print(f"Email analysis found {len(questions)} questions, requires_reply: {requires_reply}, suggested formality score: {suggested_formality_score}, is_meeting: {meeting_request.get('is_meeting', False)}")
                     resp = {'success': True, 'questions': questions, 'suggested_formality_score': suggested_formality_score, 'requires_reply': requires_reply, 'reply_reasoning': reply_reasoning, 'meeting_request': meeting_request}
@@ -1483,15 +1533,17 @@ Return ONLY valid JSON, no other text or explanation."""
                 except json.JSONDecodeError as e:
                     print(f"Failed to parse AI response as JSON: {e}, result was: {result[:500]}")
                     # Use rule-based questions as fallback
+                    meeting_request_fb = rule_based_meeting if rule_based_meeting else {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
                     if rule_based_questions:
                         print(f"Using rule-based questions after parse error: {rule_based_questions}")
-                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50, 'requires_reply': True, 'reply_reasoning': 'Questions found in email', 'meeting_request': {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}}
+                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50, 'requires_reply': True, 'reply_reasoning': 'Questions found in email', 'meeting_request': meeting_request_fb}
                     else:
-                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': False, 'reply_reasoning': '', 'meeting_request': {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}}
+                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': rule_based_meeting is not None, 'reply_reasoning': 'Meeting request' if rule_based_meeting else '', 'meeting_request': meeting_request_fb}
                     self.wfile.write(json.dumps(resp).encode())
             else:
                 print(f"Failed to analyze email: {error}")
-                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': False, 'reply_reasoning': '', 'meeting_request': {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}}
+                meeting_request_fb = rule_based_meeting if rule_based_meeting else {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
+                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': rule_based_meeting is not None, 'reply_reasoning': 'Meeting request' if rule_based_meeting else '', 'meeting_request': meeting_request_fb}
                 self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:
