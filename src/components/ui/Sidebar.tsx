@@ -4,6 +4,7 @@ import {
   InboxIcon,
   PaperAirplaneIcon,
   BookmarkIcon,
+  ArchiveBoxIcon,
 } from '@heroicons/react/24/outline';
 
 interface SidebarProps {
@@ -23,6 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'inbox', label: 'Inbox', icon: InboxIcon },
     { id: 'saved', label: 'Saved', icon: BookmarkIcon },
     { id: 'sent', label: 'Sent', icon: PaperAirplaneIcon },
+    { id: 'archived', label: 'Archive', icon: ArchiveBoxIcon },
   ] as const;
 
   const getFilterCount = (filterId: string) => {
@@ -33,6 +35,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return emails.filter(e => e.status === 'Saved').length;
       case 'sent':
         return sentEmails.length;
+      case 'archived':
+        return emails.filter(e => e.status === 'Archived').length;
       default:
         return 0;
     }

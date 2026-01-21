@@ -311,7 +311,7 @@ export interface EmailState {
   selectedEmail: Email | null;
   isLoading: boolean;
   error: string | null;
-  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'urgent' | 'important' | 'normal' | 'low';
+  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'archived' | 'urgent' | 'important' | 'normal' | 'low';
   searchQuery: string;
   notifiedEmailIds: Set<string>;  // Track which emails we've sent notifications for
   initialEmailIds: Set<string>;   // Track emails that existed at app startup
@@ -348,7 +348,7 @@ export interface EmailState {
 // Track which emails are being processed (for both summary and reply)
 let processingEmails = new Set<string>();
 // Limit concurrent AI operations to avoid overwhelming the system
-const MAX_CONCURRENT_AI_OPERATIONS = 3;
+const MAX_CONCURRENT_AI_OPERATIONS = 1; // Reduced from 3 to 1 to minimize CPU usage
 let activeAIOperations = 0;
 let aiOperationQueue: Array<() => void> = [];
 
@@ -767,7 +767,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           });
 
           // Process only recent emails that don't have summaries or replies yet
-          const emailsNeedingProcessing = recentEmails.filter(e => !e.summary || !e.ai_generated_reply);
+          // Limit to 5 most recent to reduce load
+          const emailsNeedingProcessing = recentEmails
+            .filter(e => !e.summary || !e.ai_generated_reply)
+            .slice(0, 5); // Limit to 5 most recent
           console.log(`[AI Processing] Recent emails needing processing: ${emailsNeedingProcessing.length} (skipping ${emails.length - recentEmails.length} older emails)`);
           if (emailsNeedingProcessing.length > 0) {
             setTimeout(() => {
@@ -786,7 +789,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           set({ initialEmailIds: updatedInitialIds });
 
           // Process only new emails (not all emails without replies)
-          const emailsNeedingProcessing = emails.filter(e => newEmailIds.includes(e.id));
+          // Limit to 5 most recent to reduce load
+          const emailsNeedingProcessing = emails
+            .filter(e => newEmailIds.includes(e.id))
+            .slice(0, 5); // Limit to 5 most recent
           console.log(`[AI Processing] New emails to process: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
             processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
@@ -826,7 +832,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
             return emailTime >= state.appStartTime;
           });
 
-          const emailsNeedingProcessing = recentEmails.filter(e => !e.summary || !e.ai_generated_reply);
+          // Limit to 5 most recent to reduce load
+          const emailsNeedingProcessing = recentEmails
+            .filter(e => !e.summary || !e.ai_generated_reply)
+            .slice(0, 5); // Limit to 5 most recent
           console.log(`[AI Processing] Gmail API - Recent emails needing processing: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
             setTimeout(() => {
@@ -840,7 +849,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           set({ initialEmailIds: updatedInitialIds });
 
           // Process only new emails
-          const emailsNeedingProcessing = emails.filter(e => newEmailIds.includes(e.id));
+          // Limit to 5 most recent to reduce load
+          const emailsNeedingProcessing = emails
+            .filter(e => newEmailIds.includes(e.id))
+            .slice(0, 5); // Limit to 5 most recent
           console.log(`[AI Processing] Gmail API - New emails to process: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
             processMultipleEmails(emailsNeedingProcessing.map(e => e.id));

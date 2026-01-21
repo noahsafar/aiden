@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Sidebar } from '@/components/ui/Sidebar';
 import { EmailList } from '@/components/ui/EmailList';
 import { EmailView } from '@/components/ui/EmailView';
+import { FocusedEmailView } from '@/components/ui/FocusedEmailView';
 import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
 import { TestPage } from '@/components/TestPage';
@@ -61,9 +62,11 @@ interface Email {
 
 function App() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
+  const [focusedViewEmailId, setFocusedViewEmailId] = useState<string | null>(null);
   const [appStartTime] = useState(Date.now());
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
-  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter } = useEmailStore();
+  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, markAsStarred, updateEmailStatus } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
 
   // Convert email store format to UI format - use useCallback to avoid recreating on every render
@@ -150,10 +153,15 @@ function App() {
       : emails
           .filter(email => {
             const emailTime = new Date(email.date).getTime();
-            // For Saved category, only show saved emails. For inbox, exclude saved/archived.
+            // For Saved category, only show saved emails
             if (currentFilter === 'saved') {
               return emailTime >= appStartTime && email.status === 'Saved';
             }
+            // For Archived category, show archived emails
+            if (currentFilter === 'archived') {
+              return emailTime >= appStartTime && email.status === 'Archived';
+            }
+            // For inbox, exclude saved/archived
             return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved';
           })
           .map(convertToUIEmail),
@@ -198,15 +206,53 @@ function App() {
     initAuth();
   }, [initialize, isAuthenticated, loadThemeFromSettings]);
 
-  // Set up polling for new emails every 10 seconds
+  // Set up polling for new emails - only poll when window is focused to reduce load
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const interval = setInterval(() => {
-      fetchEmails();
-    }, 10000); // Poll every 10 seconds
+    let interval: NodeJS.Timeout | null = null;
 
-    return () => clearInterval(interval);
+    const startPolling = () => {
+      if (interval) clearInterval(interval);
+      interval = setInterval(() => {
+        // Only fetch if window is focused
+        fetchEmails();
+      }, 30000); // Poll every 30 seconds instead of 10 (reduced frequency)
+    };
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
+    // Handle window focus/blur
+    const handleFocus = () => {
+      fetchEmails(); // Fetch immediately when window gains focus
+      startPolling();
+    };
+
+    const handleBlur = () => {
+      stopPolling();
+    };
+
+    // Start polling initially
+    startPolling();
+
+    // Listen for focus/blur events
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleFocus);
+      window.addEventListener('blur', handleBlur);
+    }
+
+    return () => {
+      stopPolling();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleFocus);
+        window.removeEventListener('blur', handleBlur);
+      }
+    };
   }, [isAuthenticated, fetchEmails]);
 
   // Set up notification click handler to focus window
@@ -249,7 +295,27 @@ function App() {
 
   const handleEmailAction = (emailId: string, action: string) => {
     console.log(`Email ${emailId}: ${action}`);
-    // Handle email actions (star, archive, delete, etc.)
+    switch (action) {
+      case 'save': {
+        // Toggle save status
+        const email = emails.find(e => e.id === emailId);
+        if (email) {
+          const newStatus = email.status === 'Saved' ? 'Unhandled' : 'Saved';
+          updateEmailStatus(emailId, newStatus);
+        }
+        break;
+      }
+      case 'archive':
+        updateEmailStatus(emailId, 'Archived');
+        // Clear focused email if it was the archived one
+        if (focusedEmailId === emailId) {
+          setFocusedEmailId(null);
+        }
+        break;
+      case 'delete':
+        // Handle delete if needed
+        break;
+    }
   };
 
   const handleCompose = () => {
@@ -310,7 +376,8 @@ function App() {
         path="/dashboard"
         element={
           isAuthenticated ? (
-            <div className="h-screen bg-background overflow-hidden flex flex-col min-w-0">
+            <>
+              <div className="h-screen bg-background overflow-hidden flex flex-col min-w-0">
               {/* Top Navigation Bar */}
               <div className="h-14 bg-surface border-b border-border flex items-center justify-between pl-2 pr-4 z-10 flex-shrink-0 min-w-0">
                 <div className="flex items-center gap-0 min-w-0">
@@ -372,13 +439,18 @@ function App() {
                     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                       <Mail className="h-12 w-12 text-gray-400 mb-4" />
                       <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                        {currentFilter === 'sent' ? 'No sent emails yet' : currentFilter === 'saved' ? 'No saved emails yet' : 'No new emails yet'}
+                        {currentFilter === 'sent' ? 'No sent emails yet' :
+                         currentFilter === 'saved' ? 'No saved emails yet' :
+                         currentFilter === 'archived' ? 'No archived emails yet' :
+                         'No new emails yet'}
                       </h3>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
                         {currentFilter === 'sent'
                           ? 'Emails you send will appear here.'
                           : currentFilter === 'saved'
                           ? 'Emails you bookmark will appear here.'
+                          : currentFilter === 'archived'
+                          ? 'Emails you archive will appear here.'
                           : 'Emails that arrive will appear here.'}
                       </p>
                     </div>
@@ -386,8 +458,32 @@ function App() {
                     <EmailList
                       emails={filteredEmails}
                       selectedEmailId={selectedEmailId}
-                      onEmailSelect={setSelectedEmailId}
+                      onEmailSelect={(id) => {
+                        setSelectedEmailId(id);
+                        setFocusedEmailId(id);
+                      }}
                       onEmailAction={handleEmailAction}
+                      focusedEmailId={focusedEmailId}
+                      onFocusEmail={setFocusedEmailId}
+                      onTriggerReply={() => {
+                        // Select the email first if not selected
+                        if (focusedEmailId && focusedEmailId !== selectedEmailId) {
+                          setSelectedEmailId(focusedEmailId);
+                        }
+                        // Scroll to the reply section
+                        setTimeout(() => {
+                          const replySection = document.querySelector('[data-reply-section]') as HTMLElement;
+                          if (replySection) {
+                            replySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }
+                        }, 100);
+                      }}
+                      onOpenFocusedView={() => {
+                        // Open email in focused/full-screen modal view
+                        if (focusedEmailId || selectedEmailId) {
+                          setFocusedViewEmailId(focusedEmailId || selectedEmailId);
+                        }
+                      }}
                     />
                   )}
                 </div>
@@ -416,9 +512,19 @@ function App() {
                 </div>
               </div>
             </div>
-          ) : (
-            <Navigate to="/login" replace />
-          )
+
+            {/* Focused Email View Modal - rendered outside the flex container */}
+            {focusedViewEmailId && selectedEmail && (
+              <FocusedEmailView
+                email={selectedEmail}
+                onClose={() => setFocusedViewEmailId(null)}
+                onAction={handleEmailAction}
+              />
+            )}
+          </>
+        ) : (
+          <Navigate to="/login" replace />
+        )
         }
       />
 

@@ -141,6 +141,245 @@ export async function summarizeEmail(
 // Export serverURL for other files to use
 export { serverURL };
 
+// ==================== ATTACHMENT API TYPES ====================
+
+export interface EmailAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
+export interface AttachmentDownloadResponse {
+  success: boolean;
+  data?: string;  // base64 encoded
+  size?: number;
+  error?: string;
+}
+
+export interface AttachmentSummarizeResponse {
+  success: boolean;
+  summary?: string;
+  extracted_text_length?: number;
+  note?: string;
+  error?: string;
+}
+
+export interface SearchedAttachment {
+  filename: string;
+  mimeType: string;
+  size: number;
+  attachmentId: string;
+  messageId: string;
+  subject: string;
+  to: string;
+  date: string;
+  relevanceScore: number;
+}
+
+export interface SearchAttachmentsResponse {
+  success: boolean;
+  attachments?: SearchedAttachment[];
+  total?: number;
+  error?: string;
+}
+
+export interface AnalyzeEmailResponse {
+  success: boolean;
+  questions?: Array<{
+    type: 'choice' | 'text';
+    question: string;
+    options?: string[];
+  }>;
+  suggested_formality_score?: number;
+  requires_reply?: boolean;
+  reply_reasoning?: string;
+  meeting_request?: {
+    is_meeting: boolean;
+    proposed_times: string[];
+    duration_minutes: number;
+    subject: string;
+  };
+  missing_attachment_warning?: string | null;
+  mentioned_document_types?: string[];
+  error?: string;
+}
+
+// ==================== ATTACHMENT API FUNCTIONS ====================
+
+/**
+ * Download an attachment from Gmail
+ */
+export async function downloadAttachment(
+  messageId: string,
+  attachmentId: string
+): Promise<AttachmentDownloadResponse> {
+  try {
+    const baseURL = await serverURL();
+    const url = new URL(`${baseURL}/get-attachment`);
+    url.searchParams.append('messageId', messageId);
+    url.searchParams.append('attachmentId', attachmentId);
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data: AttachmentDownloadResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Failed to download attachment:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to download attachment'
+    };
+  }
+}
+
+/**
+ * Summarize an attachment (PDF, doc, etc.) using AI
+ */
+export async function summarizeAttachment(
+  filename: string,
+  attachmentData: string,  // base64 encoded
+  mimeType: string
+): Promise<AttachmentSummarizeResponse> {
+  try {
+    const baseURL = await serverURL();
+    const response = await fetch(`${baseURL}/summarize-attachment`, {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filename,
+        data: attachmentData,
+        mimeType,
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data: AttachmentSummarizeResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Failed to summarize attachment:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to summarize attachment'
+    };
+  }
+}
+
+/**
+ * Search for attachments in sent emails that might be relevant
+ */
+export async function searchAttachments(
+  keywords: string[],
+  senderEmail?: string,
+  maxResults: number = 10
+): Promise<SearchAttachmentsResponse> {
+  try {
+    const baseURL = await serverURL();
+    const response = await fetch(`${baseURL}/search-attachments`, {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        keywords,
+        sender_email: senderEmail,
+        max_results: maxResults,
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data: SearchAttachmentsResponse = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Failed to search attachments:', error);
+    return {
+      success: false,
+      attachments: [],
+      total: 0,
+      error: error instanceof Error ? error.message : 'Failed to search attachments'
+    };
+  }
+}
+
+/**
+ * Download a base64 attachment to the user's Downloads folder using Tauri
+ */
+export async function saveAttachmentToFile(
+  filename: string,
+  base64Data: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+
+    // Convert base64 to Uint8Array
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    // Try to use the Tauri dialog plugin for save dialog
+    let filePath: string | null = null;
+    try {
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      filePath = await save({
+        defaultPath: filename,
+        filters: [
+          {
+            name: 'All Files',
+            extensions: ['*']
+          }
+        ]
+      });
+    } catch (e) {
+      // Dialog plugin not available, use default Downloads path
+      console.log('Dialog plugin not available, using default path');
+      const downloadsPath = await invoke<string>('get_downloads_path', {}).catch(() => {
+        // Fallback to a default path if the command doesn't exist
+        return `${filename}`;
+      });
+      filePath = `${downloadsPath}/${filename}`.replace('//', '/');
+    }
+
+    if (!filePath) {
+      return { success: false, error: 'Save dialog cancelled' };
+    }
+
+    // Use Tauri to write the file
+    await invoke('write_file', {
+      path: filePath,
+      contents: Array.from(bytes)
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to save attachment:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save attachment'
+    };
+  }
+}
+
 // Helper function to convert Gmail email format to app's Email format
 export function convertGmailEmail(gmailEmail: GmailEmail): any {
   return {

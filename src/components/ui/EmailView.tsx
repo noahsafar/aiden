@@ -1,11 +1,11 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useEmailStore, fetchWithTimeout } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
-import { Bookmark, File, Image, FileText, Archive, Music, Video } from 'lucide-react';
+import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles } from 'lucide-react';
 import DOMPurify from 'dompurify';
-import { serverURL } from '@/api/emails';
+import { serverURL, downloadAttachment, saveAttachmentToFile, summarizeAttachment } from '@/api/emails';
 
 // Helper to decode HTML entities
 function decodeHTMLEntities(text: string): string {
@@ -143,12 +143,154 @@ function EmailHtmlContent({ html }: { html: string }) {
   );
 }
 
+// ==================== ATTACHMENT COMPONENT ====================
+
+interface AttachmentItemProps {
+  attachment: {
+    id: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+  };
+  messageId: string;
+}
+
+function AttachmentItem({ attachment, messageId }: AttachmentItemProps) {
+  const [downloading, setDownloading] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
+
+  const isSummarizable = attachment.mimeType === 'application/pdf' ||
+    attachment.mimeType.includes('word') ||
+    attachment.mimeType.includes('document') ||
+    attachment.mimeType.includes('text') ||
+    attachment.mimeType.includes('powerpoint');
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const result = await downloadAttachment(messageId, attachment.id);
+      if (result.success && result.data) {
+        await saveAttachmentToFile(attachment.filename, result.data);
+      } else {
+        alert('Failed to download: ' + (result.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Download error:', error);
+      alert('Failed to download attachment');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleSummarize = async () => {
+    setSummarizing(true);
+    try {
+      // First download the attachment
+      const result = await downloadAttachment(messageId, attachment.id);
+      if (result.success && result.data) {
+        // Then summarize it
+        const summaryResult = await summarizeAttachment(attachment.filename, result.data, attachment.mimeType);
+        if (summaryResult.success && summaryResult.summary) {
+          setSummary(summaryResult.summary);
+          setShowSummary(true);
+        } else {
+          alert('Failed to summarize: ' + (summaryResult.error || 'Unknown error'));
+        }
+      } else {
+        alert('Failed to download attachment for summarization');
+      }
+    } catch (error) {
+      console.error('Summarize error:', error);
+      alert('Failed to summarize attachment');
+    } finally {
+      setSummarizing(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between p-3 bg-white dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="w-10 h-10 rounded bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 flex-shrink-0">
+          {getFileIcon(attachment.mimeType)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{attachment.filename}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{attachment.mimeType} • {formatFileSize(attachment.size)}</p>
+          {showSummary && summary && (
+            <div className="mt-2 p-2 bg-purple-50 dark:bg-purple-900/20 rounded border border-purple-200 dark:border-purple-800">
+              <div className="flex items-center gap-1 mb-1">
+                <Sparkles size={12} className="text-purple-600 dark:text-purple-400" />
+                <p className="text-xs font-medium text-purple-700 dark:text-purple-300">AI Summary</p>
+              </div>
+              <p className="text-xs text-gray-700 dark:text-gray-300">{summary}</p>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {isSummarizable && !showSummary && (
+          <button
+            onClick={handleSummarize}
+            disabled={summarizing || downloading}
+            className="p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 text-purple-600 dark:text-purple-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Summarize with AI"
+          >
+            <Sparkles size={16} className={summarizing ? 'animate-spin' : ''} />
+          </button>
+        )}
+        {showSummary && (
+          <button
+            onClick={() => setShowSummary(false)}
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 transition-colors"
+            title="Hide summary"
+          >
+            ×
+          </button>
+        )}
+        <button
+          onClick={handleDownload}
+          disabled={downloading || summarizing}
+          className="p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          title="Download"
+        >
+          <Download size={16} className={downloading ? 'animate-bounce' : ''} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ==================== MISSING ATTACHMENT WARNING ====================
+
+interface MissingAttachmentWarningProps {
+  warning?: string | null;
+}
+
+function MissingAttachmentWarning({ warning }: MissingAttachmentWarningProps) {
+  if (!warning) return null;
+
+  return (
+    <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+      <div className="flex items-start gap-3">
+        <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Attachment Mentioned</p>
+          <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">{warning}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface EmailViewProps {
   email?: any;
   onReply?: () => void;
   onForward?: () => void;
   onDelete?: () => void;
   onAction?: (id: string, action: string) => void;
+  focusedView?: boolean; // If true, only show analysis panel (for split view)
 }
 
 type FormalityScore = number; // 0-100, where 0=casual, 50=neutral, 100=formal
@@ -158,7 +300,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onReply = () => {},
   onForward = () => {},
   onDelete = () => {},
-  onAction = () => {}
+  onAction = () => {},
+  focusedView = false,
 }) => {
   const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead } = useEmailStore();
 
@@ -196,6 +339,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
   // Meeting request state
   const [meetingRequest, setMeetingRequest] = React.useState<any>({ is_meeting: false });
+
+  // Attachment warning state
+  const [missingAttachmentWarning, setMissingAttachmentWarning] = React.useState<string | null>(null);
 
   // Unsend state
   const [isSending, setIsSending] = React.useState(false);
@@ -474,6 +620,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       if (globalQuestionData.meetingRequest) {
         setMeetingRequest(globalQuestionData.meetingRequest);
       }
+      // Set missing attachment warning
+      setMissingAttachmentWarning(globalQuestionData.missingAttachmentWarning || null);
       // Save to email state map
       if (email?.id) {
         const state = getEmailState(email.id);
@@ -506,6 +654,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
           sender: fullEmail.sender,
           subject: email.subject,
           body_text: bodyText,
+          has_attachments: email.hasAttachments || fullEmail?.has_attachments || false,
         }),
       }, 60000); // 60 second timeout
 
@@ -558,6 +707,13 @@ export const EmailView: React.FC<EmailViewProps> = ({
       // Set meeting request from API response
       if (result.meeting_request) {
         setMeetingRequest(result.meeting_request);
+      }
+
+      // Set missing attachment warning from API response
+      if (result.missing_attachment_warning) {
+        setMissingAttachmentWarning(result.missing_attachment_warning);
+      } else {
+        setMissingAttachmentWarning(null);
       }
 
       // Mark that we've successfully loaded questions (even if empty)
@@ -771,9 +927,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 h-full overflow-hidden">
-      {/* Action Bar - scrollable when content is long, max 50% height */}
-      <div className={`${isSentEmail ? 'px-4 pb-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'} overflow-y-auto max-h-[50%] min-h-0 flex-shrink-0`}>
+    <div className={`flex flex-col bg-white dark:bg-gray-900 h-full overflow-hidden ${focusedView ? 'flex-1' : 'flex-1'}`}>
+      {/* Action Bar - scrollable when content is long, max 50% height in normal view, full height in focused view */}
+      <div className={`${isSentEmail ? 'px-4 pb-4' : focusedView ? 'p-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'} overflow-y-auto ${focusedView ? 'flex-1' : 'max-h-[50%]'} min-h-0 flex-shrink-0`}>
 
         {/* Summary Loading Indicator */}
         {isSummaryGenerating && !summary && (
@@ -834,9 +990,14 @@ export const EmailView: React.FC<EmailViewProps> = ({
         )}
         {!analyzingQuestions && questionsLoaded && !meetingRequest?.is_meeting && console.log('[EmailView] Meeting NOT detected, meetingRequest:', meetingRequest)}
 
+        {/* Missing Attachment Warning */}
+        {!analyzingQuestions && questionsLoaded && (
+          <MissingAttachmentWarning warning={missingAttachmentWarning} />
+        )}
+
         {/* Questions Section - only show after analysis is complete and no ai reply yet */}
         {!analyzingQuestions && questionsLoaded && !displayAiReply && summary && (
-          <div className="mt-4 space-y-4">
+          <div className="mt-4 space-y-4" data-reply-section>
             {/* Questions list */}
             {pendingQuestions.length > 0 ? (
               <div className="space-y-3">
@@ -1114,7 +1275,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
         )}
       </div>
 
-      {/* Email Content */}
+      {/* Email Content - only show in normal view, not in focused view */}
+      {!focusedView && (
       <div className="flex-1 p-6 overflow-y-auto min-h-0">
         <div className="max-w-4xl mx-auto">
           {isSentEmail && originalEmail ? (
@@ -1228,17 +1390,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
                   <h3 className="text-sm font-semibold text-foreground mb-3">Attachments ({email.attachments.length})</h3>
                   <div className="space-y-2">
                     {email.attachments.map((att: any, index: number) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-white dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
-                            {getFileIcon(att.mimeType || att.filename)}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">{att.filename || att.name || 'Unnamed attachment'}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{att.mimeType || 'Unknown type'} • {formatFileSize(att.size)}</p>
-                          </div>
-                        </div>
-                      </div>
+                      <AttachmentItem
+                        key={index}
+                        attachment={att}
+                        messageId={email.id}
+                      />
                     ))}
                   </div>
                 </div>
@@ -1247,6 +1403,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };

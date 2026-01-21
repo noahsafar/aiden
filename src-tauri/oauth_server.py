@@ -794,6 +794,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_callback()
         elif self.path.startswith('/emails'):
             self.handle_emails()
+        elif self.path.startswith('/get-attachment'):
+            self.handle_get_attachment()
         elif self.path == '/':
             # Root endpoint with simple status
             self.end_headers()
@@ -818,6 +820,10 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_edit_reply()
         elif self.path.startswith('/summarize'):
             self.handle_summarize()
+        elif self.path.startswith('/summarize-attachment'):
+            self.handle_summarize_attachment()
+        elif self.path.startswith('/search-attachments'):
+            self.handle_search_attachments()
         elif self.path.startswith('/calendar'):
             self.handle_calendar()
         else:
@@ -1216,6 +1222,43 @@ class OAuthHandler(BaseHTTPRequestHandler):
             print(f"DEBUG: meeting_keywords found: {any(kw in text_lower for kw in meeting_keywords)}, time_keywords found: {any(kw in text_lower for kw in time_keywords)}, question_indicators found: {any(ind in text_lower for ind in question_indicators)}")
             print(f"DEBUG: is_meeting_request: {is_meeting_request}, proposed_times: {proposed_times}")
 
+            # RULE-BASED ATTACHMENT DETECTION
+            # Check if the email mentions attachments but has none
+            has_attachments = data.get('has_attachments', False)
+            attachment_keywords = [
+                'attached', 'attachment', 'enclosed', 'see attached', 'find attached',
+                'please find', 'see the attached', 'attached file', 'attached document',
+                'attached resume', 'attached cv', 'attached is', 'i have attached',
+                'i\'ve attached', 'i am attaching', 'attachment is', 'attachments are'
+            ]
+            mentions_attachment = any(kw in text_lower for kw in attachment_keywords)
+
+            # Also check for file extension mentions
+            file_extensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg']
+            mentions_file_extension = any(ext in text_lower for ext in file_extensions)
+
+            # Detect if sender says they attached something but we don't see any
+            missing_attachment_warning = None
+            if (mentions_attachment or mentions_file_extension) and not has_attachments:
+                missing_attachment_warning = "They mentioned an attachment but none found in the email"
+                print(f"ATTACHMENT WARNING: {missing_attachment_warning}")
+
+            # Extract potential document types mentioned (for attachment suggestions)
+            mentioned_document_types = []
+            document_type_keywords = {
+                'resume': ['resume', 'cv', 'curriculum vitae', 'cv attached'],
+                'cover_letter': ['cover letter', 'cover letter attached'],
+                'portfolio': ['portfolio', 'work samples'],
+                'transcript': ['transcript', 'academic transcript', 'grades'],
+                'report': ['report', 'project report', 'status report'],
+                'proposal': ['proposal', 'project proposal'],
+                'invoice': ['invoice', 'billing', 'receipt'],
+                'contract': ['contract', 'agreement', 'nda'],
+            }
+            for doc_type, keywords in document_type_keywords.items():
+                if any(kw in text_lower for kw in keywords):
+                    mentioned_document_types.append(doc_type)
+
             # RULE-BASED: If meeting detected, return immediately without calling OpenAI
             # This is faster and more reliable than waiting for OpenAI API
             if is_meeting_request:
@@ -1234,7 +1277,9 @@ class OAuthHandler(BaseHTTPRequestHandler):
                     'suggested_formality_score': 50,
                     'requires_reply': True,
                     'reply_reasoning': 'Meeting request detected',
-                    'meeting_request': meeting_request
+                    'meeting_request': meeting_request,
+                    'missing_attachment_warning': missing_attachment_warning,
+                    'mentioned_document_types': mentioned_document_types
                 }
                 self.wfile.write(json.dumps(resp).encode())
                 return
@@ -1627,7 +1672,7 @@ Return ONLY valid JSON, no other text or explanation."""
                         meeting_request = rule_based_meeting if rule_based_meeting else {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
 
                     print(f"Email analysis found {len(questions)} questions, requires_reply: {requires_reply}, suggested formality score: {suggested_formality_score}, is_meeting: {meeting_request.get('is_meeting', False)}")
-                    resp = {'success': True, 'questions': questions, 'suggested_formality_score': suggested_formality_score, 'requires_reply': requires_reply, 'reply_reasoning': reply_reasoning, 'meeting_request': meeting_request}
+                    resp = {'success': True, 'questions': questions, 'suggested_formality_score': suggested_formality_score, 'requires_reply': requires_reply, 'reply_reasoning': reply_reasoning, 'meeting_request': meeting_request, 'missing_attachment_warning': missing_attachment_warning, 'mentioned_document_types': mentioned_document_types}
                     self.wfile.write(json.dumps(resp).encode())
                 except json.JSONDecodeError as e:
                     print(f"Failed to parse AI response as JSON: {e}, result was: {result[:500]}")
@@ -1635,14 +1680,14 @@ Return ONLY valid JSON, no other text or explanation."""
                     meeting_request_fb = rule_based_meeting if rule_based_meeting else {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
                     if rule_based_questions:
                         print(f"Using rule-based questions after parse error: {rule_based_questions}")
-                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50, 'requires_reply': True, 'reply_reasoning': 'Questions found in email', 'meeting_request': meeting_request_fb}
+                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50, 'requires_reply': True, 'reply_reasoning': 'Questions found in email', 'meeting_request': meeting_request_fb, 'missing_attachment_warning': missing_attachment_warning, 'mentioned_document_types': mentioned_document_types}
                     else:
-                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': rule_based_meeting is not None, 'reply_reasoning': 'Meeting request' if rule_based_meeting else '', 'meeting_request': meeting_request_fb}
+                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': rule_based_meeting is not None, 'reply_reasoning': 'Meeting request' if rule_based_meeting else '', 'meeting_request': meeting_request_fb, 'missing_attachment_warning': missing_attachment_warning, 'mentioned_document_types': mentioned_document_types}
                     self.wfile.write(json.dumps(resp).encode())
             else:
                 print(f"Failed to analyze email: {error}")
                 meeting_request_fb = rule_based_meeting if rule_based_meeting else {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
-                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': rule_based_meeting is not None, 'reply_reasoning': 'Meeting request' if rule_based_meeting else '', 'meeting_request': meeting_request_fb}
+                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': rule_based_meeting is not None, 'reply_reasoning': 'Meeting request' if rule_based_meeting else '', 'meeting_request': meeting_request_fb, 'missing_attachment_warning': missing_attachment_warning, 'mentioned_document_types': mentioned_document_types}
                 self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:
@@ -1922,6 +1967,351 @@ Edit the email draft according to the user's instructions. Keep the same general
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             response = {'success': False, 'error': f'Failed to generate summary: {str(e)}'}
+            self.wfile.write(json.dumps(response).encode())
+
+    def handle_get_attachment(self):
+        """Fetch attachment data from Gmail"""
+        try:
+            # Get query parameters
+            parsed_url = urlparse(self.path)
+            query_params = parse_qs(parsed_url.query)
+
+            message_id = query_params.get('messageId', [''])[0]
+            attachment_id = query_params.get('attachmentId', [''])[0]
+
+            if not message_id or not attachment_id:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': 'Missing messageId or attachmentId'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Get stored credentials
+            creds = get_stored_credentials()
+
+            if not creds:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': 'Not authenticated'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Build Gmail service
+            service = build('gmail', 'v1', credentials=creds)
+
+            # Fetch the attachment
+            attachment = service.users().messages().attachments().get(
+                userId='me',
+                messageId=message_id,
+                id=attachment_id
+            ).execute()
+
+            # Get the attachment data
+            import base64
+            data = attachment.get('data', '')
+            size = attachment.get('size', 0)
+
+            if data:
+                # Decode the base64url data
+                decoded_data = base64.urlsafe_b64decode(data)
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'data': base64.b64encode(decoded_data).decode('ascii'),  # Regular base64 for JSON
+                    'size': size
+                }
+                self.wfile.write(json.dumps(response).encode())
+            else:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': 'No attachment data found'}
+                self.wfile.write(json.dumps(response).encode())
+
+        except Exception as e:
+            print(f"Error fetching attachment: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {'success': False, 'error': f'Failed to fetch attachment: {str(e)}'}
+            self.wfile.write(json.dumps(response).encode())
+
+    def handle_summarize_attachment(self):
+        """Summarize an attachment (PDF, doc, etc.) using AI"""
+        try:
+            import base64
+            import io
+
+            # Get request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            filename = data.get('filename', '')
+            attachment_data = data.get('data', '')  # base64 encoded
+            mime_type = data.get('mimeType', '')
+
+            if not attachment_data:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': 'No attachment data provided'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            print(f"Summarizing attachment: {filename} ({mime_type})")
+
+            # Decode the base64 data
+            file_data = base64.b64decode(attachment_data)
+
+            # Extract text based on file type
+            extracted_text = ""
+
+            if mime_type == 'application/pdf':
+                # Try to extract text from PDF
+                try:
+                    import PyPDF2
+                    pdf_file = io.BytesIO(file_data)
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    extracted_text = ""
+                    for page in pdf_reader.pages:
+                        extracted_text += page.extract_text() + "\n"
+                    print(f"Extracted {len(extracted_text)} characters from PDF")
+                except ImportError:
+                    print("PyPDF2 not installed, trying pdfplumber...")
+                    try:
+                        import pdfplumber
+                        with pdfplumber.open(io.BytesIO(file_data)) as pdf:
+                            for page in pdf.pages:
+                                extracted_text += page.extract_text() + "\n"
+                                print(f"Extracted {len(extracted_text)} characters from PDF")
+                    except ImportError:
+                        response = {'success': False, 'error': 'PDF parsing library not installed. Install with: pip install PyPDF2'}
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps(response).encode())
+                        return
+                except Exception as e:
+                    print(f"Error extracting PDF text: {e}")
+
+            elif mime_type in ['application/msword',
+                               'application/vnd.openxmlformats-officedocument.wordprocessingml.document']:
+                # Try to extract text from Word documents
+                try:
+                    import docx
+                    doc_file = io.BytesIO(file_data)
+                    doc = docx.Document(doc_file)
+                    extracted_text = "\n".join([para.text for para in doc.paragraphs])
+                    print(f"Extracted {len(extracted_text)} characters from Word doc")
+                except ImportError:
+                    response = {'success': False, 'error': 'Word document parsing library not installed. Install with: pip install python-docx'}
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+                except Exception as e:
+                    print(f"Error extracting Word doc text: {e}")
+
+            elif mime_type.startswith('text/'):
+                # Plain text file
+                extracted_text = file_data.decode('utf-8', errors='ignore')
+                print(f"Extracted {len(extracted_text)} characters from text file")
+
+            elif mime_type in ['application/vnd.ms-powerpoint',
+                               'application/vnd.openxmlformats-officedocument.presentationml.presentation']:
+                # PowerPoint - limited text extraction
+                try:
+                    import zipfile
+                    with zipfile.ZipFile(io.BytesIO(file_data)) as zip_ref:
+                        # Extract text from slide XML files
+                        for file_name in zip_ref.namelist():
+                            if file_name.startswith('ppt/slides/slide') and file_name.endswith('.xml'):
+                                xml_content = zip_ref.read(file_name).decode('utf-8', errors='ignore')
+                                # Simple text extraction - remove XML tags
+                                import re as regex_module
+                                text_matches = regex_module.findall(r'<a:t>([^<]+)</a:t>', xml_content)
+                                extracted_text += " ".join(text_matches) + "\n"
+                                print(f"Extracted {len(extracted_text)} characters from PowerPoint")
+                except Exception as e:
+                    print(f"Error extracting PowerPoint text: {e}")
+
+            else:
+                # For unsupported types, try to extract any readable text
+                try:
+                    extracted_text = file_data.decode('utf-8', errors='ignore')[:5000]
+                except:
+                    extracted_text = f"[Unsupported file type: {mime_type}. Cannot extract text for summarization.]"
+
+            if not extracted_text or len(extracted_text.strip()) < 10:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': 'Could not extract meaningful text from the file'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Limit text for API - take first 8000 characters
+            text_for_summary = extracted_text[:8000] if len(extracted_text) > 8000 else extracted_text
+
+            # Generate summary using AI
+            prompt = f"""Summarize the content of this document (filename: {filename}) in 2-3 sentences.
+Focus on the key points, main topics, and any action items or important information.
+
+Document content:
+{text_for_summary}
+
+Provide only the summary, no preamble."""
+
+            messages = [{"role": "user", "content": prompt}]
+            summary, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.3, timeout=15)
+
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            if summary:
+                resp = {
+                    'success': True,
+                    'summary': summary,
+                    'extracted_text_length': len(extracted_text)
+                }
+                self.wfile.write(json.dumps(resp).encode())
+            else:
+                # Return the extracted text even if summarization failed
+                resp = {
+                    'success': True,
+                    'summary': extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text,
+                    'extracted_text_length': len(extracted_text),
+                    'note': 'AI summarization failed, showing raw text excerpt'
+                }
+                self.wfile.write(json.dumps(resp).encode())
+
+        except Exception as e:
+            print(f"Error summarizing attachment: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {'success': False, 'error': f'Failed to summarize attachment: {str(e)}'}
+            self.wfile.write(json.dumps(response).encode())
+
+    def handle_search_attachments(self):
+        """Search recent emails for attachments that might be relevant to the current conversation"""
+        try:
+            # Get request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            search_keywords = data.get('keywords', [])
+            sender_email = data.get('sender_email', '')
+            max_results = data.get('max_results', 10)
+
+            print(f"Searching attachments with keywords: {search_keywords}, sender: {sender_email}")
+
+            # Get stored credentials
+            creds = get_stored_credentials()
+
+            if not creds:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': 'Not authenticated'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Build Gmail service
+            service = build('gmail', 'v1', credentials=creds)
+
+            # Build search query - look for emails with attachments
+            query_parts = ['has:attachment']
+
+            # Add keywords if provided
+            if search_keywords:
+                keyword_query = ' OR '.join([f'filename:{kw}' for kw in search_keywords[:3]])
+                query_parts.append(f'({keyword_query})')
+
+            # Search in sent folder for attachments the user has sent
+            query_parts.append('in:sent')
+
+            query = ' '.join(query_parts)
+
+            # Search for messages
+            results = service.users().messages().list(
+                userId='me',
+                maxResults=max_results,
+                q=query
+            ).execute()
+
+            messages = results.get('messages', [])
+            found_attachments = []
+
+            for message in messages[:max_results]:
+                try:
+                    msg = service.users().messages().get(
+                        userId='me',
+                        id=message['id'],
+                        format='full'
+                    ).execute()
+
+                    # Extract headers
+                    headers = {h['name']: h['value'] for h in msg.get('payload', {}).get('headers', [])}
+                    to_header = headers.get('To', '')
+                    subject = headers.get('Subject', '')
+
+                    # Extract attachments
+                    attachments = extract_attachments(msg)
+
+                    # Filter attachments by keyword relevance
+                    for att in attachments:
+                        att_filename_lower = att['filename'].lower()
+
+                        # Check if filename matches any keywords
+                        relevance_score = 0
+                        for keyword in search_keywords:
+                            if keyword.lower() in att_filename_lower:
+                                relevance_score += 1
+
+                        # Also check if sent to this sender before (contextual relevance)
+                        if sender_email and sender_email.lower() in to_header.lower():
+                            relevance_score += 0.5
+
+                        if relevance_score > 0 or not search_keywords:
+                            # Get the message details for this attachment
+                            found_attachments.append({
+                                'filename': att['filename'],
+                                'mimeType': att['mimeType'],
+                                'size': att['size'],
+                                'attachmentId': att['id'],
+                                'messageId': msg['id'],
+                                'subject': subject,
+                                'to': to_header,
+                                'date': headers.get('Date', ''),
+                                'relevanceScore': relevance_score
+                            })
+
+                except Exception as e:
+                    print(f"Error parsing message {message.get('id', 'unknown')}: {e}")
+                    continue
+
+            # Sort by relevance score
+            found_attachments.sort(key=lambda x: x['relevanceScore'], reverse=True)
+
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            response = {
+                'success': True,
+                'attachments': found_attachments[:max_results],
+                'total': len(found_attachments)
+            }
+            self.wfile.write(json.dumps(response).encode())
+
+        except Exception as e:
+            print(f"Error searching attachments: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {'success': False, 'error': f'Failed to search attachments: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
 
     def handle_calendar(self):

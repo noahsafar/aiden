@@ -5,3 +5,4 @@ pub mod ai;
 pub mod database;
 pub mod settings;
 pub mod notification;
+pub mod fs;
