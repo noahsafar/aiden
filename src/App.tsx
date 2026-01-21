@@ -3,7 +3,6 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Sidebar } from '@/components/ui/Sidebar';
 import { EmailList } from '@/components/ui/EmailList';
 import { EmailView } from '@/components/ui/EmailView';
-import { FocusedEmailView } from '@/components/ui/FocusedEmailView';
 import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
 import { TestPage } from '@/components/TestPage';
@@ -21,7 +20,8 @@ import {
   Sparkles,
   LogOut,
   Settings as SettingsIcon,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon,
+  Bookmark
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -32,10 +32,12 @@ interface Email {
     email: string;
     status?: 'online' | 'offline' | 'away';
   };
+  to: Array<{ name: string; email: string; }>;
   subject: string;
   preview: string;
   content: string;
-  bodyHtml?: string;  // HTML version of email body
+  bodyHtml?: string;
+  body_html?: string;
   timestamp: string;
   isRead: boolean;
   isStarred: boolean;
@@ -50,8 +52,6 @@ interface Email {
   aiSummary?: string;
   aiActionItems?: string[];
   aiPriority?: 'high' | 'medium' | 'low';
-  to: Array<{ name: string; email: string; }>;
-  cc?: Array<{ name: string; email: string; }>;
   attachments?: Array<{
     id: string;
     name: string;
@@ -63,21 +63,24 @@ interface Email {
 function App() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
-  const [focusedViewEmailId, setFocusedViewEmailId] = useState<string | null>(null);
   const [appStartTime] = useState(Date.now());
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
   const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, markAsStarred, updateEmailStatus } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
 
+  // Animation state for focused view
+  const [isAnimatingToFocused, setIsAnimatingToFocused] = useState(false);
+  const [animationPhase, setAnimationPhase] = useState<'idle' | 'slideLeft' | 'expand'>('idle');
+
   // Convert email store format to UI format - use useCallback to avoid recreating on every render
   const convertToUIEmail = React.useCallback((email: any): Email => {
-    const fromMatch = email.sender.match(/^(?:"?([^"]*)"?\s)?(?:<?([^>]+)>?)$/);
+    const fromMatch = email.sender.match(/^(?:\"?([^\"]*)\"?\\s)?(?:<?([^>]+)>?)$/);
     const fromName = fromMatch?.[1] || email.sender.split('<')[0].trim() || 'Unknown';
     const fromEmail = fromMatch?.[2] || email.sender.split('<')[1]?.replace('>', '').trim() || email.sender;
 
     // Convert recipients
     const toRecipients = email.recipients.split(',').map((r: string) => {
-      const match = r.trim().match(/^(?:"?([^"]*)"?\s)?(?:<?([^>]+)>?)$/);
+      const match = r.trim().match(/^(?:\"?([^\"]*)\"?\\s)?(?:<?([^>]+)>?)$/);
       const name = match?.[1] || r.trim().split('<')[0].trim() || 'Unknown';
       const emailAddr = match?.[2] || r.trim().split('<')[1]?.replace('>', '').trim() || r.trim();
       return { name, email: emailAddr };
@@ -113,7 +116,7 @@ function App() {
   // Convert sent email to UI format - use useCallback to avoid recreating on every render
   const convertSentEmailToUI = React.useCallback((email: any): Email => {
     const toRecipients = email.recipients ? email.recipients.split(',').map((r: string) => {
-      const match = r.trim().match(/^(?:"?([^"]*)"?\s)?(?:<?([^>]+)>?)$/);
+      const match = r.trim().match(/^(?:\"?([^\"]*)\"?\\s)?(?:<?([^>]+)>?)$/);
       const name = match?.[1] || r.trim().split('<')[0].trim() || 'Unknown';
       const emailAddr = match?.[2] || r.trim().split('<')[1]?.replace('>', '').trim() || r.trim();
       return { name, email: emailAddr };
@@ -215,7 +218,6 @@ function App() {
     const startPolling = () => {
       if (interval) clearInterval(interval);
       interval = setInterval(() => {
-        // Only fetch if window is focused
         fetchEmails();
       }, 30000); // Poll every 30 seconds instead of 10 (reduced frequency)
     };
@@ -338,6 +340,35 @@ function App() {
     // Start voice recognition for composing
   };
 
+  const handleOpenFocusedView = () => {
+    if (focusedEmailId || selectedEmailId) {
+      setIsAnimatingToFocused(true);
+      setAnimationPhase('slideLeft');
+
+      // After slide completes, extend analysis panel down
+      setTimeout(() => {
+        setAnimationPhase('expand');
+      }, 500);
+    }
+  };
+
+  const handleCloseFocusedView = () => {
+    // Return to idle immediately
+    setAnimationPhase('idle');
+    setIsAnimatingToFocused(false);
+  };
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && (animationPhase === 'slideLeft' || animationPhase === 'expand')) {
+        handleCloseFocusedView();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [animationPhase]);
+
   // Show loading screen while checking authentication
   if (isLoading) {
     return (
@@ -427,14 +458,20 @@ function App() {
               </div>
 
               {/* Main Content Area */}
-              <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+              <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden relative">
                 {/* Sidebar */}
-                <Sidebar
-                  inboxCount={inboxCount}
-                />
+                <div className={`h-full flex-shrink-0 transition-all duration-500 ease-in-out overflow-hidden ${
+                  animationPhase === 'idle' ? '' :
+                  '-translate-x-full'
+                }`}>
+                  <Sidebar inboxCount={inboxCount} />
+                </div>
 
                 {/* Email List */}
-                <div className="w-80 min-w-60 max-w-96 border-r border-gray-200/60 dark:border-gray-700/60 flex-shrink-0">
+                <div className={`h-full overflow-hidden flex-shrink-0 w-80 min-w-60 max-w-96 border-r border-gray-200/60 dark:border-gray-700/60 transition-all duration-500 ease-in-out ${
+                  animationPhase === 'idle' ? '' :
+                  '-translate-x-[20rem]'
+                }`}>
                   {filteredEmails.length === 0 && !emailsLoading ? (
                     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                       <Mail className="h-12 w-12 text-gray-400 mb-4" />
@@ -478,27 +515,98 @@ function App() {
                           }
                         }, 100);
                       }}
-                      onOpenFocusedView={() => {
-                        // Open email in focused/full-screen modal view
-                        if (focusedEmailId || selectedEmailId) {
-                          setFocusedViewEmailId(focusedEmailId || selectedEmailId);
-                        }
-                      }}
+                      onOpenFocusedView={handleOpenFocusedView}
                     />
                   )}
                 </div>
 
-                {/* Email Content */}
-                <div className="flex-1 min-w-0 overflow-hidden">
+                {/* Email Content Area - always render the same structure to avoid unmounting/remounting */}
+                <div className={`flex-1 min-w-0 flex flex-col relative`}>
+                  {/* Close button - shows during slideLeft and expand phases */}
+                  {(animationPhase === 'slideLeft' || animationPhase === 'expand') && (
+                    <div className="absolute top-4 left-4 z-50">
+                      <button
+                        onClick={handleCloseFocusedView}
+                        className="p-2 rounded-lg bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-600 dark:text-gray-400"
+                        title="Go back (Esc)"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+
                   {selectedEmail ? (
-                    <EmailView
-                      email={selectedEmail}
-                      onReply={() => console.log('Reply to email')}
-                      onForward={() => console.log('Forward email')}
-                      onDelete={() => console.log('Delete email')}
-                      onAction={handleEmailAction}
-                    />
+                    <>
+                      {/* Analysis Panel */}
+                      <div
+                        className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-y-auto transition-all duration-500 ease-in-out"
+                        style={
+                          animationPhase === 'idle'
+                            ? { width: '100%', maxHeight: '50%' }
+                            : animationPhase === 'slideLeft'
+                            ? { transform: 'translateX(-36rem)', width: '36rem', maxHeight: '50%' }
+                            : { position: 'absolute', left: '0', top: '0', transform: 'translateX(-36rem)', width: '36rem', height: '100%' }
+                        }
+                      >
+                        <div className="p-2">
+                          <EmailView
+                            email={selectedEmail}
+                            onReply={() => console.log('Reply to email')}
+                            onForward={() => console.log('Forward email')}
+                            onDelete={() => console.log('Delete email')}
+                            onAction={handleEmailAction}
+                            focusedView={false}
+                            animationPhase={animationPhase}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Email Content Display - always visible */}
+                      <div className="flex-1 p-6 overflow-y-auto min-h-0 bg-white dark:bg-gray-800">
+                          <div className="max-w-4xl mx-auto">
+                            <div className="mb-6">
+                              <div className="flex items-start justify-between">
+                                <h2 className="text-2xl font-bold text-foreground mb-2">{selectedEmail.subject}</h2>
+                                <button
+                                  onClick={() => {
+                                    const fullEmail = emails.find(e => e.id === selectedEmail.id);
+                                    if (fullEmail?.status === 'Saved') {
+                                      updateEmailStatus(selectedEmail.id, 'Unhandled');
+                                    } else {
+                                      updateEmailStatus(selectedEmail.id, 'Saved');
+                                    }
+                                  }}
+                                  className="flex-shrink-0"
+                                >
+                                  <Bookmark
+                                    className={`w-5 h-5 ${emails.find(e => e.id === selectedEmail.id)?.status === 'Saved' ? 'fill-purple-500 text-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
+                                  />
+                                </button>
+                              </div>
+                              <div className="flex items-center space-x-4 text-sm text-muted">
+                                <span>From: {selectedEmail.from?.name} &lt;{selectedEmail.from?.email}&gt;</span>
+                                <span>{selectedEmail.timestamp}</span>
+                              </div>
+                            </div>
+
+                            <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:text-foreground">
+                              {selectedEmail.bodyHtml || selectedEmail.body_html ? (
+                                <div className="email-html-content" dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml || selectedEmail.body_html || '' }} />
+                              ) : (
+                                <div className="whitespace-pre-wrap text-foreground">
+                                  {(selectedEmail.content || '').startsWith(selectedEmail.subject)
+                                    ? selectedEmail.content.substring(selectedEmail.subject.length).trim()
+                                    : (selectedEmail.content || '')}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                    </>
                   ) : (
+                    // No email selected - show centered message
                     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                       <Mail className="h-12 w-12 text-gray-400 mb-4" />
                       <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
@@ -512,15 +620,6 @@ function App() {
                 </div>
               </div>
             </div>
-
-            {/* Focused Email View Modal - rendered outside the flex container */}
-            {focusedViewEmailId && selectedEmail && (
-              <FocusedEmailView
-                email={selectedEmail}
-                onClose={() => setFocusedViewEmailId(null)}
-                onAction={handleEmailAction}
-              />
-            )}
           </>
         ) : (
           <Navigate to="/login" replace />

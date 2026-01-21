@@ -43,7 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <div className={`w-16 sm:w-56 md:w-64 bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-shrink-0 ${className}`}>
+    <div className={`w-16 sm:w-56 md:w-64 h-full bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-shrink-0 flex flex-col ${className}`}>
       <div className="p-2 sm:p-4">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 hidden sm:block">Mail</h2>
         <nav className="space-y-1">

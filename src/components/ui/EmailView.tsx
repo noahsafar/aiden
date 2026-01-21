@@ -291,6 +291,7 @@ interface EmailViewProps {
   onDelete?: () => void;
   onAction?: (id: string, action: string) => void;
   focusedView?: boolean; // If true, only show analysis panel (for split view)
+  animationPhase?: 'idle' | 'slideLeft' | 'expand'; // Animation phase for focused view transition
 }
 
 type FormalityScore = number; // 0-100, where 0=casual, 50=neutral, 100=formal
@@ -302,6 +303,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onDelete = () => {},
   onAction = () => {},
   focusedView = false,
+  animationPhase = 'idle',
 }) => {
   const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead } = useEmailStore();
 
@@ -927,9 +929,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
   }
 
   return (
-    <div className={`flex flex-col bg-white dark:bg-gray-900 h-full overflow-hidden ${focusedView ? 'flex-1' : 'flex-1'}`}>
-      {/* Action Bar - scrollable when content is long, max 50% height in normal view, full height in focused view */}
-      <div className={`${isSentEmail ? 'px-4 pb-4' : focusedView ? 'p-4' : 'border-b border-gray-200 dark:border-gray-700 p-4'} overflow-y-auto ${focusedView ? 'flex-1' : 'max-h-[50%]'} min-h-0 flex-shrink-0`}>
+    <div className={`flex flex-col bg-white dark:bg-gray-900 overflow-hidden ${focusedView ? 'h-full flex-1' : ''}`}>
+      {/* Action Bar - scrollable when content is long */}
+      <div className={`${isSentEmail ? 'px-4 pb-4' : focusedView ? 'p-4' : 'p-4'} overflow-y-auto ${focusedView ? 'flex-1' : 'max-h-[50%]'} min-h-0 flex-shrink-0`}>
 
         {/* Summary Loading Indicator */}
         {isSummaryGenerating && !summary && (
@@ -1274,136 +1276,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
           </div>
         )}
       </div>
-
-      {/* Email Content - only show in normal view, not in focused view */}
-      {!focusedView && (
-      <div className="flex-1 p-6 overflow-y-auto min-h-0">
-        <div className="max-w-4xl mx-auto">
-          {isSentEmail && originalEmail ? (
-            // Conversation view for sent emails
-            <div className="-mt-4 space-y-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Conversation</h2>
-                <span className="text-sm text-gray-500">{new Date(sentEmail!.date).toLocaleString()}</span>
-              </div>
-
-              {/* Original Email (Incoming) */}
-              <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center text-sm font-medium text-gray-600 dark:text-gray-300">
-                      {(originalEmail.sender || originalEmail.recipients)?.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">
-                        From: {originalEmail.sender || 'Unknown'}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">To: You</p>
-                    </div>
-                  </div>
-                  <span className="text-xs text-gray-500">
-                    {originalEmail.date ? new Date(originalEmail.date).toLocaleString() : ''}
-                  </span>
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                  {originalEmail.subject}
-                </h3>
-                <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                  {decodeHTMLEntities(originalEmail.body_text || originalEmail.snippet || 'No content available')}
-                </div>
-              </div>
-
-              {/* Arrow */}
-              <div className="flex justify-center">
-                <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                  <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                  </svg>
-                </div>
-              </div>
-
-              {/* Your Reply (Outgoing) */}
-              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-sm font-medium text-white">
-                      You
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">
-                        To: {sentEmail!.recipients || 'Unknown'}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">From: You</p>
-                    </div>
-                  </div>
-                  <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">Your Reply</span>
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                  {sentEmail!.subject}
-                </h3>
-                <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                  {decodeHTMLEntities(sentEmail!.body_text || sentEmail!.snippet || 'No content available')}
-                </div>
-              </div>
-            </div>
-          ) : (
-            // Regular email view
-            <>
-              <div className="mb-6">
-                <div className="flex items-start justify-between">
-                  <h2 className="text-2xl font-bold text-foreground mb-2">{email.subject}</h2>
-                  <button
-                    onClick={() => {
-                      if (fullEmail?.status === 'Saved') {
-                        unsaveEmail(email.id);
-                      } else {
-                        saveEmail(email.id);
-                      }
-                    }}
-                    className="flex-shrink-0"
-                  >
-                    <Bookmark
-                      className={`w-5 h-5 ${fullEmail?.status === 'Saved' ? 'fill-purple-500 text-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
-                    />
-                  </button>
-                </div>
-                <div className="flex items-center space-x-4 text-sm text-muted">
-                  <span>From: {email.from?.name} &lt;{email.from?.email}&gt;</span>
-                  <span>{email.timestamp}</span>
-                </div>
-              </div>
-
-              <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:text-foreground">
-                {email.bodyHtml || email.body_html ? (
-                  <EmailHtmlContent html={email.bodyHtml || email.body_html} />
-                ) : (
-                  <div className="whitespace-pre-wrap text-foreground">
-                    {decodeHTMLEntities(email.content?.startsWith(email.subject)
-                      ? email.content.substring(email.subject.length).trim()
-                      : email.content)}
-                  </div>
-                )}
-              </div>
-
-              {email.hasAttachments && email.attachments && email.attachments.length > 0 && (
-                <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">Attachments ({email.attachments.length})</h3>
-                  <div className="space-y-2">
-                    {email.attachments.map((att: any, index: number) => (
-                      <AttachmentItem
-                        key={index}
-                        attachment={att}
-                        messageId={email.id}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-      )}
     </div>
   );
 };

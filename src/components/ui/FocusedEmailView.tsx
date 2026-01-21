@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, ArrowLeft } from 'lucide-react';
 import { EmailView } from './EmailView';
 import { useEmailStore } from '@/stores/emailStore';
 
@@ -29,9 +29,6 @@ interface Email {
   aiSummary?: string;
   aiActionItems?: string[];
   aiPriority?: 'high' | 'medium' | 'low';
-  summary?: string;
-  key_points?: string[];
-  category?: string;
   attachments?: Array<{ id: string; name: string; size: string; type: string; mimeType?: string; size_bytes?: number }>;
 }
 
@@ -39,38 +36,19 @@ interface FocusedEmailViewProps {
   email: Email;
   onClose: () => void;
   onAction?: (id: string, action: string) => void;
+  animationPhase: 'idle' | 'slideLeft' | 'expand';
 }
 
 export const FocusedEmailView: React.FC<FocusedEmailViewProps> = ({
   email,
   onClose,
   onAction = () => {},
+  animationPhase,
 }) => {
   const { emails } = useEmailStore();
-  const [isAnimatingOut, setIsAnimatingOut] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
 
   // Get the full email data from the store
   const fullEmail = emails.find(e => e.id === email.id) || email;
-
-  const handleClose = () => {
-    setIsAnimatingOut(true);
-    // Wait for animation to complete before actually closing
-    setTimeout(() => {
-      onClose();
-    }, 250);
-  };
-
-  // Close on Escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   // Helper to extract name from email string
   const extractName = (emailStr: string | undefined) => {
@@ -87,41 +65,46 @@ export const FocusedEmailView: React.FC<FocusedEmailViewProps> = ({
     ? fullEmail.recipients.split(',').map(r => extractName(r.trim()))
     : email.to || [];
 
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div
-      className={`fixed inset-0 z-50 bg-white dark:bg-gray-900 transition-all duration-300 ease-out ${
-        isAnimatingOut ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
-      }`}
-    >
-      {/* Header */}
+    <div className="absolute inset-0 top-14 left-0 right-0 bottom-0 bg-white dark:bg-gray-900 z-20 pointer-events-none">
+      {/* Header - appears after slide left phase */}
       <div
-        className={`h-14 bg-surface border-b border-border flex items-center justify-between px-4 transition-transform duration-300 ease-out ${
-          isAnimatingOut ? '-translate-y-2 opacity-0' : 'translate-y-0 opacity-100'
+        className={`absolute top-0 left-0 right-0 h-14 bg-surface border-b border-border flex items-center justify-between px-4 z-30 pointer-events-auto transition-all duration-500 ease-in-out ${
+          animationPhase === 'idle' ? 'opacity-0 -translate-y-full' :
+          animationPhase === 'slideLeft' ? 'opacity-0 -translate-y-full' :
+          'opacity-100 translate-y-0'
         }`}
+        style={{ transitionDelay: animationPhase === 'expand' ? '200ms' : '0ms' }}
       >
-        <div className="flex items-center gap-3 min-w-0">
-          {/* Back button */}
-          <button
-            onClick={handleClose}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-600 dark:text-gray-400 flex-shrink-0"
-            title="Go back (Esc)"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
-              {fullEmail.subject}
-            </span>
-            <span className="text-gray-400 hidden sm:inline">•</span>
-            <span className="text-sm text-gray-600 dark:text-gray-400 truncate hidden sm:block">
-              {senderInfo.name}
-            </span>
-          </div>
+        <button
+          onClick={onClose}
+          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-600 dark:text-gray-400 flex-shrink-0"
+          title="Go back (Esc)"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+            {fullEmail.subject}
+          </span>
+          <span className="text-gray-400 hidden sm:inline">•</span>
+          <span className="text-sm text-gray-600 dark:text-gray-400 truncate hidden sm:block">
+            {senderInfo.name}
+          </span>
         </div>
         <button
-          onClick={handleClose}
+          onClick={onClose}
           className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-600 dark:text-gray-400 flex-shrink-0"
           title="Close (Esc)"
         >
@@ -130,14 +113,15 @@ export const FocusedEmailView: React.FC<FocusedEmailViewProps> = ({
       </div>
 
       {/* Split Content Area */}
-      <div
-        ref={contentRef}
-        className={`flex h-[calc(100vh-3.5rem)] overflow-hidden transition-all duration-300 ease-out ${
-          isAnimatingOut ? 'opacity-50 scale-[0.98]' : 'opacity-100 scale-100'
-        }`}
-      >
-        {/* Left Panel - Email Analysis (40% on large screens) */}
-        <div className="w-full lg:w-2/5 lg:max-w-md border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 overflow-y-auto">
+      <div className="absolute inset-0 top-14 bottom-0 flex pointer-events-auto">
+        {/* Left Panel - Email Analysis */}
+        <div
+          className={`bg-gray-50 dark:bg-gray-900/50 overflow-y-auto border-r border-gray-200 dark:border-gray-700 transition-all duration-500 ease-in-out ${
+            animationPhase === 'idle' ? 'w-2/5 h-full max-h-[50%] translate-y-0' :
+            animationPhase === 'slideLeft' ? 'w-2/5 h-full max-h-[50%] translate-y-0' :
+            'w-2/5 h-full translate-y-0'
+          }`}
+        >
           <EmailView
             email={email}
             onReply={() => {}}
@@ -148,8 +132,15 @@ export const FocusedEmailView: React.FC<FocusedEmailViewProps> = ({
           />
         </div>
 
-        {/* Right Panel - Email Content (60% on large screens) */}
-        <div className="hidden lg:flex flex-1 flex-col bg-white dark:bg-gray-800 overflow-hidden">
+        {/* Right Panel - Email Content */}
+        <div
+          className={`bg-white dark:bg-gray-800 overflow-hidden transition-all duration-500 ease-in-out ${
+            animationPhase === 'idle' ? 'flex-1 h-1/2 mt-auto translate-y-full opacity-0' :
+            animationPhase === 'slideLeft' ? 'flex-1 h-1/2 mt-auto translate-y-full opacity-0' :
+            'flex-1 h-full translate-y-0 opacity-100'
+          }`}
+          style={{ transitionDelay: animationPhase === 'expand' ? '100ms' : '0ms' }}
+        >
           <div className="flex-1 overflow-y-auto p-6">
             {/* Email Header */}
             <div className="mb-6">
@@ -224,11 +215,6 @@ export const FocusedEmailView: React.FC<FocusedEmailViewProps> = ({
             )}
           </div>
         </div>
-      </div>
-
-      {/* Mobile hint - show analysis panel only on small screens */}
-      <div className="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-gray-900/80 text-white text-xs rounded-full backdrop-blur-sm pointer-events-none">
-        Email content below ↑
       </div>
     </div>
   );
