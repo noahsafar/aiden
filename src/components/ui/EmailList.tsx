@@ -76,14 +76,12 @@ export const EmailList: React.FC<EmailListProps> = ({
     }
   }, [emails, focusedEmailId, onFocusEmail, onEmailSelect]);
 
-  // Archive focused email
+  // Archive/unarchive focused email (toggle)
   const archiveEmail = useCallback(() => {
     if (focusedEmailId) {
       onEmailAction(focusedEmailId, 'archive');
-      // Navigate to next email after archiving
-      navigateEmail('next');
     }
-  }, [focusedEmailId, onEmailAction, navigateEmail]);
+  }, [focusedEmailId, onEmailAction]);
 
   // Delete focused email
   const deleteEmail = useCallback(() => {

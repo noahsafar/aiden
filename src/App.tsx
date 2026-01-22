@@ -10,6 +10,7 @@ import { Settings as SettingsPage } from '@/pages/Settings';
 import { Calendar } from '@/pages/Calendar';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { ToastContainer, ToastData } from '@/components/ui/Toast';
 import { useAuthStore } from '@/stores/authStore';
 import { useEmailStore } from '@/stores/emailStore';
 import { useThemeStore } from '@/stores/themeStore';
@@ -74,6 +75,7 @@ function App() {
   const [isClosingAnimation, setIsClosingAnimation] = useState(false);
   const [analysisPanelHeight, setAnalysisPanelHeight] = useState(0);
   const [emailPanelTopPosition, setEmailPanelTopPosition] = useState<number | null>(null);
+  const [toasts, setToasts] = useState<ToastData[]>([]);
   const analysisPanelRef = React.useRef<HTMLDivElement>(null);
 
   // Convert email store format to UI format - use useCallback to avoid recreating on every render
@@ -159,6 +161,9 @@ function App() {
       ? sentEmails.map(convertSentEmailToUI)
       : emails
           .filter(email => {
+            // Always exclude deleted emails from all views
+            if (email.status === 'Deleted') return false;
+
             const emailTime = new Date(email.date).getTime();
             // For Saved category, only show saved emails
             if (currentFilter === 'saved') {
@@ -175,12 +180,12 @@ function App() {
     [currentFilter, sentEmails, emails, appStartTime, convertToUIEmail, convertSentEmailToUI]
   );
 
-  // Calculate actual inbox count (emails after app start, not archived/saved)
+  // Calculate actual inbox count (emails after app start, not archived/saved/deleted)
   // Use useMemo to avoid recalculating on every render
   const inboxCount = React.useMemo(() =>
     emails.filter(email => {
       const emailTime = new Date(email.date).getTime();
-      return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved';
+      return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved' && email.status !== 'Deleted';
     }).length,
     [emails, appStartTime]
   );
@@ -330,17 +335,42 @@ function App() {
         }
         break;
       }
-      case 'archive':
-        updateEmailStatus(emailId, 'Archived');
-        // Clear focused email if it was the archived one
-        if (focusedEmailId === emailId) {
-          setFocusedEmailId(null);
+      case 'archive': {
+        // Toggle archive status
+        const email = emails.find(e => e.id === emailId);
+        if (email) {
+          const newStatus = email.status === 'Archived' ? 'Unhandled' : 'Archived';
+          updateEmailStatus(emailId, newStatus);
         }
         break;
-      case 'delete':
-        // Handle delete if needed
+      }
+      case 'delete': {
+        // Soft delete with undo option
+        const email = emails.find(e => e.id === emailId);
+        if (email) {
+          const previousStatus = email.status;
+          // Immediately mark as Deleted so it disappears from the list
+          updateEmailStatus(emailId, 'Deleted');
+
+          // Show toast with undo option
+          const toastId = `delete-${emailId}-${Date.now()}`;
+          setToasts(prev => [...prev, {
+            id: toastId,
+            message: 'Email deleted',
+            duration: 5000,
+            undo: () => {
+              // Restore previous status
+              updateEmailStatus(emailId, previousStatus);
+            },
+          }]);
+        }
         break;
+      }
     }
+  };
+
+  const dismissToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
   };
 
   const handleCompose = () => {
@@ -818,6 +848,7 @@ function App() {
         }
       />
       </Routes>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </OAuthHandler>
   );
 }
