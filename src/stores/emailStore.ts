@@ -280,7 +280,7 @@ export interface Email {
   is_starred: boolean;
   has_attachments: boolean;
   attachments?: EmailAttachment[];
-  status: 'Unhandled' | 'Saved' | 'Replied' | 'Archived';
+  status: 'Unhandled' | 'Saved' | 'Replied' | 'Archived' | 'Deleted';
   category: 'Urgent' | 'Important' | 'Normal' | 'Low';
   summary?: string;
   key_points?: string[];
@@ -311,7 +311,7 @@ export interface EmailState {
   selectedEmail: Email | null;
   isLoading: boolean;
   error: string | null;
-  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'archived' | 'urgent' | 'important' | 'normal' | 'low';
+  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'archived' | 'deleted' | 'urgent' | 'important' | 'normal' | 'low';
   searchQuery: string;
   notifiedEmailIds: Set<string>;  // Track which emails we've sent notifications for
   initialEmailIds: Set<string>;   // Track emails that existed at app startup
@@ -320,6 +320,10 @@ export interface EmailState {
   generatingSummaries: Set<string>; // Track which emails are currently having summaries generated
   sentReplyEmailIds: Set<string>; // Track which emails we've sent replies to
   appStartTime: number; // Track when the app started to know which emails are "new"
+
+  // Bulk selection state
+  selectedEmailIds: Set<string>;  // Track which emails are selected for bulk actions
+  isSelectMode: boolean;          // Whether bulk select mode is active
 
   // Actions
   fetchEmails: () => Promise<void>;
@@ -343,6 +347,18 @@ export interface EmailState {
   isGeneratingSummary: (emailId: string) => boolean;
   triggerAIProcessing: (emailId: string) => void;
   hasSentReply: (emailId: string) => boolean;
+
+  // Bulk action methods
+  toggleEmailSelection: (emailId: string) => void;
+  selectMultipleEmails: (emailIds: string[]) => void;
+  clearSelection: () => void;
+  selectAllVisible: () => void;
+  bulkArchive: (emailIds?: string[]) => Promise<void>;
+  bulkDelete: (emailIds?: string[]) => Promise<void>;
+  bulkMarkAsRead: (emailIds?: string[]) => Promise<void>;
+  bulkSave: (emailIds?: string[]) => void;
+  isEmailSelected: (emailId: string) => boolean;
+  getSelectedCount: () => number;
 }
 
 // Track which emails are being processed (for both summary and reply)
@@ -378,26 +394,21 @@ async function processAIQueue() {
 // Generate summary for a single email (fire and forget - updates store directly)
 async function generateSummaryForEmail(emailId: string): Promise<void> {
   if (processingEmails.has(`${emailId}-summary`)) {
-    console.log(`[AI Processing] Summary already in progress for ${emailId}`);
     return;
   }
   processingEmails.add(`${emailId}-summary`);
-  console.log(`[AI Processing] Starting summary generation for ${emailId}`);
 
   try {
     const store = useEmailStore.getState();
     const email = store.emails.find(e => e.id === emailId);
     if (!email) {
-      console.log(`[AI Processing] Email ${emailId} not found in store`);
       return;
     }
     if (email.summary) {
-      console.log(`[AI Processing] Email ${emailId} already has summary`);
       return;
     }
 
     const baseURL = await serverURL();
-    console.log(`[AI Processing] Calling summarize API for ${emailId}`);
     const response = await fetchWithTimeout(`${baseURL}/summarize`, {
       method: 'POST',
       mode: 'cors',
@@ -413,7 +424,6 @@ async function generateSummaryForEmail(emailId: string): Promise<void> {
     if (response.ok) {
       const result = await response.json();
       if (result.success && result.summary) {
-        console.log(`[AI Processing] Summary generated for ${emailId}:`, result.summary);
         // Update store with summary
         useEmailStore.setState((state) => ({
           emails: state.emails.map(e =>
@@ -645,12 +655,15 @@ function processEmailImmediately(emailId: string) {
   }
 }
 
-// Process multiple emails in parallel (fire and forget)
+// Process multiple emails with staggered delay to prevent CPU spike
 function processMultipleEmails(emailIds: string[]) {
-  console.log('[AI Processing] Processing emails:', emailIds);
-  for (const emailId of emailIds) {
-    processEmail(emailId); // Fire and forget - all run in parallel
-  }
+  console.log('[AI Processing] Processing emails with stagger:', emailIds);
+  // Process emails one at a time with delay to avoid overwhelming the CPU
+  emailIds.forEach((emailId, index) => {
+    setTimeout(() => {
+      processEmail(emailId);
+    }, index * 3000); // 3 second delay between each email
+  });
 }
 
 export const useEmailStore = create<EmailState>((set, get) => ({
@@ -668,6 +681,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   generatingSummaries: new Set<string>(),
   sentReplyEmailIds: new Set<string>(),
   appStartTime: Date.now(), // Track when the app started to know which emails are "new"
+
+  // Bulk selection state
+  selectedEmailIds: new Set<string>(),
+  isSelectMode: false,
 
   fetchEmails: async () => {
     try {
@@ -770,12 +787,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           // Limit to 5 most recent to reduce load
           const emailsNeedingProcessing = recentEmails
             .filter(e => !e.summary || !e.ai_generated_reply)
-            .slice(0, 5); // Limit to 5 most recent
+            .slice(0, 2); // Limit to 2 most recent (reduced from 5 for performance)
           console.log(`[AI Processing] Recent emails needing processing: ${emailsNeedingProcessing.length} (skipping ${emails.length - recentEmails.length} older emails)`);
           if (emailsNeedingProcessing.length > 0) {
+            // Delay processing to avoid startup lag - process after 10 seconds
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 100); // Small delay to not block UI
+            }, 10000); // 10 second delay before starting
           }
         } else {
           // Subsequent fetches - process truly NEW emails
@@ -792,10 +810,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           // Limit to 5 most recent to reduce load
           const emailsNeedingProcessing = emails
             .filter(e => newEmailIds.includes(e.id))
-            .slice(0, 5); // Limit to 5 most recent
+            .slice(0, 2); // Limit to 2 most recent (reduced from 5 for performance)
           console.log(`[AI Processing] New emails to process: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
-            processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
+            // Small delay to avoid blocking UI
+            setTimeout(() => {
+              processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
+            }, 2000); // 2 second delay
           }
         }
       } catch (pythonError) {
@@ -835,12 +856,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           // Limit to 5 most recent to reduce load
           const emailsNeedingProcessing = recentEmails
             .filter(e => !e.summary || !e.ai_generated_reply)
-            .slice(0, 5); // Limit to 5 most recent
+            .slice(0, 2); // Limit to 2 most recent (reduced from 5 for performance)
           console.log(`[AI Processing] Gmail API - Recent emails needing processing: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
+            // Delay processing to avoid startup lag - process after 10 seconds
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 100);
+            }, 10000); // 10 second delay before starting
           }
         } else {
           const currentIds = new Set(emails.map((e: Email) => e.id));
@@ -852,10 +874,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           // Limit to 5 most recent to reduce load
           const emailsNeedingProcessing = emails
             .filter(e => newEmailIds.includes(e.id))
-            .slice(0, 5); // Limit to 5 most recent
+            .slice(0, 2); // Limit to 2 most recent (reduced from 5 for performance)
           console.log(`[AI Processing] Gmail API - New emails to process: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
-            processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
+            // Small delay to avoid blocking UI
+            setTimeout(() => {
+              processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
+            }, 2000); // 2 second delay
           }
         }
       }
@@ -1247,5 +1272,112 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   hasSentReply: (emailId: string) => {
     return get().sentReplyEmailIds.has(emailId);
+  },
+
+  // Bulk action implementations
+  toggleEmailSelection: (emailId: string) => {
+    const state = get();
+    const newSelection = new Set(state.selectedEmailIds);
+    if (newSelection.has(emailId)) {
+      newSelection.delete(emailId);
+    } else {
+      newSelection.add(emailId);
+    }
+    set({
+      selectedEmailIds: newSelection,
+      isSelectMode: newSelection.size > 0,
+    });
+  },
+
+  selectMultipleEmails: (emailIds: string[]) => {
+    set({
+      selectedEmailIds: new Set(emailIds),
+      isSelectMode: true,
+    });
+  },
+
+  clearSelection: () => {
+    set({
+      selectedEmailIds: new Set<string>(),
+      isSelectMode: false,
+    });
+  },
+
+  selectAllVisible: () => {
+    const visibleEmails = get().getFilteredEmails();
+    set({
+      selectedEmailIds: new Set(visibleEmails.map(e => e.id)),
+      isSelectMode: true,
+    });
+  },
+
+  isEmailSelected: (emailId: string) => {
+    return get().selectedEmailIds.has(emailId);
+  },
+
+  getSelectedCount: () => {
+    return get().selectedEmailIds.size;
+  },
+
+  bulkArchive: async (emailIds?: string[]) => {
+    const state = get();
+    const idsToArchive = emailIds || Array.from(state.selectedEmailIds);
+    if (idsToArchive.length === 0) return;
+
+    // Archive each email by updating its status
+    for (const emailId of idsToArchive) {
+      await get().updateEmailStatus(emailId, 'Archived');
+    }
+
+    // Clear selection after bulk action
+    get().clearSelection();
+  },
+
+  bulkDelete: async (emailIds?: string[]) => {
+    const state = get();
+    const idsToDelete = emailIds || Array.from(state.selectedEmailIds);
+    if (idsToDelete.length === 0) return;
+
+    // Delete each email by updating its status to 'Deleted'
+    for (const emailId of idsToDelete) {
+      await get().updateEmailStatus(emailId, 'Deleted');
+    }
+
+    // Clear selection after bulk action
+    get().clearSelection();
+  },
+
+  bulkMarkAsRead: async (emailIds?: string[]) => {
+    const state = get();
+    const idsToMark = emailIds || Array.from(state.selectedEmailIds);
+    if (idsToMark.length === 0) return;
+
+    // Mark each email as read
+    for (const emailId of idsToMark) {
+      await get().markAsRead(emailId);
+    }
+
+    // Update local state for selected emails
+    set((state) => ({
+      emails: state.emails.map(email =>
+        idsToMark.includes(email.id) ? { ...email, is_read: true } : email
+      ),
+    }));
+  },
+
+  bulkSave: (emailIds?: string[]) => {
+    const state = get();
+    const idsToSave = emailIds || Array.from(state.selectedEmailIds);
+    if (idsToSave.length === 0) return;
+
+    // Save each email by updating its status
+    set((state) => ({
+      emails: state.emails.map(email =>
+        idsToSave.includes(email.id) ? { ...email, status: 'Saved' } : email
+      ),
+    }));
+
+    // Clear selection after bulk action
+    get().clearSelection();
   },
 }));

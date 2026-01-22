@@ -228,7 +228,7 @@ function App() {
       if (interval) clearInterval(interval);
       interval = setInterval(() => {
         fetchEmails();
-      }, 30000); // Poll every 30 seconds instead of 10 (reduced frequency)
+      }, 120000); // Poll every 2 minutes (was 30 seconds) - significantly reduced to save CPU
     };
 
     const stopPolling = () => {
@@ -587,10 +587,11 @@ function App() {
                       </p>
                     </div>
                   ) : (
-                    <EmailList
-                      emails={filteredEmails}
-                      selectedEmailId={selectedEmailId}
-                      onEmailSelect={(id) => {
+                    <div className="h-full flex flex-col">
+                      <EmailList
+                        emails={filteredEmails}
+                        selectedEmailId={selectedEmailId}
+                        onEmailSelect={(id) => {
                         setSelectedEmailId(id);
                         setFocusedEmailId(id);
                       }}
@@ -612,6 +613,7 @@ function App() {
                       }}
                       onOpenFocusedView={handleOpenFocusedView}
                     />
+                    </div>
                   )}
                 </div>
 

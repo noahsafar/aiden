@@ -296,6 +296,37 @@
     word-break: break-word;
     /* Preserve email formatting */
     line-height: normal;
+    /* Isolate email content styles to prevent leakage */
+    contain: layout style;
+    /* Reset inherited styles to prevent email CSS from leaking out */
+    text-align: left;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    /* Create a new stacking context */
+    position: relative;
+    z-index: 0;
+  }
+
+  /* CRITICAL: Reset ALL inherited properties inside email content */
+  .email-html-content,
+  .email-html-content *,
+  .email-html-content *::before,
+  .email-html-content *::after {
+    box-sizing: border-box;
+  }
+
+  /* Override any font-family set by email content */
+  .email-html-content * {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  }
+
+  /* Prevent email content from escaping its container */
+  .email-html-content > *:first-child {
+    margin-top: 0;
+  }
+
+  .email-html-content > *:last-child {
+    margin-bottom: 0;
   }
 
   .email-html-content img {

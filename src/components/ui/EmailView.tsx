@@ -34,11 +34,40 @@ function formatFileSize(bytes: number): string {
   return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
 }
 
+// Configure DOMPurify hooks once at module level
+// This prevents accumulating duplicate hooks on every render
+let purifyHooksConfigured = false;
+function configureDOMPurifyHooks() {
+  if (purifyHooksConfigured) return;
+  purifyHooksConfigured = true;
+
+  DOMPurify.addHook('uponSanitizeAttribute', function (node, data) {
+    // Allow data-* attributes
+    if (data.attrName.startsWith('data-')) {
+      data.keepAttr = true;
+    }
+    // Allow special email attributes
+    if (['bgcolor', 'cellpadding', 'cellspacing', 'valign', 'align', 'nowrap', 'border',
+         'colspan', 'rowspan', 'vspace', 'hspace', 'frameborder', 'scrolling', 'target',
+         'xmlns', 'xmlns:v', 'xmlns:o', 'w', 'h', 'fill', 'stroke', 'shape', 'type',
+         'coords', 'shape', 'usemap', 'name', 'id', 'xmlns:xlink', 'xlink:href',
+         'xml:space', 'filter', 'opacity'].includes(data.attrName.toLowerCase())) {
+      data.keepAttr = true;
+    }
+  });
+}
+
 // Component to render email HTML content properly
 // Handles full HTML documents with <html>, <head>, <body> tags
 function EmailHtmlContent({ html }: { html: string }) {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const uniqueId = React.useRef(`email-${Math.random().toString(36).substr(2, 9)}`);
+
   const processedHtml = React.useMemo(() => {
     if (!html) return '';
+
+    // Configure hooks once (first time we render an email)
+    configureDOMPurifyHooks();
 
     let cleanHtml = html;
 
@@ -58,25 +87,32 @@ function EmailHtmlContent({ html }: { html: string }) {
       }
     }
 
-    // Configure DOMPurify for email HTML - more permissive for rich email content
-    // Allow all common email HTML tags and attributes
-    DOMPurify.addHook('uponSanitizeAttribute', function (node, data) {
-      // Allow data-* attributes
-      if (data.attrName.startsWith('data-')) {
-        data.keepAttr = true;
-      }
-      // Allow special email attributes
-      if (['bgcolor', 'cellpadding', 'cellspacing', 'valign', 'align', 'nowrap', 'border',
-           'colspan', 'rowspan', 'vspace', 'hspace', 'frameborder', 'scrolling', 'target',
-           'xmlns', 'xmlns:v', 'xmlns:o', 'w', 'h', 'fill', 'stroke', 'shape', 'type',
-           'coords', 'shape', 'usemap', 'name', 'id', 'xmlns:xlink', 'xlink:href',
-           'xml:space', 'filter', 'opacity'].includes(data.attrName.toLowerCase())) {
-        data.keepAttr = true;
-      }
+    // Remove style tags and their content to prevent CSS leakage
+    cleanHtml = cleanHtml.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+
+    // Remove link tags that load external stylesheets
+    cleanHtml = cleanHtml.replace(/<link[^>]*rel=['"]?stylesheet['"]?[^>]*>/gi, '');
+
+    // Scope all class names and id attributes to prevent conflicts
+    // This is a simple scoping - adds a unique prefix to classes/ids
+    const prefix = uniqueId.current;
+    cleanHtml = cleanHtml.replace(/\sclass=['"]([^'"]*)['"]/g, (match, classes) => {
+      const scopedClasses = classes.split(/\s+/).filter(c => c).map(c => `${prefix}-${c}`).join(' ');
+      return ` class="${scopedClasses}"`;
+    });
+
+    cleanHtml = cleanHtml.replace(/\sid=['"]([^'"]*)['"]/g, (match, id) => {
+      return ` id="${prefix}-${id}"`;
+    });
+
+    // Also scope anchor links and fragment identifiers
+    cleanHtml = cleanHtml.replace(/href=['"]#([^'"]*)['"]/g, (match, fragment) => {
+      return `href="#${prefix}-${fragment}"`;
     });
 
     const sanitized = DOMPurify.sanitize(cleanHtml, {
       // Allow all standard HTML plus email-specific tags
+      // NOTE: 'style' and 'link' are NOT included to prevent CSS leakage
       ALLOWED_TAGS: [
         // Basic HTML
         'p', 'br', 'strong', 'em', 'u', 's', 'a', 'ul', 'ol', 'li',
@@ -86,10 +122,9 @@ function EmailHtmlContent({ html }: { html: string }) {
         'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'col', 'colgroup',
         // Forms (sometimes in emails)
         'form', 'input', 'button', 'label', 'select', 'option', 'textarea',
-        // Other email elements
+        // Other email elements (NOT style, link, script, meta, head, body)
         'font', 'center', 'map', 'area', 'object', 'param', 'embed', 'video', 'audio',
-        'source', 'track', 'iframe', 'style', 'link', 'meta', 'title', 'head', 'body',
-        'noscript', 'script', 'base', 'template', 'section', 'article', 'aside',
+        'source', 'track', 'iframe', 'title', 'base', 'template', 'section', 'article', 'aside',
         'nav', 'main', 'header', 'footer', 'figure', 'figcaption', 'details', 'summary'
       ],
       ALLOWED_ATTR: [
@@ -104,14 +139,6 @@ function EmailHtmlContent({ html }: { html: string }) {
         'usemap', 'ismap', 'longdesc',
         // Link attributes
         'charset', 'hreflang', 'media', 'sizes', 'rev',
-        // Meta/link attributes
-        'http-equiv', 'content', 'scheme',
-        // Script attributes
-        'async', 'defer', 'crossorigin', 'integrity',
-        // SVG attributes
-        'fill', 'stroke', 'stroke-width', 'd', 'viewBox', 'preserveAspectRatio',
-        'xmlns', 'xmlns:xlink', 'xlink:href', 'xlink:title', 'xlink:type',
-        'version', 'baseProfile', 'xml:space',
         // Data attributes
         /^data-.*$/
       ],
@@ -129,15 +156,40 @@ function EmailHtmlContent({ html }: { html: string }) {
     return sanitized;
   }, [html]);
 
+  // Apply scoped styles dynamically
+  React.useEffect(() => {
+    if (!containerRef.current || !html) return;
+
+    // Get all elements with scoped classes and update their class names
+    const elements = containerRef.current.querySelectorAll('[class]');
+    elements.forEach(el => {
+      const classList = Array.from(el.classList);
+      // Remove any classes that look like they were scoped from a previous email
+      const filteredClasses = classList.filter(c =>
+        !c.match(/^email-\w+-/) || c.startsWith(uniqueId.current)
+      );
+      if (filteredClasses.length !== classList.length) {
+        el.className = filteredClasses.join(' ');
+      }
+    });
+  }, [processedHtml, html]);
+
   return (
     <div
-      className="email-html-content"
+      ref={containerRef}
+      className={`email-html-content email-content-scoped ${uniqueId.current}`}
       dangerouslySetInnerHTML={{ __html: processedHtml }}
       style={{
         width: '100%',
         overflow: 'auto',
-        // Ensure email content takes appropriate width
-        maxWidth: '100%'
+        maxWidth: '100%',
+        // Force specific font values instead of using all: initial
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        fontSize: '14px',
+        lineHeight: '1.5',
+        color: 'inherit',
+        // Important: prevent email from affecting page layout
+        isolation: 'isolate',
       }}
     />
   );
