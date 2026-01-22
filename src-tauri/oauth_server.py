@@ -1672,7 +1672,16 @@ Return ONLY valid JSON, no other text or explanation."""
                         meeting_request = rule_based_meeting if rule_based_meeting else {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
 
                     print(f"Email analysis found {len(questions)} questions, requires_reply: {requires_reply}, suggested formality score: {suggested_formality_score}, is_meeting: {meeting_request.get('is_meeting', False)}")
-                    resp = {'success': True, 'questions': questions, 'suggested_formality_score': suggested_formality_score, 'requires_reply': requires_reply, 'reply_reasoning': reply_reasoning, 'meeting_request': meeting_request, 'missing_attachment_warning': missing_attachment_warning, 'mentioned_document_types': mentioned_document_types}
+                    resp = {
+                        'success': True,
+                        'questions': questions,
+                        'suggested_formality_score': suggested_formality_score,
+                        'requires_reply': requires_reply,
+                        'reply_reasoning': reply_reasoning,
+                        'meeting_request': meeting_request,
+                        'missing_attachment_warning': missing_attachment_warning,
+                        'mentioned_document_types': mentioned_document_types
+                    }
                     self.wfile.write(json.dumps(resp).encode())
                 except json.JSONDecodeError as e:
                     print(f"Failed to parse AI response as JSON: {e}, result was: {result[:500]}")
@@ -1680,14 +1689,41 @@ Return ONLY valid JSON, no other text or explanation."""
                     meeting_request_fb = rule_based_meeting if rule_based_meeting else {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
                     if rule_based_questions:
                         print(f"Using rule-based questions after parse error: {rule_based_questions}")
-                        resp = {'success': True, 'questions': rule_based_questions, 'suggested_formality_score': 50, 'requires_reply': True, 'reply_reasoning': 'Questions found in email', 'meeting_request': meeting_request_fb, 'missing_attachment_warning': missing_attachment_warning, 'mentioned_document_types': mentioned_document_types}
+                        resp = {
+                            'success': True,
+                            'questions': rule_based_questions,
+                            'suggested_formality_score': 50,
+                            'requires_reply': True,
+                            'reply_reasoning': 'Questions found in email',
+                            'meeting_request': meeting_request_fb,
+                            'missing_attachment_warning': missing_attachment_warning,
+                            'mentioned_document_types': mentioned_document_types
+                        }
                     else:
-                        resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': rule_based_meeting is not None, 'reply_reasoning': 'Meeting request' if rule_based_meeting else '', 'meeting_request': meeting_request_fb, 'missing_attachment_warning': missing_attachment_warning, 'mentioned_document_types': mentioned_document_types}
+                        resp = {
+                            'success': True,
+                            'questions': [],
+                            'suggested_formality_score': 50,
+                            'requires_reply': rule_based_meeting is not None,
+                            'reply_reasoning': 'Meeting request' if rule_based_meeting else '',
+                            'meeting_request': meeting_request_fb,
+                            'missing_attachment_warning': missing_attachment_warning,
+                            'mentioned_document_types': mentioned_document_types
+                        }
                     self.wfile.write(json.dumps(resp).encode())
             else:
                 print(f"Failed to analyze email: {error}")
                 meeting_request_fb = rule_based_meeting if rule_based_meeting else {'is_meeting': False, 'proposed_times': [], 'duration_minutes': 60, 'subject': subject}
-                resp = {'success': True, 'questions': [], 'suggested_formality_score': 50, 'requires_reply': rule_based_meeting is not None, 'reply_reasoning': 'Meeting request' if rule_based_meeting else '', 'meeting_request': meeting_request_fb, 'missing_attachment_warning': missing_attachment_warning, 'mentioned_document_types': mentioned_document_types}
+                resp = {
+                    'success': True,
+                    'questions': [],
+                    'suggested_formality_score': 50,
+                    'requires_reply': rule_based_meeting is not None,
+                    'reply_reasoning': 'Meeting request' if rule_based_meeting else '',
+                    'meeting_request': meeting_request_fb,
+                    'missing_attachment_warning': missing_attachment_warning,
+                    'mentioned_document_types': mentioned_document_types
+                }
                 self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:
@@ -2085,7 +2121,7 @@ Edit the email draft according to the user's instructions. Keep the same general
                         with pdfplumber.open(io.BytesIO(file_data)) as pdf:
                             for page in pdf.pages:
                                 extracted_text += page.extract_text() + "\n"
-                                print(f"Extracted {len(extracted_text)} characters from PDF")
+                            print(f"Extracted {len(extracted_text)} characters from PDF")
                     except ImportError:
                         response = {'success': False, 'error': 'PDF parsing library not installed. Install with: pip install PyPDF2'}
                         self.send_header('Content-type', 'application/json')
@@ -2129,10 +2165,10 @@ Edit the email draft according to the user's instructions. Keep the same general
                             if file_name.startswith('ppt/slides/slide') and file_name.endswith('.xml'):
                                 xml_content = zip_ref.read(file_name).decode('utf-8', errors='ignore')
                                 # Simple text extraction - remove XML tags
-                                import re as regex_module
-                                text_matches = regex_module.findall(r'<a:t>([^<]+)</a:t>', xml_content)
+                                import re
+                                text_matches = re.findall(r'<a:t>([^<]+)</a:t>', xml_content)
                                 extracted_text += " ".join(text_matches) + "\n"
-                                print(f"Extracted {len(extracted_text)} characters from PowerPoint")
+                        print(f"Extracted {len(extracted_text)} characters from PowerPoint")
                 except Exception as e:
                     print(f"Error extracting PowerPoint text: {e}")
 
