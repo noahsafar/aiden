@@ -302,15 +302,19 @@ function App() {
   // Measure analysis panel height to position email panel correctly
   useEffect(() => {
     if (analysisPanelRef.current && animationPhase === 'idle' && selectedEmail) {
-      // Measure immediately without resetting height to avoid visual jump
-      const measureTimer = setTimeout(() => {
-        if (analysisPanelRef.current) {
-          const height = analysisPanelRef.current.offsetHeight;
-          setAnalysisPanelHeight(height);
-        }
-      }, 0);
+      // Use requestAnimationFrame to ensure DOM has rendered before measuring
+      const rafId = requestAnimationFrame(() => {
+        // Double RAF to ensure layout is complete
+        requestAnimationFrame(() => {
+          if (analysisPanelRef.current) {
+            const rect = analysisPanelRef.current.getBoundingClientRect();
+            console.log('Analysis panel height measured:', rect.height, 'offsetHeight:', analysisPanelRef.current.offsetHeight);
+            setAnalysisPanelHeight(rect.height);
+          }
+        });
+      });
 
-      return () => clearTimeout(measureTimer);
+      return () => cancelAnimationFrame(rafId);
     }
   }, [selectedEmail, animationPhase]);
 
@@ -682,7 +686,7 @@ function App() {
                               width: 'calc(100% - 36rem)',
                               top: '0',
                               height: 'auto',
-                              maxHeight: 'none',
+                              maxHeight: '50%',
                               borderBottom: '1px solid rgb(229 231 235)',
                               transition: shouldTransitionToIdle ? 'left 0.5s ease-in-out, width 0.5s ease-in-out' : 'none',
                               zIndex: 1
@@ -710,18 +714,16 @@ function App() {
                             }
                       }
                     >
-                    <div className="overflow-y-auto h-full">
-                      <div className="p-2">
-                        <EmailView
-                          email={selectedEmail}
-                          onReply={() => console.log('Reply to email')}
-                          onForward={() => console.log('Forward email')}
-                          onDelete={() => console.log('Delete email')}
-                          onAction={handleEmailAction}
-                          focusedView={false}
-                          animationPhase={animationPhase}
-                        />
-                      </div>
+                    <div className="p-2">
+                      <EmailView
+                        email={selectedEmail}
+                        onReply={() => console.log('Reply to email')}
+                        onForward={() => console.log('Forward email')}
+                        onDelete={() => console.log('Delete email')}
+                        onAction={handleEmailAction}
+                        focusedView={false}
+                        animationPhase={animationPhase}
+                      />
                     </div>
                   </div>
                     );
