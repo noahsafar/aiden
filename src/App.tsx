@@ -552,9 +552,9 @@ function App() {
                         className="bg-white dark:bg-gray-800 overflow-hidden flex-shrink-0"
                         style={
                           animationPhase === 'idle'
-                            ? { width: '100%', height: '50%', borderBottom: '1px solid rgb(229 231 235)', transition: 'all 0.5s ease-in-out' }
+                            ? { width: '100%', height: '50%', borderBottom: '1px solid rgb(229 231 235)', transition: 'transform 0.5s ease-in-out, width 0.5s ease-in-out' }
                             : animationPhase === 'slideLeft'
-                            ? { transform: 'translateX(-36rem)', width: '36rem', height: '50%', borderBottom: '1px solid rgb(229 231 235)' }
+                            ? { transform: 'translateX(-36rem)', width: '36rem', height: '50%', borderBottom: '1px solid rgb(229 231 235)', transition: 'all 0.5s ease-in-out' }
                             : { position: 'absolute', left: '0', top: '0', transform: 'translateX(-36rem)', width: '36rem', height: '100%', borderBottom: 'none', transition: 'height 0.15s ease-out' }
                         }
                       >
