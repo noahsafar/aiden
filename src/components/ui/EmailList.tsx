@@ -85,6 +85,15 @@ export const EmailList: React.FC<EmailListProps> = ({
     }
   }, [focusedEmailId, onEmailAction, navigateEmail]);
 
+  // Delete focused email
+  const deleteEmail = useCallback(() => {
+    if (focusedEmailId) {
+      onEmailAction(focusedEmailId, 'delete');
+      // Navigate to next email after deleting
+      navigateEmail('next');
+    }
+  }, [focusedEmailId, onEmailAction, navigateEmail]);
+
   // Keyboard event handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -129,12 +138,16 @@ export const EmailList: React.FC<EmailListProps> = ({
           e.preventDefault();
           onEmailAction(focusedEmailId, 'save');
           break;
+        case 'd':
+          e.preventDefault();
+          deleteEmail();
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigateEmail, focusedEmailId, onEmailSelect, onTriggerReply, archiveEmail, onEmailAction, onOpenFocusedView]);
+  }, [navigateEmail, focusedEmailId, onEmailSelect, onTriggerReply, archiveEmail, deleteEmail, onEmailAction, onOpenFocusedView]);
 
   // Trigger re-render when reply data changes - poll for updates
   useEffect(() => {
@@ -192,6 +205,7 @@ export const EmailList: React.FC<EmailListProps> = ({
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Enter</kbd> focused</span>
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">a</kbd> archive</span>
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">s</kbd> save</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">d</kbd> delete</span>
         </div>
       </div>
       <div className="p-4 space-y-2">

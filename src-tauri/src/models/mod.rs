@@ -7,6 +7,7 @@ pub enum EmailStatus {
     LowPriority,
     Replied,
     Done,
+    Deleted,
 }
 
 impl ToString for EmailStatus {
@@ -17,6 +18,7 @@ impl ToString for EmailStatus {
             EmailStatus::LowPriority => "Low Priority".to_string(),
             EmailStatus::Replied => "Replied".to_string(),
             EmailStatus::Done => "Done".to_string(),
+            EmailStatus::Deleted => "Deleted".to_string(),
         }
     }
 }
@@ -61,6 +63,7 @@ pub struct Email {
     pub key_points: Vec<String>,
     pub requires_reply: bool,
     pub ai_generated_reply: Option<String>,
+    pub deleted_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
