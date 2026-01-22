@@ -302,16 +302,13 @@ function App() {
   // Measure analysis panel height to position email panel correctly
   useEffect(() => {
     if (analysisPanelRef.current && animationPhase === 'idle' && selectedEmail) {
-      // Reset height first when email changes
-      setAnalysisPanelHeight(0);
-
-      // Measure after a short delay to let the panel render
+      // Measure immediately without resetting height to avoid visual jump
       const measureTimer = setTimeout(() => {
         if (analysisPanelRef.current) {
           const height = analysisPanelRef.current.offsetHeight;
           setAnalysisPanelHeight(height);
         }
-      }, 50);
+      }, 0);
 
       return () => clearTimeout(measureTimer);
     }
@@ -602,7 +599,8 @@ function App() {
                                 : '50%';
 
                             if (animationPhase === 'idle') {
-                              return { position: 'absolute', left: '0', right: '0', top: topPosition, bottom: '0', transition: isClosingAnimation ? 'none' : 'top 0.2s ease-out' };
+                              // No transition in idle to avoid animation when switching emails
+                              return { position: 'absolute', left: '0', right: '0', top: topPosition, bottom: '0', transition: 'none' };
                             } else if (animationPhase === 'slideLeft') {
                               return { position: 'absolute', left: '0', right: '0', top: topPosition, bottom: '0', transition: isClosing ? 'none' : 'top 0.2s ease-out' };
                             } else {
