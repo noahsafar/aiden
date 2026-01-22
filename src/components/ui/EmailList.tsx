@@ -205,8 +205,9 @@ export const EmailList: React.FC<EmailListProps> = ({
               key={email.id}
               id={`email-item-${email.id}`}
               className={`p-4 bg-surface dark:bg-gray-800 border rounded-lg hover:shadow-md transition-all cursor-pointer ${
+                isFocused ? 'border-purple-400 dark:border-purple-500 ring-2 ring-purple-300 dark:ring-purple-700 bg-purple-50/50 dark:bg-purple-900/20' :
                 selectedEmailId === email.id ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900' : 'border-border'
-              } ${isFocused ? 'ring-2 ring-purple-300 dark:ring-purple-700 bg-purple-50/50 dark:bg-purple-900/20' : ''} ${isFyi ? 'opacity-60' : ''}`}
+              } ${isFyi ? 'opacity-60' : ''}`}
               onClick={() => onEmailSelect(email.id)}
             >
               <div className="flex items-start justify-between gap-2">

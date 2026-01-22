@@ -678,7 +678,7 @@ function App() {
                     <div
                       ref={analysisPanelRef}
                       id="analysis-panel"
-                      className="bg-white dark:bg-gray-800 overflow-y-auto border-b border-gray-200 dark:border-gray-700"
+                      className="bg-white dark:bg-gray-800 overflow-y-auto border-b border-gray-200/50 dark:border-gray-700/50"
                       style={
                         animationPhase === 'idle'
                           ? {
@@ -688,7 +688,6 @@ function App() {
                               top: '0',
                               height: 'auto',
                               maxHeight: '50%',
-                              borderBottom: '1px solid rgb(229 231 235)',
                               transition: shouldTransitionToIdle ? 'left 0.5s ease-in-out, width 0.5s ease-in-out' : 'none',
                               zIndex: 1
                             }
@@ -699,7 +698,6 @@ function App() {
                               width: '36rem',
                               top: '0',
                               height: analysisPanelHeight ? `${analysisPanelHeight}px` : 'auto',
-                              borderBottom: '1px solid rgb(229 231 235)',
                               transition: isClosing ? 'left 0.5s ease-in-out, width 0.5s ease-in-out' : 'left 0.5s ease-in-out, width 0.5s ease-in-out',
                               zIndex: 10
                             }

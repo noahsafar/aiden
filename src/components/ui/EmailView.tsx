@@ -929,7 +929,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   }
 
   return (
-    <div className={`flex flex-col bg-white dark:bg-gray-900 overflow-hidden ${focusedView ? 'h-full flex-1' : ''}`}>
+    <div className={`flex flex-col bg-white dark:bg-gray-800 overflow-hidden ${focusedView ? 'h-full flex-1' : ''}`}>
       {/* Action Bar - scrollable when content is long */}
       <div className={`${isSentEmail ? 'px-4 pb-4' : focusedView ? 'p-4' : 'p-4'} overflow-y-auto ${focusedView ? 'flex-1' : 'max-h-[50%]'} min-h-0 flex-shrink-0`}>
 
@@ -1010,7 +1010,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                     className={`p-4 rounded-lg border transition-colors ${
                       userAnswers[idx]
                         ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                        : 'bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
                     }`}
                   >
                     <div className="flex items-start gap-3">
@@ -1035,7 +1035,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                                 className={`px-4 py-2 text-sm rounded-full border transition-colors ${
                                   userAnswers[idx] === option
                                     ? 'bg-amber-500 text-white border-amber-500'
-                                    : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+                                    : 'bg-white dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
                                 }`}
                               >
                                 {option}
@@ -1050,7 +1050,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                               placeholder="Type your answer..."
                               defaultValue={userAnswers[idx] || ''}
                               onChange={(e) => handleAnswer(idx, e.target.value)}
-                              className="flex-1 px-3 py-2 text-sm bg-white dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                              className="flex-1 px-3 py-2 text-sm bg-white dark:bg-gray-800/50 rounded border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-amber-500"
                             />
                           </div>
                         )}
@@ -1091,7 +1091,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 value={additionalContext}
                 onChange={(e) => setAdditionalContext(e.target.value)}
                 placeholder="e.g., 'mention I'll be out of office next week', 'ask about the project timeline'..."
-                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800/50 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
               />
             </div>
 
@@ -1198,7 +1198,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 <textarea
                   value={editedReply}
                   onChange={(e) => { setEditedReply(e.target.value); setHasEdited(true); }}
-                  className="w-full min-h-[120px] p-3 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                  className="w-full min-h-[120px] p-3 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800/50 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
                   placeholder="Edit your reply..."
                 />
               ) : (
@@ -1250,7 +1250,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                     onChange={(e) => setAiEditPrompt(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAiEdit()}
                     placeholder='e.g., "make it shorter", "more formal", "add more details"...'
-                    className="flex-1 px-3 py-2 text-sm bg-white dark:bg-gray-800 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="flex-1 px-3 py-2 text-sm bg-white dark:bg-gray-800/50 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
                   <Button
                     onClick={handleAiEdit}
