@@ -407,15 +407,19 @@ function App() {
     }
   };
 
-  // Close on Escape key
+  // Close on Escape key or Enter when in focused view
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && (animationPhase === 'slideLeft' || animationPhase === 'expand')) {
-        handleCloseFocusedView();
+      if (animationPhase === 'slideLeft' || animationPhase === 'expand') {
+        if (e.key === 'Escape' || e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          handleCloseFocusedView();
+        }
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true); // Use capture phase
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [animationPhase]);
 
   // Show loading screen while checking authentication
