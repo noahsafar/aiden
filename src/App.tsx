@@ -71,6 +71,9 @@ function App() {
   // Animation state for focused view
   const [isAnimatingToFocused, setIsAnimatingToFocused] = useState(false);
   const [animationPhase, setAnimationPhase] = useState<'idle' | 'slideLeft' | 'expand'>('idle');
+  const [isClosingAnimation, setIsClosingAnimation] = useState(false);
+  const [analysisPanelHeight, setAnalysisPanelHeight] = useState(0);
+  const analysisPanelRef = React.useRef<HTMLDivElement>(null);
 
   // Convert email store format to UI format - use useCallback to avoid recreating on every render
   const convertToUIEmail = React.useCallback((email: any): Email => {
@@ -295,6 +298,24 @@ function App() {
 
   const selectedEmail = filteredEmails.find(email => email.id === selectedEmailId);
 
+  // Measure analysis panel height to position email panel correctly
+  useEffect(() => {
+    if (analysisPanelRef.current && animationPhase === 'idle' && selectedEmail) {
+      // Reset height first when email changes
+      setAnalysisPanelHeight(0);
+
+      // Measure after a short delay to let the panel render
+      const measureTimer = setTimeout(() => {
+        if (analysisPanelRef.current) {
+          const height = analysisPanelRef.current.offsetHeight;
+          setAnalysisPanelHeight(height);
+        }
+      }, 50);
+
+      return () => clearTimeout(measureTimer);
+    }
+  }, [selectedEmail, animationPhase]);
+
   const handleEmailAction = (emailId: string, action: string) => {
     console.log(`Email ${emailId}: ${action}`);
     switch (action) {
@@ -354,15 +375,23 @@ function App() {
 
   const handleCloseFocusedView = () => {
     if (animationPhase === 'expand') {
-      // First reverse the expansion (panels shrink back to 50%)
+      // First reverse the expansion - email panel slides down
       setAnimationPhase('slideLeft');
       setTimeout(() => {
+        // Then analysis panel slides back to right
+        setIsClosingAnimation(true);
         setAnimationPhase('idle');
-        setIsAnimatingToFocused(false);
-      }, 150);
+        // Clear the closing flag after animation completes
+        setTimeout(() => {
+          setIsClosingAnimation(false);
+        }, 500);
+      }, 500);
     } else if (animationPhase === 'slideLeft') {
+      setIsClosingAnimation(true);
       setAnimationPhase('idle');
-      setIsAnimatingToFocused(false);
+      setTimeout(() => {
+        setIsClosingAnimation(false);
+      }, 500);
     }
   };
 
@@ -466,7 +495,7 @@ function App() {
               </div>
 
               {/* Main Content Area */}
-              <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden relative">
+              <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden relative" id="main-content-area">
                 {/* Sidebar */}
                 <div className={`h-full flex-shrink-0 transition-all duration-500 ease-in-out overflow-hidden ${
                   animationPhase === 'idle' ? '' :
@@ -547,41 +576,23 @@ function App() {
 
                   {selectedEmail ? (
                     <>
-                      {/* Analysis Panel */}
-                      <div
-                        className="bg-white dark:bg-gray-800 overflow-hidden flex-shrink-0"
-                        style={
-                          animationPhase === 'idle'
-                            ? { width: '100%', height: '50%', borderBottom: '1px solid rgb(229 231 235)', transition: 'transform 0.5s ease-in-out, width 0.5s ease-in-out' }
-                            : animationPhase === 'slideLeft'
-                            ? { transform: 'translateX(-36rem)', width: '36rem', height: '50%', borderBottom: '1px solid rgb(229 231 235)', transition: 'all 0.5s ease-in-out' }
-                            : { position: 'absolute', left: '0', top: '0', transform: 'translateX(-36rem)', width: '36rem', height: '100%', borderBottom: 'none', transition: 'height 0.15s ease-out' }
-                        }
-                      >
-                        <div className="overflow-y-auto h-full">
-                          <div className="p-2">
-                            <EmailView
-                              email={selectedEmail}
-                              onReply={() => console.log('Reply to email')}
-                              onForward={() => console.log('Forward email')}
-                              onDelete={() => console.log('Delete email')}
-                              onAction={handleEmailAction}
-                              focusedView={false}
-                              animationPhase={animationPhase}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
                       {/* Email Content Display - always visible */}
                       <div
                         className="p-6 overflow-y-auto bg-white dark:bg-gray-800"
                         style={
-                          animationPhase === 'idle'
-                            ? { flex: '1 1 0%', minHeight: '0' }
-                            : animationPhase === 'slideLeft'
-                            ? { position: 'absolute', left: '0', right: '0', top: '50%', bottom: '0', transition: 'top 0.15s ease-out' }
-                            : { position: 'absolute', left: '0', right: '0', top: '0', bottom: '0', transition: 'top 0.15s ease-out' }
+                          (() => {
+                            const isClosing = animationPhase === 'slideLeft' && !isAnimatingToFocused;
+
+                            if (animationPhase === 'idle') {
+                              return { position: 'absolute', left: '0', right: '0', top: analysisPanelHeight ? `${analysisPanelHeight}px` : '50%', bottom: '0', transition: 'top 0.2s ease-out' };
+                            } else if (animationPhase === 'slideLeft') {
+                              // Use the measured height if available, otherwise fall back to 50%
+                              return { position: 'absolute', left: '0', right: '0', top: analysisPanelHeight ? `${analysisPanelHeight}px` : '50%', bottom: '0', transition: isClosing ? 'none' : 'top 0.2s ease-out' };
+                            } else {
+                              // expand phase - email panel fills the whole height
+                              return { position: 'absolute', left: '0', right: '0', top: '0', bottom: '0', transition: 'top 0.2s ease-out' };
+                            }
+                          })()
                         }
                       >
                           <div className="max-w-4xl mx-auto">
@@ -637,6 +648,69 @@ function App() {
                     </div>
                   )}
                 </div>
+
+                {/* Analysis Panel - single instance, always rendered but positioned differently */}
+                {selectedEmail && (() => {
+                  const isClosing = animationPhase === 'slideLeft' && !isAnimatingToFocused;
+                  const shouldTransitionToIdle = isClosingAnimation && animationPhase === 'idle';
+
+                  return (
+                    <div
+                      ref={analysisPanelRef}
+                      id="analysis-panel"
+                      className="bg-white dark:bg-gray-800 overflow-y-auto border-b border-gray-200 dark:border-gray-700"
+                      style={
+                        animationPhase === 'idle'
+                          ? {
+                              position: 'absolute',
+                              left: '36rem',
+                              width: 'calc(100% - 36rem)',
+                              top: '0',
+                              height: 'auto',
+                              maxHeight: 'none',
+                              borderBottom: '1px solid rgb(229 231 235)',
+                              transition: shouldTransitionToIdle ? 'left 0.5s ease-in-out, width 0.5s ease-in-out' : 'none',
+                              zIndex: 1
+                            }
+                          : animationPhase === 'slideLeft'
+                          ? {
+                              position: 'absolute',
+                              left: '0',
+                              width: '36rem',
+                              top: '0',
+                              height: analysisPanelHeight ? `${analysisPanelHeight}px` : 'auto',
+                              borderBottom: '1px solid rgb(229 231 235)',
+                              transition: isClosing ? 'left 0.5s ease-in-out, width 0.5s ease-in-out' : 'left 0.5s ease-in-out, width 0.5s ease-in-out',
+                              zIndex: 10
+                            }
+                          : {
+                              position: 'absolute',
+                              left: '0',
+                              width: '36rem',
+                              top: '0',
+                              height: '100%',
+                              borderBottom: 'none',
+                              transition: 'height 0.2s ease-out',
+                              zIndex: 10
+                            }
+                      }
+                    >
+                    <div className="overflow-y-auto h-full">
+                      <div className="p-2">
+                        <EmailView
+                          email={selectedEmail}
+                          onReply={() => console.log('Reply to email')}
+                          onForward={() => console.log('Forward email')}
+                          onDelete={() => console.log('Delete email')}
+                          onAction={handleEmailAction}
+                          focusedView={false}
+                          animationPhase={animationPhase}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                    );
+                })()}
               </div>
             </div>
           </>
