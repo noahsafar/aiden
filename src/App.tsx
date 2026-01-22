@@ -108,6 +108,7 @@ function App() {
       isRead: email.is_read,
       isStarred: email.is_starred,
       hasAttachments: email.has_attachments,
+      attachments: email.attachments || [],
       labels: [
         { id: '1', name: email.status, color: email.category === 'Urgent' ? 'error' : email.category === 'Important' ? 'warning' : 'primary' as const }
       ],
