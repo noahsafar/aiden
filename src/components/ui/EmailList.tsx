@@ -30,6 +30,35 @@ function getEmailReplyData(emailId: string): EmailQuestionData | undefined {
   return undefined;
 }
 
+// Helper function to get summary for an email from store
+function getEmailSummary(emailId: string, emailStore: any): string | undefined {
+  const email = emailStore.emails.find((e: any) => e.id === emailId);
+  return email?.summary;
+}
+
+// Helper function to get attachment count
+function getAttachmentCount(email: any): number {
+  if (email.attachments && Array.isArray(email.attachments)) {
+    return email.attachments.length;
+  }
+  return email.hasAttachments ? 1 : 0;
+}
+
+// Helper function to check if email is a reply (thread indicator)
+function isReplyEmail(email: any): boolean {
+  const subject = email.subject || '';
+  return subject.toLowerCase().startsWith('re:') ||
+         email.inReplyTo ||
+         email.threadId !== email.id;
+}
+
+// Helper function to get thread count (how many emails in this thread)
+function getThreadCount(emailId: string, emails: any[]): number {
+  const email = emails.find((e: any) => e.id === emailId);
+  if (!email?.threadId) return 1;
+  return emails.filter((e: any) => e.threadId === email.threadId).length;
+}
+
 // Component for the action badge - memoized for performance (defined outside to prevent re-creation)
 const ActionBadge = React.memo(({ emailId }: { emailId: string }) => {
   const data = getEmailReplyData(emailId);
@@ -398,6 +427,12 @@ export const EmailList: React.FC<EmailListProps> = ({
           const isFocused = focusedEmailId === email.id;
           const isSelected = isEmailSelected(email.id);
 
+          // Get additional info for enhanced preview
+          const summary = getEmailSummary(email.id, useEmailStore.getState());
+          const attachmentCount = getAttachmentCount(email);
+          const isReply = isReplyEmail(email);
+          const threadCount = getThreadCount(email.id, emails);
+
           return (
             <div
               key={email.id}
@@ -420,13 +455,42 @@ export const EmailList: React.FC<EmailListProps> = ({
 
               <div className="flex items-start justify-between gap-2 pl-2">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
+                  {/* Top row: Sender, badges, indicators */}
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="text-xs text-muted truncate">{email.from?.name || email.from?.email || 'Unknown'}</span>
                     <ActionBadge emailId={email.id} />
                     {email.status === 'Saved' && <span className="text-blue-500" title="Saved">◆</span>}
+                    {/* Thread indicator */}
+                    {isReply && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-0.5" title={`Thread (${threadCount} messages)`}>
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                        </svg>
+                        {threadCount > 1 && <span>{threadCount}</span>}
+                      </span>
+                    )}
+                    {/* Attachment indicator */}
+                    {attachmentCount > 0 && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-0.5" title={`${attachmentCount} attachment${attachmentCount > 1 ? 's' : ''}`}>
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                        </svg>
+                        {attachmentCount > 1 && <span>{attachmentCount}</span>}
+                      </span>
+                    )}
                   </div>
-                  <h3 className={`font-semibold text-foreground ${!email.isRead ? 'text-blue-600 dark:text-blue-400' : ''}`}>{email.subject}</h3>
-                  <p className="text-sm text-muted mt-1 line-clamp-2">{email.preview}</p>
+
+                  {/* Subject */}
+                  <h3 className={`font-semibold text-foreground text-sm ${!email.isRead ? 'text-blue-600 dark:text-blue-400' : ''}`}>{email.subject}</h3>
+
+                  {/* Summary or preview - show summary if available, otherwise preview */}
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+                    {summary ? (
+                      <span className="text-purple-700 dark:text-purple-300 font-medium">{summary}</span>
+                    ) : (
+                      <span>{email.preview}</span>
+                    )}
+                  </p>
                 </div>
                 <span className="text-xs text-muted flex-shrink-0">{email.timestamp}</span>
               </div>

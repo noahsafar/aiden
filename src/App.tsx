@@ -228,7 +228,7 @@ function App() {
       if (interval) clearInterval(interval);
       interval = setInterval(() => {
         fetchEmails();
-      }, 120000); // Poll every 2 minutes (was 30 seconds) - significantly reduced to save CPU
+      }, 60000); // Poll every 1 minute
     };
 
     const stopPolling = () => {
