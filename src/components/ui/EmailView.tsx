@@ -985,24 +985,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
       {/* Action Bar - scrollable when content is long */}
       <div className={`${isSentEmail ? 'px-4 pb-4' : focusedView ? 'p-4' : 'p-4'} overflow-y-auto ${focusedView ? 'flex-1' : 'max-h-[50%]'} min-h-0 flex-shrink-0`}>
 
-        {/* Summary Loading Indicator */}
-        {isSummaryGenerating && !summary && (
-          <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-purple-500 border-t-transparent" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Aiden is summarizing the email...</p>
-                <p className="text-xs text-purple-600 dark:text-purple-400">This will just take a moment</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Summary Display */}
+        {/* Summary Display - slides in when ready */}
         {summary && (
-          <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+          <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800" style={{ animation: 'slideInDown 0.3s ease-out' }}>
             <div className="flex items-center gap-2 mb-2">
               <div className="h-5 w-5 rounded-full bg-purple-500 flex items-center justify-center">
                 <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1015,43 +1000,68 @@ export const EmailView: React.FC<EmailViewProps> = ({
           </div>
         )}
 
-        {/* Analyzing questions indicator */}
-        {analyzingQuestions && !displayAiReply && summary && (
-          <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+        {/* Unified Email Processing Indicator - shows while summary is generating OR questions are being analyzed */}
+        {(isSummaryGenerating || (analyzingQuestions && !displayAiReply)) && (
+          <div
+            className={`p-4 bg-gradient-to-r from-purple-50 to-amber-50 dark:from-purple-900/20 dark:to-amber-900/20 rounded-lg border border-purple-200 dark:border-purple-800 ${summary ? 'mt-4' : ''}`}
+            style={{ animation: summary ? 'slideInDown 0.5s ease-out' : undefined }}
+          >
             <div className="flex items-center gap-3">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
-              <div>
-                <p className="text-sm font-medium text-amber-700 dark:text-amber-300">Aiden is analyzing the email...</p>
-                <p className="text-xs text-amber-600 dark:text-amber-400">Looking for questions and decisions</p>
+              <div className="relative">
+                {/* Spinner while processing */}
+                {analyzingQuestions ? (
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                ) : (
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-purple-500 border-t-transparent" />
+                )}
+                {/* Checkmark overlay when summary is done but questions are still processing */}
+                {summary && analyzingQuestions && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {isSummaryGenerating ? 'Reading email...' : 'Analyzing for questions...'}
+                </p>
+                {/* Progress steps */}
+                <div className="flex items-center gap-2 mt-2">
+                  <div className={`flex items-center gap-1.5 text-xs ${summary ? 'text-green-600 dark:text-green-400' : 'text-purple-600 dark:text-purple-400'}`}>
+                    <div className={`h-1.5 w-1.5 rounded-full ${summary ? 'bg-green-500' : 'bg-purple-500 animate-pulse'}`} />
+                    <span>Summary</span>
+                  </div>
+                  <div className="h-px w-4 bg-gray-300 dark:bg-gray-600" />
+                  <div className={`flex items-center gap-1.5 text-xs ${summary && analyzingQuestions ? 'text-amber-600 dark:text-amber-400 animate-pulse' : 'text-gray-400 dark:text-gray-500'}`}>
+                    <div className={`h-1.5 w-1.5 rounded-full ${summary && analyzingQuestions ? 'bg-amber-500' : 'bg-gray-400 dark:bg-gray-600'}`} />
+                    <span>Questions</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Meeting Suggestions - show when a meeting request is detected */}
-        {!analyzingQuestions && questionsLoaded && meetingRequest?.is_meeting && (
-          <>
-            {console.log('[EmailView] Showing meeting suggestions', meetingRequest)}
-            <MeetingSuggestions
-              meetingRequest={meetingRequest}
-              emailSubject={email.subject}
-              senderEmail={fullEmail?.sender || email.sender || ''}
-              onCreated={() => {
-                // Optionally refresh the calendar or show a confirmation
-              }}
-            />
-          </>
-        )}
-        {!analyzingQuestions && questionsLoaded && !meetingRequest?.is_meeting && console.log('[EmailView] Meeting NOT detected, meetingRequest:', meetingRequest)}
-
-        {/* Missing Attachment Warning */}
-        {!analyzingQuestions && questionsLoaded && (
-          <MissingAttachmentWarning warning={missingAttachmentWarning} />
-        )}
-
-        {/* Questions Section - only show after analysis is complete and no ai reply yet */}
+        {/* Questions Section - slides in when ready after summary */}
         {!analyzingQuestions && questionsLoaded && !displayAiReply && summary && (
-          <div className="mt-4 space-y-4" data-reply-section>
+          <div className="mt-4 space-y-4" style={{ animation: 'slideInUp 0.3s ease-out' }} data-reply-section>
+            {/* Meeting Suggestions */}
+            {meetingRequest?.is_meeting && (
+              <MeetingSuggestions
+                meetingRequest={meetingRequest}
+                emailSubject={email.subject}
+                senderEmail={fullEmail?.sender || email.sender || ''}
+                onCreated={() => {
+                  // Optionally refresh the calendar or show a confirmation
+                }}
+              />
+            )}
+
+            {/* Missing Attachment Warning */}
+            <MissingAttachmentWarning warning={missingAttachmentWarning} />
+
             {/* Questions list */}
             {pendingQuestions.length > 0 ? (
               <div className="space-y-3">
