@@ -45,18 +45,30 @@ function getAttachmentCount(email: any): number {
 }
 
 // Helper function to check if email is a reply (thread indicator)
-function isReplyEmail(email: any): boolean {
+function isReplyEmail(email: any, allEmails: any[]): boolean {
   const subject = email.subject || '';
-  return subject.toLowerCase().startsWith('re:') ||
-         email.inReplyTo ||
-         email.threadId !== email.id;
+  const subjectLower = subject.toLowerCase();
+
+  // Check for common reply/forward prefixes
+  if (subjectLower.startsWith('re:') || subjectLower.startsWith('fwd:') || subjectLower.startsWith('fw:')) {
+    return true;
+  }
+
+  // Only show thread indicator if there are multiple emails with the same thread ID
+  if (email.threadId) {
+    const threadCount = allEmails.filter((e: any) => e.threadId === email.threadId).length;
+    return threadCount > 1;
+  }
+
+  return false;
 }
 
 // Helper function to get thread count (how many emails in this thread)
 function getThreadCount(emailId: string, emails: any[]): number {
   const email = emails.find((e: any) => e.id === emailId);
   if (!email?.threadId) return 1;
-  return emails.filter((e: any) => e.threadId === email.threadId).length;
+  const count = emails.filter((e: any) => e.threadId === email.threadId).length;
+  return count > 1 ? count : 1;
 }
 
 // Component for the action badge - memoized for performance (defined outside to prevent re-creation)
@@ -430,7 +442,7 @@ export const EmailList: React.FC<EmailListProps> = ({
           // Get additional info for enhanced preview
           const summary = getEmailSummary(email.id, useEmailStore.getState());
           const attachmentCount = getAttachmentCount(email);
-          const isReply = isReplyEmail(email);
+          const isReply = isReplyEmail(email, emails);
           const threadCount = getThreadCount(email.id, emails);
 
           return (
