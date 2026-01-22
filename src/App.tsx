@@ -73,6 +73,7 @@ function App() {
   const [animationPhase, setAnimationPhase] = useState<'idle' | 'slideLeft' | 'expand'>('idle');
   const [isClosingAnimation, setIsClosingAnimation] = useState(false);
   const [analysisPanelHeight, setAnalysisPanelHeight] = useState(0);
+  const [emailPanelTopPosition, setEmailPanelTopPosition] = useState<number | null>(null);
   const analysisPanelRef = React.useRef<HTMLDivElement>(null);
 
   // Convert email store format to UI format - use useCallback to avoid recreating on every render
@@ -363,6 +364,8 @@ function App() {
 
   const handleOpenFocusedView = () => {
     if (focusedEmailId || selectedEmailId) {
+      // Clear any locked position when opening
+      setEmailPanelTopPosition(null);
       setIsAnimatingToFocused(true);
       setAnimationPhase('slideLeft');
 
@@ -375,22 +378,30 @@ function App() {
 
   const handleCloseFocusedView = () => {
     if (animationPhase === 'expand') {
-      // First reverse the expansion - email panel slides down
+      // Lock to the actual analysis panel height so email panel ends up in the right place
+      setEmailPanelTopPosition(analysisPanelHeight);
+
+      // First reverse the expansion - email panel slides down to analysis panel height
       setAnimationPhase('slideLeft');
       setTimeout(() => {
-        // Then analysis panel slides back to right
+        // Then analysis panel slides back to right (email panel stays at same position)
         setIsClosingAnimation(true);
         setAnimationPhase('idle');
-        // Clear the closing flag after animation completes
+        // Clear the closing flag and locked position after animation completes
         setTimeout(() => {
           setIsClosingAnimation(false);
+          setEmailPanelTopPosition(null);
         }, 500);
       }, 500);
     } else if (animationPhase === 'slideLeft') {
+      // Already in slideLeft - lock to analysis panel height
+      setEmailPanelTopPosition(analysisPanelHeight);
+
       setIsClosingAnimation(true);
       setAnimationPhase('idle');
       setTimeout(() => {
         setIsClosingAnimation(false);
+        setEmailPanelTopPosition(null);
       }, 500);
     }
   };
@@ -583,11 +594,17 @@ function App() {
                           (() => {
                             const isClosing = animationPhase === 'slideLeft' && !isAnimatingToFocused;
 
+                            // Use locked position during closing animation, otherwise use measured height
+                            const topPosition = emailPanelTopPosition !== null
+                              ? `${emailPanelTopPosition}px`
+                              : analysisPanelHeight
+                                ? `${analysisPanelHeight}px`
+                                : '50%';
+
                             if (animationPhase === 'idle') {
-                              return { position: 'absolute', left: '0', right: '0', top: analysisPanelHeight ? `${analysisPanelHeight}px` : '50%', bottom: '0', transition: 'top 0.2s ease-out' };
+                              return { position: 'absolute', left: '0', right: '0', top: topPosition, bottom: '0', transition: isClosingAnimation ? 'none' : 'top 0.2s ease-out' };
                             } else if (animationPhase === 'slideLeft') {
-                              // Use the measured height if available, otherwise fall back to 50%
-                              return { position: 'absolute', left: '0', right: '0', top: analysisPanelHeight ? `${analysisPanelHeight}px` : '50%', bottom: '0', transition: isClosing ? 'none' : 'top 0.2s ease-out' };
+                              return { position: 'absolute', left: '0', right: '0', top: topPosition, bottom: '0', transition: isClosing ? 'none' : 'top 0.2s ease-out' };
                             } else {
                               // expand phase - email panel fills the whole height
                               return { position: 'absolute', left: '0', right: '0', top: '0', bottom: '0', transition: 'top 0.2s ease-out' };
