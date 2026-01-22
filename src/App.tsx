@@ -392,7 +392,7 @@ function App() {
           setIsClosingAnimation(false);
           setEmailPanelTopPosition(null);
         }, 500);
-      }, 500);
+      }, 200);
     } else if (animationPhase === 'slideLeft') {
       // Already in slideLeft - lock to analysis panel height
       setEmailPanelTopPosition(analysisPanelHeight);
