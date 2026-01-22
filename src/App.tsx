@@ -353,9 +353,17 @@ function App() {
   };
 
   const handleCloseFocusedView = () => {
-    // Return to idle immediately
-    setAnimationPhase('idle');
-    setIsAnimatingToFocused(false);
+    if (animationPhase === 'expand') {
+      // First reverse the expansion (panels shrink back to 50%)
+      setAnimationPhase('slideLeft');
+      setTimeout(() => {
+        setAnimationPhase('idle');
+        setIsAnimatingToFocused(false);
+      }, 150);
+    } else if (animationPhase === 'slideLeft') {
+      setAnimationPhase('idle');
+      setIsAnimatingToFocused(false);
+    }
   };
 
   // Close on Escape key
@@ -541,30 +549,41 @@ function App() {
                     <>
                       {/* Analysis Panel */}
                       <div
-                        className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-y-auto transition-all duration-500 ease-in-out"
+                        className="bg-white dark:bg-gray-800 overflow-hidden flex-shrink-0"
                         style={
                           animationPhase === 'idle'
-                            ? { width: '100%', maxHeight: '50%' }
+                            ? { width: '100%', height: '50%', borderBottom: '1px solid rgb(229 231 235)', transition: 'all 0.5s ease-in-out' }
                             : animationPhase === 'slideLeft'
-                            ? { transform: 'translateX(-36rem)', width: '36rem', maxHeight: '50%' }
-                            : { position: 'absolute', left: '0', top: '0', transform: 'translateX(-36rem)', width: '36rem', height: '100%' }
+                            ? { transform: 'translateX(-36rem)', width: '36rem', height: '50%', borderBottom: '1px solid rgb(229 231 235)' }
+                            : { position: 'absolute', left: '0', top: '0', transform: 'translateX(-36rem)', width: '36rem', height: '100%', borderBottom: 'none', transition: 'height 0.15s ease-out' }
                         }
                       >
-                        <div className="p-2">
-                          <EmailView
-                            email={selectedEmail}
-                            onReply={() => console.log('Reply to email')}
-                            onForward={() => console.log('Forward email')}
-                            onDelete={() => console.log('Delete email')}
-                            onAction={handleEmailAction}
-                            focusedView={false}
-                            animationPhase={animationPhase}
-                          />
+                        <div className="overflow-y-auto h-full">
+                          <div className="p-2">
+                            <EmailView
+                              email={selectedEmail}
+                              onReply={() => console.log('Reply to email')}
+                              onForward={() => console.log('Forward email')}
+                              onDelete={() => console.log('Delete email')}
+                              onAction={handleEmailAction}
+                              focusedView={false}
+                              animationPhase={animationPhase}
+                            />
+                          </div>
                         </div>
                       </div>
 
                       {/* Email Content Display - always visible */}
-                      <div className="flex-1 p-6 overflow-y-auto min-h-0 bg-white dark:bg-gray-800">
+                      <div
+                        className="p-6 overflow-y-auto bg-white dark:bg-gray-800"
+                        style={
+                          animationPhase === 'idle'
+                            ? { flex: '1 1 0%', minHeight: '0' }
+                            : animationPhase === 'slideLeft'
+                            ? { position: 'absolute', left: '0', right: '0', top: '50%', bottom: '0', transition: 'top 0.15s ease-out' }
+                            : { position: 'absolute', left: '0', right: '0', top: '0', bottom: '0', transition: 'top 0.15s ease-out' }
+                        }
+                      >
                           <div className="max-w-4xl mx-auto">
                             <div className="mb-6">
                               <div className="flex items-start justify-between">
