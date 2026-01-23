@@ -3,9 +3,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEmailStore, fetchWithTimeout } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
-import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X } from 'lucide-react';
+import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X, Clock } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { serverURL, downloadAttachment, saveAttachmentToFile, summarizeAttachment } from '@/api/emails';
+import { analyzeEmail, generateReply as claudeGenerateReply, editReply, type AnalyzeEmailRequest, type GenerateReplyRequest } from '@/api/claude';
 
 // Helper to decode HTML entities
 function decodeHTMLEntities(text: string): string {
@@ -469,6 +470,19 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
   // Meeting request state
   const [meetingRequest, setMeetingRequest] = React.useState<any>({ is_meeting: false });
+  const [selectedMeetingTime, setSelectedMeetingTime] = React.useState<any>(null); // { date, time, start, end, dayName }
+  const [userTimezone, setUserTimezone] = React.useState<string>('America/New_York');
+
+  // Load user timezone from settings
+  React.useEffect(() => {
+    invoke('get_settings').then((settings: any) => {
+      if (settings?.timezone) {
+        setUserTimezone(settings.timezone);
+      }
+    }).catch(() => {
+      // Use default timezone
+    });
+  }, []);
 
   // Attachment warning state
   const [missingAttachmentWarning, setMissingAttachmentWarning] = React.useState<string | null>(null);
@@ -705,23 +719,33 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
     setIsAiEditing(true);
     try {
-      const baseURL = await serverURL();
-      const response = await fetchWithTimeout(`${baseURL}/edit-reply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          current_reply: editedReply,
-          edit_prompt: aiEditPrompt,
-        }),
-      }, 60000);
-
-      const result = await response.json();
-      if (result.success) {
-        setEditedReply(result.edited_reply);
+      // Try Claude API directly first (through Tauri)
+      try {
+        const editedReply = await editReply(editedReply, aiEditPrompt);
+        setEditedReply(editedReply);
         setHasEdited(true);
         setAiEditPrompt('');
-      } else {
-        alert('Failed to edit reply: ' + result.error);
+      } catch (claudeError) {
+        console.log('[handleAiEdit] Claude API failed, falling back to Python server:', claudeError);
+        // Fall back to Python server
+        const baseURL = await serverURL();
+        const response = await fetchWithTimeout(`${baseURL}/edit-reply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            current_reply: editedReply,
+            edit_prompt: aiEditPrompt,
+          }),
+        }, 60000);
+
+        const result = await response.json();
+        if (result.success) {
+          setEditedReply(result.edited_reply);
+          setHasEdited(true);
+          setAiEditPrompt('');
+        } else {
+          alert('Failed to edit reply: ' + result.error);
+        }
       }
     } catch (error) {
       console.error('Failed to AI edit reply:', error);
@@ -778,24 +802,47 @@ export const EmailView: React.FC<EmailViewProps> = ({
         body_length: bodyText.length,
       });
 
-      const baseURL = await serverURL();
-      const response = await fetchWithTimeout(`${baseURL}/analyze-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      // Try Claude API directly first (through Tauri)
+      let result: any;
+      try {
+        console.log('[analyzeEmail] Trying Claude API through Tauri...');
+        const claudeResponse = await analyzeEmail({
           sender: fullEmail.sender,
           subject: email.subject,
           body_text: bodyText,
           has_attachments: email.hasAttachments || fullEmail?.has_attachments || false,
-        }),
-      }, 60000); // 60 second timeout
+        });
 
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
+        result = {
+          success: true,
+          questions: claudeResponse.questions,
+          suggested_formality_score: claudeResponse.suggested_formality_score,
+          meeting_request: claudeResponse.meeting_request,
+          missing_attachment_warning: claudeResponse.missing_attachment_warning,
+        };
+        console.log('[analyzeEmail] Claude API response:', result);
+      } catch (claudeError) {
+        console.log('[analyzeEmail] Claude API failed, falling back to Python server:', claudeError);
+        // Fall back to Python server
+        const baseURL = await serverURL();
+        const response = await fetchWithTimeout(`${baseURL}/analyze-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sender: fullEmail.sender,
+            subject: email.subject,
+            body_text: bodyText,
+            has_attachments: email.hasAttachments || fullEmail?.has_attachments || false,
+          }),
+        }, 60000); // 60 second timeout
+
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+
+        result = await response.json();
+        console.log('[analyzeEmail] Python server response:', result);
       }
-
-      const result = await response.json();
-      console.log('[analyzeEmail] Backend response:', result);
 
       if (result.success && result.questions && result.questions.length > 0) {
         console.log('[analyzeEmail] Found questions:', result.questions);
@@ -903,74 +950,68 @@ export const EmailView: React.FC<EmailViewProps> = ({
       answer: userAnswers[idx] || ''
     }));
 
-    const requestBody = {
+    // Build request
+    const request: GenerateReplyRequest = {
       sender: fullEmail.sender,
       subject: email.subject,
       body_text: fullEmail.body_text || fullEmail.snippet || email.content || '',
       user_answers: answersArray,
       formality_level: formalityLevel,
       additional_context: additionalContext || undefined,
+      selected_meeting_time: selectedMeetingTime ? `${selectedMeetingTime.dayName} at ${selectedMeetingTime.time}` : undefined,
     };
 
-    console.log('[generateReply] Request body:', JSON.stringify(requestBody, null, 2));
+    console.log('[generateReply] Request body:', JSON.stringify(request, null, 2));
 
     try {
-      console.log('[generateReply] Sending request to backend...');
-      const baseURL = await serverURL();
-      const response = await fetchWithTimeout(`${baseURL}/generate-reply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      }, 60000);
+      let replyText: string;
 
-      console.log('[generateReply] Got response, status:', response.status);
-
-      // Get raw text first to see what we're getting
-      const rawText = await response.text();
-      console.log('[generateReply] Raw response:', rawText.substring(0, 500));
-
-      let result;
+      // Try Claude API directly first (through Tauri)
       try {
-        result = JSON.parse(rawText);
-      } catch (e) {
-        console.error('[generateReply] Failed to parse JSON:', e);
-        setLastError('Invalid JSON response: ' + rawText.substring(0, 200));
-        setGeneratingReply(false);
-        return;
+        console.log('[generateReply] Trying Claude API through Tauri...');
+        const claudeResponse = await claudeGenerateReply(request);
+        replyText = claudeResponse.reply;
+        console.log('[generateReply] Claude API response received');
+      } catch (claudeError) {
+        console.log('[generateReply] Claude API failed, falling back to Python server:', claudeError);
+        // Fall back to Python server
+        const baseURL = await serverURL();
+        const response = await fetchWithTimeout(`${baseURL}/generate-reply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(request),
+        }, 60000);
+
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+
+        const rawText = await response.text();
+        const result = JSON.parse(rawText);
+
+        if (!result.success || !result.reply) {
+          throw new Error(result.error || 'No reply in response');
+        }
+
+        replyText = result.reply;
       }
 
-      console.log('[generateReply] Parsed result:', result);
-      console.log('[generateReply] result.success:', result.success, 'result.reply:', result.reply);
-
-      if (result.success && result.reply) {
-        console.log('[generateReply] Reply generated successfully:', result.reply);
-        // Set local state immediately for display
-        setLocalAiReply(result.reply);
-        setEditedReply(result.reply);
-        setHasEdited(false);
-        // Update store with the generated reply
-        useEmailStore.setState((state) => ({
-          emails: state.emails.map(e =>
-            e.id === email.id ? { ...e, ai_generated_reply: result.reply } : e
-          ),
-        }));
-      } else {
-        console.error('[generateReply] Backend returned no reply:', result);
-        const errorMsg = result.error || 'Unknown error - no reply in response';
-        setLastError('Error: ' + errorMsg);
-        alert('Failed to generate reply. Please try again.\n\nError: ' + errorMsg);
-      }
+      console.log('[generateReply] Reply generated successfully:', replyText);
+      // Set local state immediately for display
+      setLocalAiReply(replyText);
+      setEditedReply(replyText);
+      setHasEdited(false);
+      // Update store with the generated reply
+      useEmailStore.setState((state) => ({
+        emails: state.emails.map(e =>
+          e.id === email.id ? { ...e, ai_generated_reply: replyText } : e
+        ),
+      }));
     } catch (error) {
       console.error('[generateReply] Failed to generate reply:', error);
       const errorMsg = String(error);
-      setLastError('Network error: ' + errorMsg);
-
-      // More helpful error message for common issues
-      if (errorMsg.includes('Load failed') || errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
-        alert('Cannot connect to Aiden\'s backend server.\n\nPlease make sure the app is properly built and restart it.\n\nIf this persists, please run "npm run tauri dev" instead.');
-      } else {
-        alert('Failed to generate reply. Please check your connection.\n\nError: ' + errorMsg);
-      }
+      setLastError('Error: ' + errorMsg);
+      alert('Failed to generate reply. Please try again.\n\nError: ' + errorMsg);
     } finally {
       console.log('[generateReply] Done, generatingReply = false');
       setGeneratingReply(false);
@@ -1171,10 +1212,46 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 meetingRequest={meetingRequest}
                 emailSubject={email.subject}
                 senderEmail={fullEmail?.sender || email.sender || ''}
+                timezone={userTimezone}
+                onTimeSelected={(slot) => {
+                  setSelectedMeetingTime(slot);
+                  // Trigger reply generation with the selected time
+                  setAdditionalContext(`Meeting time: ${slot.dayName} at ${slot.time}`);
+                }}
                 onCreated={() => {
                   // Optionally refresh the calendar or show a confirmation
                 }}
               />
+            )}
+
+            {/* Selected Meeting Time Display */}
+            {selectedMeetingTime && !displayAiReply && (
+              <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-100 dark:bg-indigo-800 rounded-lg">
+                      <Clock size={18} className="text-indigo-600 dark:text-indigo-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100">
+                        Meeting Time Selected
+                      </p>
+                      <p className="text-sm text-indigo-700 dark:text-indigo-300">
+                        {selectedMeetingTime.dayName} at {selectedMeetingTime.time}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSelectedMeetingTime(null);
+                      setAdditionalContext('');
+                    }}
+                    className="p-2 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-500"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* Missing Attachment Warning */}

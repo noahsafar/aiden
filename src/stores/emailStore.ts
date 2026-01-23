@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { fetchGmailEmails, convertGmailEmailToApp } from '@/api/gmail';
 import { useAuthStore } from '@/stores/authStore';
 import { serverURL } from '@/api/emails';
+import { analyzeEmail as analyzeEmailClaude } from '@/api/claude';
 
 // Check if running in Tauri
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
@@ -365,7 +366,7 @@ export interface EmailState {
 // Track which emails are being processed (for both summary and reply)
 let processingEmails = new Set<string>();
 // Limit concurrent AI operations to avoid overwhelming the system
-const MAX_CONCURRENT_AI_OPERATIONS = 1; // Reduced from 3 to 1 to minimize CPU usage
+const MAX_CONCURRENT_AI_OPERATIONS = 5; // Increased back to 5 for faster processing with z.ai API
 let activeAIOperations = 0;
 let aiOperationQueue: Array<() => void> = [];
 
@@ -510,50 +511,73 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
       return;
     }
 
-    const baseURL = await serverURL();
-    console.log(`[AI Processing] Calling analyze-email API for ${emailId}`);
-    const response = await fetchWithTimeout(`${baseURL}/analyze-email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    // Try Claude API first (through Tauri), fall back to Python server
+    let result: any;
+    try {
+      console.log(`[AI Processing] Trying Claude API for ${emailId}...`);
+      const claudeResponse = await analyzeEmailClaude({
         sender: email.sender,
         subject: email.subject,
         body_text: email.body_text,
-      })
-    }, 90000);
+        has_attachments: email.has_attachments || false,
+      });
 
-    if (response.ok) {
-      const result = await response.json();
-      if (result.success) {
-        console.log(`[AI Processing] Questions generated for ${emailId}:`, result.questions);
-        // Store questions in the email state map (accessed by EmailView)
-        // We use a window global to share this data with EmailView component
-        if (!(window as any).emailQuestionData) {
-          (window as any).emailQuestionData = new Map();
-        }
-        // Handle both old categorical format and new score format
-        let suggestedScore = 50; // default neutral
-        if (result.suggested_formality_score !== undefined) {
-          suggestedScore = result.suggested_formality_score;
-        } else if (result.suggested_formality) {
-          const categorical = result.suggested_formality;
-          if (categorical === 'casual') suggestedScore = 20;
-          else if (categorical === 'formal') suggestedScore = 80;
-          else suggestedScore = 50;
-        }
-        (window as any).emailQuestionData.set(emailId, {
-          questions: result.questions || [],
-          suggestedFormalityScore: suggestedScore,
-          requiresReply: result.requires_reply,
-          replyReasoning: result.reply_reasoning,
-          meetingRequest: result.meeting_request || { is_meeting: false },
-          loaded: true,
-        });
-      } else {
-        console.log(`[AI Processing] Question API returned no data for ${emailId}:`, result);
+      result = {
+        success: true,
+        questions: claudeResponse.questions,
+        suggested_formality_score: claudeResponse.suggested_formality_score,
+        meeting_request: claudeResponse.meeting_request,
+        missing_attachment_warning: claudeResponse.missing_attachment_warning,
+      };
+      console.log(`[AI Processing] Claude API response for ${emailId}`);
+    } catch (claudeError) {
+      console.log(`[AI Processing] Claude API failed for ${emailId}, falling back to Python server:`, claudeError);
+      // Fall back to Python server
+      const baseURL = await serverURL();
+      const response = await fetchWithTimeout(`${baseURL}/analyze-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender: email.sender,
+          subject: email.subject,
+          body_text: email.body_text,
+        })
+      }, 90000);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
+
+      result = await response.json();
+    }
+
+    if (result.success) {
+      console.log(`[AI Processing] Questions generated for ${emailId}:`, result.questions);
+      // Store questions in the email state map (accessed by EmailView)
+      // We use a window global to share this data with EmailView component
+      if (!(window as any).emailQuestionData) {
+        (window as any).emailQuestionData = new Map();
+      }
+      // Handle both old categorical format and new score format
+      let suggestedScore = 50; // default neutral
+      if (result.suggested_formality_score !== undefined) {
+        suggestedScore = result.suggested_formality_score;
+      } else if (result.suggested_formality) {
+        const categorical = result.suggested_formality;
+        if (categorical === 'casual') suggestedScore = 20;
+        else if (categorical === 'formal') suggestedScore = 80;
+        else suggestedScore = 50;
+      }
+      (window as any).emailQuestionData.set(emailId, {
+        questions: result.questions || [],
+        suggestedFormalityScore: suggestedScore,
+        requiresReply: result.requires_reply,
+        replyReasoning: result.reply_reasoning,
+        meetingRequest: result.meeting_request || { is_meeting: false },
+        loaded: true,
+      });
     } else {
-      console.log(`[AI Processing] Question API failed for ${emailId}:`, response.status);
+      console.log(`[AI Processing] Question API returned no data for ${emailId}:`, result);
     }
   } catch (e) {
     console.error('[AI Processing] Failed to generate questions:', e);
@@ -664,11 +688,11 @@ function processEmailImmediately(emailId: string) {
 // Process multiple emails with staggered delay to prevent CPU spike
 function processMultipleEmails(emailIds: string[]) {
   console.log('[AI Processing] Processing emails with stagger:', emailIds);
-  // Process emails one at a time with delay to avoid overwhelming the CPU
+  // Process emails quickly with small delay (using z.ai API)
   emailIds.forEach((emailId, index) => {
     setTimeout(() => {
       processEmail(emailId);
-    }, index * 3000); // 3 second delay between each email
+    }, index * 200); // 200ms delay between each email - much faster with API
   });
 }
 
@@ -795,13 +819,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           // Limit to 5 most recent to reduce load
           const emailsNeedingProcessing = recentEmails
             .filter(e => !e.summary || !e.ai_generated_reply)
-            .slice(0, 2); // Limit to 2 most recent (reduced from 5 for performance)
+            .slice(0, 10); // Increased to 10 - using z.ai API
           console.log(`[AI Processing] Recent emails needing processing: ${emailsNeedingProcessing.length} (skipping ${emails.length - recentEmails.length} older emails)`);
           if (emailsNeedingProcessing.length > 0) {
-            // Delay processing to avoid startup lag - process after 10 seconds
+            // Minimal delay - process quickly with API
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 10000); // 10 second delay before starting
+            }, 1000); // 1 second delay before starting
           }
         } else {
           // Subsequent fetches - process truly NEW emails
@@ -815,16 +839,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           set({ initialEmailIds: updatedInitialIds });
 
           // Process only new emails (not all emails without replies)
-          // Limit to 5 most recent to reduce load
+          // Increased limit - using z.ai API
           const emailsNeedingProcessing = emails
             .filter(e => newEmailIds.includes(e.id))
-            .slice(0, 2); // Limit to 2 most recent (reduced from 5 for performance)
+            .slice(0, 10); // Increased to 10 - using z.ai API
           console.log(`[AI Processing] New emails to process: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
             // Small delay to avoid blocking UI
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 2000); // 2 second delay
+            }, 500); // 500ms delay - much faster with API
           }
         }
       } catch (pythonError) {
@@ -867,10 +891,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
             .slice(0, 2); // Limit to 2 most recent (reduced from 5 for performance)
           console.log(`[AI Processing] Gmail API - Recent emails needing processing: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
-            // Delay processing to avoid startup lag - process after 10 seconds
+            // Minimal delay - process quickly with API
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 10000); // 10 second delay before starting
+            }, 1000); // 1 second delay before starting
           }
         } else {
           const currentIds = new Set(emails.map((e: Email) => e.id));
@@ -888,7 +912,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
             // Small delay to avoid blocking UI
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 2000); // 2 second delay
+            }, 500); // 500ms delay - much faster with API
           }
         }
       }

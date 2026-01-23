@@ -49,6 +49,8 @@ pub struct AppSettings {
     // Email behavior
     pub visible_categories: Vec<String>,  // Which categories to show in inbox
     pub mark_as_read_on_view: bool,
+    // AI Configuration
+    pub anthropic_api_key: Option<String>,  // API key for Claude/Anthropic
 }
 
 impl Default for AppSettings {
@@ -82,6 +84,8 @@ impl Default for AppSettings {
             // Email behavior defaults
             visible_categories: vec!["Urgent".to_string(), "Important".to_string(), "Normal".to_string(), "Low".to_string()],
             mark_as_read_on_view: true,
+            // AI defaults
+            anthropic_api_key: None,
         }
     }
 }

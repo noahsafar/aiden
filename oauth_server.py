@@ -84,8 +84,8 @@ class RateLimiter:
             self.last_call_time = time.time()
 
 # Global rate limiter
-# 5 seconds between calls = 12 calls/minute max, well under free tier limits
-rate_limiter = RateLimiter(min_delay=5.0)
+# Reduced to 0.5 seconds since using z.ai API which handles concurrency well
+rate_limiter = RateLimiter(min_delay=0.5)
 
 
 def call_ollama(messages, max_tokens=300, timeout=60):
@@ -136,13 +136,9 @@ def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=5,
     import requests
 
     if not OPENAI_API_KEY:
-        if use_ollama_fallback:
-            print("OpenAI not configured, using Ollama fallback...")
-            return call_ollama(messages, max_tokens=max_tokens, timeout=timeout)
         return None, "OPENAI_API_KEY not configured"
 
-    # Wait before making the API call to respect rate limits
-    rate_limiter.wait_if_needed()
+    # No rate limiting needed anymore - using z.ai API
 
     headers = {
         "Content-Type": "application/json",
@@ -223,6 +219,63 @@ def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=5,
             return None, f"API error {response.status_code}: {response.text[:200]}"
 
     return None, "Max retries exceeded"
+
+
+def call_anthropic_with_retry(messages, max_tokens=300, temperature=0.7, timeout=30):
+    """Call Anthropic-compatible API (z.ai) with retry logic."""
+    import requests
+
+    api_key = os.getenv('ANTHROPIC_API_KEY')
+    if not api_key:
+        return None, "ANTHROPIC_API_KEY not configured"
+
+    # Build request for Anthropic-compatible API
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": api_key.strip(),
+        "anthropic-version": "2023-06-01"
+    }
+
+    # Convert messages to Anthropic format
+    content = ""
+    system_msg = None
+    for msg in messages:
+        if msg['role'] == 'system':
+            system_msg = msg['content']
+        elif msg['role'] == 'user':
+            content += msg['content'] + "\n\n"
+        elif msg['role'] == 'assistant':
+            content += f"Assistant: {msg['content']}\n\n"
+        elif msg['role'] == 'function':
+            continue  # Skip function results
+
+    # Build the request
+    body = {
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": content.strip()}]
+    }
+
+    if system_msg:
+        body["system"] = system_msg
+
+    try:
+        response = requests.post(
+            "https://api.z.ai/api/anthropic/v1/messages",
+            headers=headers,
+            json=body,
+            timeout=timeout
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            return result['content'][0]['text'], None
+        else:
+            return None, f"API error {response.status_code}: {response.text[:200]}"
+    except requests.exceptions.Timeout:
+        return None, f"Request timed out after {timeout}s"
+    except Exception as e:
+        return None, f"Request error: {str(e)}"
 
 
 def decode_html_entities(text):
@@ -1636,7 +1689,7 @@ If there are genuinely NO questions requiring a response (pure informational ema
 Return ONLY valid JSON, no other text or explanation."""
 
             messages = [{"role": "user", "content": prompt}]
-            result, error = call_openai_with_retry(messages, max_tokens=500, temperature=0.3, timeout=10)
+            result, error = call_anthropic_with_retry(messages, max_tokens=500, temperature=0.3, timeout=10)
 
             print(f"[DEBUG] AI analysis result: {result[:200] if result else 'No result'}...")
 
@@ -1955,7 +2008,7 @@ CRITICAL: {"If user choices are provided above, USE THEM! State your choice clea
 Write a concise reply (under 100 words). Be professional and helpful. Start with a salutation. Do not include a subject line - just the email body."""
 
             messages = [{"role": "user", "content": prompt}]
-            reply, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=30)
+            reply, error = call_anthropic_with_retry(messages, max_tokens=300, temperature=0.7, timeout=30)
 
             # Send response headers before writing body
             self.send_header('Content-type', 'application/json')
@@ -2023,7 +2076,7 @@ USER'S EDIT INSTRUCTIONS:
 Edit the email draft according to the user's instructions. Keep the same general meaning but apply the requested changes. Output ONLY the edited email text - no preamble, no explanations."""
 
             messages = [{"role": "user", "content": prompt}]
-            edited_reply, error = call_openai_with_retry(messages, max_tokens=500, temperature=0.7, timeout=10)
+            edited_reply, error = call_anthropic_with_retry(messages, max_tokens=500, temperature=0.7, timeout=10)
 
             # Now send response headers (note: send_response already called in do_POST)
             self.send_header('Content-type', 'application/json')

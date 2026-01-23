@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, Check, Loader, AlertCircle, ChevronDown } from 'lucide-react';
 import { serverURL } from '@/api/emails';
+import { CalendarPicker } from './CalendarPicker';
 
 interface MeetingRequest {
   is_meeting: boolean;
@@ -8,6 +9,16 @@ interface MeetingRequest {
   duration_minutes?: number;
   attendees?: string[];
   subject?: string;
+}
+
+interface TimeSlot {
+  date: string;
+  time: string;
+  start: string;
+  end: string;
+  dayName: string;
+  isRecommended?: boolean;
+  hasConflict?: boolean;
 }
 
 interface ConflictResult {
@@ -32,9 +43,11 @@ interface MeetingSuggestionsProps {
   emailSubject: string;
   senderEmail: string;
   onCreated?: () => void;
+  onTimeSelected?: (slot: TimeSlot) => void;
+  timezone?: string;
 }
 
-export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, onCreated }: MeetingSuggestionsProps) {
+export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, onCreated, onTimeSelected, timezone = 'America/New_York' }: MeetingSuggestionsProps) {
   const [conflicts, setConflicts] = useState<ConflictResult[]>([]);
   const [freeSlots, setFreeSlots] = useState<FreeSlot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +56,8 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
   const [creating, setCreating] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
   const [expandedConflicts, setExpandedConflicts] = useState<Set<number>>(new Set());
+  const [showCalendarPicker, setShowCalendarPicker] = useState(false);
+  const [selectedTime, setSelectedTime] = useState<TimeSlot | null>(null);
 
   // Compute hasProposedTimes inside useEffect to get fresh value
   const proposedTimes = meetingRequest.proposed_times || [];
@@ -120,7 +135,7 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
     }
   };
 
-  const createEvent = async (slot: FreeSlot | ConflictResult) => {
+  const createEvent = async (slot: FreeSlot | ConflictResult | TimeSlot) => {
     setCreating(slot.start);
     try {
       const baseURL = await serverURL();
@@ -148,6 +163,21 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
     } finally {
       setCreating(null);
     }
+  };
+
+  const handleTimeSelect = (slot: TimeSlot) => {
+    setSelectedTime(slot);
+    setShowCalendarPicker(false);
+    // Notify parent component so it can update the reply draft
+    onTimeSelected?.(slot);
+  };
+
+  const handleOpenCalendarPicker = () => {
+    setShowCalendarPicker(true);
+  };
+
+  const handleCloseCalendarPicker = () => {
+    setShowCalendarPicker(false);
   };
 
   const toggleConflict = (idx: number) => {
@@ -309,13 +339,23 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
               )}
 
               {(hasConflict || conflicts.length === 0) && (
-                <button
-                  onClick={showFreeSlots}
-                  disabled={loadingSlots}
-                  className="w-full px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-                >
-                  Find a Time That Works
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={showFreeSlots}
+                    disabled={loadingSlots}
+                    className="w-full px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  >
+                    Find a Time That Works
+                  </button>
+                  <button
+                    onClick={handleOpenCalendarPicker}
+                    disabled={loadingSlots}
+                    className="w-full px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Calendar className="w-4 h-4" />
+                    Pick from Calendar
+                  </button>
+                </div>
               )}
             </>
           ) : (
@@ -323,17 +363,76 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
               <p className="text-sm text-blue-700 dark:text-blue-300">
                 No specific time was proposed. Would you like Aiden to find available time slots?
               </p>
-              <button
-                onClick={showFreeSlots}
-                disabled={loadingSlots}
-                className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-              >
-                Find a Time That Works
-              </button>
+              <div className="space-y-2">
+                <button
+                  onClick={showFreeSlots}
+                  disabled={loadingSlots}
+                  className="w-full px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                >
+                  Find a Time That Works
+                </button>
+                <button
+                  onClick={handleOpenCalendarPicker}
+                  disabled={loadingSlots}
+                  className="w-full px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <Calendar className="w-4 h-4" />
+                  Pick from Calendar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Selected Time Display */}
+          {selectedTime && (
+            <div className="mt-4 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <div>
+                    <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100">
+                      {selectedTime.dayName} at {selectedTime.time}
+                    </p>
+                    <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                      Selected for your meeting
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => createEvent(selectedTime)}
+                    disabled={creating !== null}
+                    className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  >
+                    {creating === selectedTime.start ? 'Creating...' : 'Create Event'}
+                  </button>
+                  <button
+                    onClick={() => setSelectedTime(null)}
+                    className="p-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-500"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Calendar Picker Modal */}
+      {showCalendarPicker && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-md">
+            <CalendarPicker
+              durationMinutes={meetingRequest.duration_minutes || 60}
+              timezone={timezone}
+              onTimeSelect={handleTimeSelect}
+              onClose={handleCloseCalendarPicker}
+              selectedSlot={selectedTime}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
