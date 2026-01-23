@@ -239,7 +239,7 @@ function App() {
       if (interval) clearInterval(interval);
       interval = setInterval(() => {
         fetchEmails();
-      }, 60000); // Poll every 1 minute
+      }, 30000); // Poll every 30 seconds
     };
 
     const stopPolling = () => {
