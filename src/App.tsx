@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Sidebar } from '@/components/ui/Sidebar';
 import { EmailList } from '@/components/ui/EmailList';
 import { EmailView } from '@/components/ui/EmailView';
+import { AttachmentItem, getFileIcon, formatFileSize } from '@/components/ui/EmailView';
 import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
 import { TestPage } from '@/components/TestPage';
@@ -22,7 +23,16 @@ import {
   LogOut,
   Settings as SettingsIcon,
   Calendar as CalendarIcon,
-  Bookmark
+  Bookmark,
+  File,
+  Image,
+  FileText,
+  Archive,
+  Music,
+  Video,
+  Download,
+  Eye,
+  X
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -685,6 +695,29 @@ function App() {
                                 </div>
                               )}
                             </div>
+
+                            {/* Attachments Section */}
+                            {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
+                              <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                                <div className="flex items-center gap-2 mb-4">
+                                  <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                  </svg>
+                                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                    Attachments ({selectedEmail.attachments.length})
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  {selectedEmail.attachments.map((attachment: any) => (
+                                    <AttachmentItem
+                                      key={attachment.id}
+                                      attachment={attachment}
+                                      messageId={selectedEmail.id}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                     </>
