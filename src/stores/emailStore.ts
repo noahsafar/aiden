@@ -284,6 +284,7 @@ export interface Email {
   category: 'Urgent' | 'Important' | 'Normal' | 'Low';
   summary?: string;
   key_points?: string[];
+  action_items?: string[];
   requires_reply: boolean;
   ai_generated_reply?: string;
   meeting_request?: {
@@ -424,10 +425,15 @@ async function generateSummaryForEmail(emailId: string): Promise<void> {
     if (response.ok) {
       const result = await response.json();
       if (result.success && result.summary) {
-        // Update store with summary
+        // Update store with summary, key_points, and action_items
         useEmailStore.setState((state) => ({
           emails: state.emails.map(e =>
-            e.id === emailId ? { ...e, summary: result.summary } : e
+            e.id === emailId ? {
+              ...e,
+              summary: result.summary,
+              key_points: result.key_points || [],
+              action_items: result.action_items || []
+            } : e
           ),
         }));
 
@@ -751,16 +757,18 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           summary: email.summary || undefined,
         }));
 
-        // Preserve status, summary, and ai_generated_reply from existing emails
+        // Preserve status, summary, key_points, action_items, and ai_generated_reply from existing emails
         const existingEmails = get().emails;
         const emails = newEmails.map((newEmail: Email) => {
           const existing = existingEmails.find(e => e.id === newEmail.id);
           if (existing) {
-            // Preserve the status, summary, and ai_generated_reply from existing email
+            // Preserve the status, summary, key_points, action_items, and ai_generated_reply from existing email
             return {
               ...newEmail,
               status: existing.status,
               summary: existing.summary || newEmail.summary,
+              key_points: existing.key_points || newEmail.key_points,
+              action_items: existing.action_items || newEmail.action_items,
               ai_generated_reply: existing.ai_generated_reply
             };
           }

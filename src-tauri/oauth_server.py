@@ -588,7 +588,7 @@ def clean_summary(summary):
 
 
 def summarize_email(subject, sender, body_text, snippet=""):
-    """Generate a concise summary of an email using OpenAI or Ollama"""
+    """Generate a concise summary of an email with key points and action items"""
     try:
         # Use snippet if body is too short, otherwise use body
         content = body_text if body_text else snippet
@@ -596,7 +596,20 @@ def summarize_email(subject, sender, body_text, snippet=""):
         # Extract sender's first name for more natural summary
         sender_name = extract_name_from_email(sender) or "Sender"
 
-        prompt = f"""Summarize this email in ONE concise sentence. Start with the sender's name and describe what they're saying or asking for.
+        prompt = f"""Analyze this email and provide:
+
+1. SUMMARY: ONE concise sentence starting with the sender's name
+2. KEY POINTS: 2-4 bullet points of important information (what they're asking for, main topics, decisions needed)
+3. ACTION ITEMS: Specific tasks requested or "None"
+
+Format exactly like this:
+SUMMARY: [one sentence]
+KEY POINTS:
+• [point 1]
+• [point 2]
+ACTION ITEMS:
+✓ [action 1]
+✓ [action 2]
 
 From: {sender}
 Subject: {subject}
@@ -604,21 +617,61 @@ Subject: {subject}
 Email:
 {content[:2000]}
 
-Examples of good summaries:
-- "John is asking to meet later today"
-- "Sarah wants to reschedule tomorrow's meeting to 3pm"
-- "Mike is requesting the quarterly report by Friday"
-
-Summary:"""
+Respond ONLY in the format above, no other text."""
 
         messages = [{"role": "user", "content": prompt}]
-        summary, error = call_openai_with_retry(messages, max_tokens=100, temperature=0.3, timeout=10)
+        result, error = call_openai_with_retry(messages, max_tokens=500, temperature=0.3, timeout=30)
 
-        if summary:
-            # Clean up any preamble phrases
-            cleaned_summary = clean_summary(summary)
-            print(f"Email summary generated: {cleaned_summary[:50]}...")
-            return cleaned_summary
+        if result:
+            # Parse the structured response
+            lines = result.split('\n')
+            summary = ""
+            key_points = []
+            action_items = []
+            current_section = None
+
+            for line in lines:
+                line_stripped = line.strip()
+                if not line_stripped:
+                    continue
+
+                if line_stripped.upper().startswith('SUMMARY:'):
+                    summary = line_stripped.split(':', 1)[1].strip() if ':' in line_stripped else ''
+                elif line_stripped.upper().startswith('KEY POINTS') or line_stripped.upper().startswith('KEYPOINTS'):
+                    current_section = 'key_points'
+                elif line_stripped.upper().startswith('ACTION ITEMS') or line_stripped.upper().startswith('ACTIONITEMS'):
+                    current_section = 'action_items'
+                elif current_section == 'key_points':
+                    # Match various bullet styles
+                    for prefix in ['•', '-', '*', '∙']:
+                        if line_stripped.startswith(prefix):
+                            key_points.append(line_stripped[len(prefix):].strip())
+                            break
+                elif current_section == 'action_items':
+                    # Match checkmarks and bullets
+                    for prefix in ['✓', '☐', '-', '*']:
+                        if line_stripped.startswith(prefix):
+                            action_item = line_stripped[len(prefix):].strip()
+                            if action_item.lower() != 'none':
+                                action_items.append(action_item)
+                            break
+
+            # Clean up summary
+            if summary:
+                summary = clean_summary(summary)
+            else:
+                # Fallback: use first line as summary
+                for line in lines:
+                    if line and not line.startswith('SUMMARY') and not line.startswith('KEY') and not line.startswith('ACTION'):
+                        summary = clean_summary(line.strip())
+                        break
+
+            print(f"Email summary generated: {summary[:50] if summary else 'No summary'}... (key_points: {len(key_points)}, action_items: {len(action_items)})")
+            return {
+                'summary': summary,
+                'key_points': key_points,
+                'action_items': action_items
+            }
         else:
             print(f"Failed to generate summary: {error}")
             return None
@@ -2011,14 +2064,19 @@ Edit the email draft according to the user's instructions. Keep the same general
             print(f"Generating summary for email from {sender[:30]}...")
 
             # Generate summary
-            summary = summarize_email(subject, sender, body_text, snippet)
+            summary_result = summarize_email(subject, sender, body_text, snippet)
 
             # Now send response headers (note: send_response already called in do_POST)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
 
-            if summary:
-                resp = {'success': True, 'summary': summary}
+            if summary_result and summary_result.get('summary'):
+                resp = {
+                    'success': True,
+                    'summary': summary_result.get('summary'),
+                    'key_points': summary_result.get('key_points', []),
+                    'action_items': summary_result.get('action_items', [])
+                }
                 self.wfile.write(json.dumps(resp).encode())
             else:
                 resp = {'success': False, 'error': 'Failed to generate summary'}

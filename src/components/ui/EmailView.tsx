@@ -560,6 +560,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
   // Get summary from store
   const summary = fullEmail?.summary || '';
+  const keyPoints = fullEmail?.key_points || [];
+  const actionItems = fullEmail?.action_items || [];
 
   // Get AI reply from store
   const aiReply = fullEmail?.ai_generated_reply || null;
@@ -1073,6 +1075,46 @@ export const EmailView: React.FC<EmailViewProps> = ({
               <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Summary</p>
             </div>
             <p className="text-sm text-gray-700 dark:text-gray-300 pl-7">{summary}</p>
+
+            {/* Key Points */}
+            {keyPoints && keyPoints.length > 0 && (
+              <div className="mt-3 pl-7">
+                <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  Key Points
+                </p>
+                <ul className="space-y-1">
+                  {keyPoints.map((point, idx) => (
+                    <li key={idx} className="text-xs text-gray-700 dark:text-gray-300 flex items-start gap-2">
+                      <span className="text-purple-500 mt-0.5">•</span>
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Action Items */}
+            {actionItems && actionItems.length > 0 && (
+              <div className="mt-3 pl-7">
+                <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-1.5 flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Action Items
+                </p>
+                <ul className="space-y-1">
+                  {actionItems.map((item, idx) => (
+                    <li key={idx} className="text-xs text-gray-700 dark:text-gray-300 flex items-start gap-2">
+                      <span className="text-amber-500 mt-0.5">✓</span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
