@@ -44,6 +44,8 @@ fn main() {
             fs::write_file,
             fs::read_file,
             fs::get_downloads_path,
+            fs::get_platform,
+            fs::open_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

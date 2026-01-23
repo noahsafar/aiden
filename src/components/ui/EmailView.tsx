@@ -265,36 +265,17 @@ function AttachmentItem({ attachment, messageId }: AttachmentItemProps) {
           const downloadsPath = await invoke<string>('get_downloads_path', {});
           const filePath = `${downloadsPath}/${attachment.filename}`;
 
-          await invoke('save_file', {
+          await invoke('write_file', {
             path: filePath,
             contents: Array.from(bytes)
           });
 
           console.log('[Attachment Preview] Saved to:', filePath);
 
-          // Try to open it with platform-specific shell command
-          const platform = await invoke<string>('get_platform', {});
-          let openCommand: string;
+          // Open the file with the default application
+          await invoke('open_file', { path: filePath });
 
-          if (platform === 'darwin') {
-            openCommand = `open "${filePath}"`;
-          } else if (platform === 'windows') {
-            openCommand = `cmd /c start "" "${filePath}"`;
-          } else {
-            openCommand = `xdg-open "${filePath}"`;
-          }
-
-          console.log('[Attachment Preview] Opening with command:', openCommand);
-
-          // Use a simple fetch to backend to execute command
-          const baseURL = await serverURL();
-          await fetch(`${baseURL}/execute-command`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: openCommand })
-          });
-
-          console.log('[Attachment Preview] Open command sent');
+          console.log('[Attachment Preview] Opened file');
         } catch (tauriError) {
           console.error('[Attachment Preview] Tauri method failed:', tauriError);
           alert('Preview saved to Downloads folder. Please open it manually.');
