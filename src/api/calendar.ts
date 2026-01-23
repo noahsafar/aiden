@@ -49,10 +49,16 @@ async function serverURL(): Promise<string> {
 
 export async function fetchEvents(
   startDate: string = 'today',
-  endDate?: string
+  endDate?: string,
+  timezone?: string
 ): Promise<EventsResponse> {
   try {
     const baseURL = await serverURL();
+
+    // Use provided timezone or default to Eastern Time - DO NOT auto-detect from browser
+    const userTimezone = timezone || 'America/New_York';
+    console.log('[calendar API] Using timezone:', userTimezone);
+
     const response = await fetch(`${baseURL}/calendar`, {
       method: 'POST',
       headers: {
@@ -60,6 +66,7 @@ export async function fetchEvents(
       },
       body: JSON.stringify({
         action: 'fetch_events',
+        timezone: userTimezone,
         data: {
           start_date: startDate,
           end_date: endDate,
@@ -72,6 +79,15 @@ export async function fetchEvents(
     }
 
     const data: EventsResponse = await response.json();
+
+    // DEBUG: Log what we received from Python
+    console.log('[calendar API] Received events from Python:');
+    data.events.forEach((e, i) => {
+      if (i < 5) {  // First 5 events
+        console.log(`  ${e.summary}: time=${e.time}, date=${e.date}, start=${e.start}`);
+      }
+    });
+
     return data;
   } catch (error) {
     console.error('Failed to fetch calendar events:', error);

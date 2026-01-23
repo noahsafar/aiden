@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Loader2, List, Calendar as CalendarView, Columns } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import { invoke } from '@tauri-apps/api/core';
 import { fetchEvents, CalendarEvent } from '@/api/calendar';
 import logo from '/aiden-logo.png';
 import { LogOut } from 'lucide-react';
@@ -12,6 +13,10 @@ interface GroupedEvents {
   [date: string]: CalendarEvent[];
 }
 
+interface AppSettings {
+  timezone?: string;
+}
+
 export function Calendar() {
   const navigate = useNavigate();
   const { signOut, user } = useAuthStore();
@@ -20,6 +25,23 @@ export function Calendar() {
   const [viewDate, setViewDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [error, setError] = useState<string | null>(null);
+  const [timezone, setTimezone] = useState<string>('America/New_York');
+
+  // Load settings to get timezone
+  useEffect(() => {
+    invoke<AppSettings>('get_settings').then(settings => {
+      console.log('[Calendar] Loaded settings:', settings);
+      if (settings?.timezone) {
+        console.log('[Calendar] Setting timezone from settings:', settings.timezone);
+        setTimezone(settings.timezone);
+      } else {
+        console.log('[Calendar] No timezone in settings, using default: America/New_York');
+      }
+    }).catch((err) => {
+      console.log('[Calendar] Error loading settings, using default timezone:', err);
+      // Use default timezone
+    });
+  }, []);
 
   const loadEvents = async (startDate: Date, endDate: Date) => {
     setLoading(true);
@@ -28,7 +50,8 @@ export function Calendar() {
       const startStr = startDate.toISOString().split('T')[0];
       const endStr = endDate.toISOString().split('T')[0];
 
-      const response = await fetchEvents(startStr, endStr);
+      console.log('[Calendar] Loading events with timezone:', timezone);
+      const response = await fetchEvents(startStr, endStr, timezone);
       if (response.success) {
         setEvents(response.events);
       } else {
@@ -70,7 +93,7 @@ export function Calendar() {
     }
 
     loadEvents(start, end);
-  }, [viewDate, viewMode]);
+  }, [viewDate, viewMode, timezone]);
 
   const navigateDate = (direction: 'prev' | 'next') => {
     const newDate = new Date(viewDate);

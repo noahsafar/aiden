@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { Bell, Moon, Users, Zap, Check, LogOut, ArrowLeft, Palette, Eye } from 'lucide-react';
+import { Bell, Moon, Users, Zap, Check, LogOut, ArrowLeft, Palette, Eye, Clock } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
 import logo from '/aiden-logo.png';
@@ -9,6 +9,8 @@ import logo from '/aiden-logo.png';
 interface AppSettings {
   // Appearance
   theme: 'light' | 'dark' | 'auto';
+  // Calendar
+  timezone: string;
   // Notifications
   enable_notifications: boolean;
   show_notification_preview: boolean;
@@ -28,6 +30,7 @@ interface AppSettings {
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'auto',
+  timezone: 'America/New_York',
   enable_notifications: true,
   show_notification_preview: true,
   notification_mode: 'smart',
@@ -41,6 +44,26 @@ const DEFAULT_SETTINGS: AppSettings = {
   visible_categories: ['Urgent', 'Important', 'Normal', 'Low'],
   mark_as_read_on_view: true,
 };
+
+// Common timezone options
+const TIMEZONE_OPTIONS = [
+  { value: 'America/New_York', label: 'Eastern Time (ET)' },
+  { value: 'America/Chicago', label: 'Central Time (CT)' },
+  { value: 'America/Denver', label: 'Mountain Time (MT)' },
+  { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
+  { value: 'America/Phoenix', label: 'Arizona (MST, no DST)' },
+  { value: 'America/Anchorage', label: 'Alaska Time (AKST)' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii (HST)' },
+  { value: 'America/Halifax', label: 'Atlantic Time (AT)' },
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'Europe/Paris', label: 'Central European (CET)' },
+  { value: 'Europe/Berlin', label: 'Berlin (CET)' },
+  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
+  { value: 'Asia/Shanghai', label: 'Shanghai (CST)' },
+  { value: 'Asia/Dubai', label: 'Dubai (GST)' },
+  { value: 'Australia/Sydney', label: 'Sydney (AEST)' },
+  { value: 'UTC', label: 'UTC' },
+];
 
 // Toggle Switch Component
 function Switch({ checked, onChange, color = 'blue' }: { checked: boolean; onChange: () => void; color?: 'blue' | 'purple' | 'yellow' | 'green' }) {
@@ -648,6 +671,35 @@ export function Settings() {
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Calendar Section */}
+          <section className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
+              <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                <Clock className="w-5 h-5 text-green-600 dark:text-green-400" />
+              </div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Calendar</h2>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Timezone */}
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white mb-1">Timezone</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Choose your timezone for calendar events</p>
+                <select
+                  value={settings.timezone}
+                  onChange={(e) => updateSetting('timezone', e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                >
+                  {TIMEZONE_OPTIONS.map((tz) => (
+                    <option key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </section>

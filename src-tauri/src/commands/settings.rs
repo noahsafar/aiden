@@ -31,6 +31,8 @@ pub struct GenerateReplyResponse {
 pub struct AppSettings {
     // Appearance
     pub theme: String,  // "light", "dark", "auto"
+    // Calendar
+    pub timezone: String,  // IANA timezone name like "America/New_York"
     // Notifications
     pub enable_notifications: bool,
     pub show_notification_preview: bool,
@@ -54,6 +56,8 @@ impl Default for AppSettings {
         Self {
             // Appearance defaults
             theme: "auto".to_string(),
+            // Calendar defaults
+            timezone: "America/New_York".to_string(),
             // Notification defaults
             enable_notifications: true,
             show_notification_preview: true,

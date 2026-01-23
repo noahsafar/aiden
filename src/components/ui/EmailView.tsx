@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEmailStore, fetchWithTimeout } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
-import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles } from 'lucide-react';
+import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { serverURL, downloadAttachment, saveAttachmentToFile, summarizeAttachment } from '@/api/emails';
 
@@ -212,12 +212,18 @@ function AttachmentItem({ attachment, messageId }: AttachmentItemProps) {
   const [summarizing, setSummarizing] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [showSummary, setShowSummary] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const isSummarizable = attachment.mimeType === 'application/pdf' ||
     attachment.mimeType.includes('word') ||
     attachment.mimeType.includes('document') ||
     attachment.mimeType.includes('text') ||
     attachment.mimeType.includes('powerpoint');
+
+  const isPreviewable = attachment.mimeType === 'application/pdf' ||
+    attachment.mimeType.startsWith('image/') ||
+    attachment.mimeType.includes('text');
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -233,6 +239,76 @@ function AttachmentItem({ attachment, messageId }: AttachmentItemProps) {
       alert('Failed to download attachment');
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handlePreview = async () => {
+    setPreviewLoading(true);
+    try {
+      console.log('[Attachment Preview] Fetching attachment:', attachment.id, 'from message:', messageId);
+      const result = await downloadAttachment(messageId, attachment.id);
+      console.log('[Attachment Preview] Download result:', result);
+
+      if (result.success && result.data) {
+        // Convert base64 to bytes and save to downloads
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+
+          // Convert base64 to bytes
+          const binaryString = atob(result.data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+
+          // Save to downloads folder
+          const downloadsPath = await invoke<string>('get_downloads_path', {});
+          const filePath = `${downloadsPath}/${attachment.filename}`;
+
+          await invoke('save_file', {
+            path: filePath,
+            contents: Array.from(bytes)
+          });
+
+          console.log('[Attachment Preview] Saved to:', filePath);
+
+          // Try to open it with platform-specific shell command
+          const platform = await invoke<string>('get_platform', {});
+          let openCommand: string;
+
+          if (platform === 'darwin') {
+            openCommand = `open "${filePath}"`;
+          } else if (platform === 'windows') {
+            openCommand = `cmd /c start "" "${filePath}"`;
+          } else {
+            openCommand = `xdg-open "${filePath}"`;
+          }
+
+          console.log('[Attachment Preview] Opening with command:', openCommand);
+
+          // Use a simple fetch to backend to execute command
+          const baseURL = await serverURL();
+          await fetch(`${baseURL}/execute-command`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: openCommand })
+          });
+
+          console.log('[Attachment Preview] Open command sent');
+        } catch (tauriError) {
+          console.error('[Attachment Preview] Tauri method failed:', tauriError);
+          alert('Preview saved to Downloads folder. Please open it manually.');
+        }
+        setPreviewLoading(false);
+      } else {
+        console.error('[Attachment Preview] Download failed:', result);
+        alert('Failed to load preview: ' + (result.error || 'Unknown error'));
+        setPreviewLoading(false);
+      }
+    } catch (error) {
+      console.error('[Attachment Preview] Error:', error);
+      alert('Failed to preview attachment: ' + String(error));
+      setPreviewLoading(false);
     }
   };
 
@@ -261,6 +337,15 @@ function AttachmentItem({ attachment, messageId }: AttachmentItemProps) {
     }
   };
 
+  // Cleanup preview URL when component unmounts
+  React.useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
   return (
     <div className="flex items-center justify-between p-3 bg-white dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
       <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -282,10 +367,20 @@ function AttachmentItem({ attachment, messageId }: AttachmentItemProps) {
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
+        {isPreviewable && (
+          <button
+            onClick={handlePreview}
+            disabled={previewLoading || downloading || summarizing}
+            className="p-2 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Preview (opens in new tab)"
+          >
+            <Eye size={16} className={previewLoading ? 'animate-pulse' : ''} />
+          </button>
+        )}
         {isSummarizable && !showSummary && (
           <button
             onClick={handleSummarize}
-            disabled={summarizing || downloading}
+            disabled={summarizing || downloading || previewLoading}
             className="p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 text-purple-600 dark:text-purple-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             title="Summarize with AI"
           >
@@ -303,7 +398,7 @@ function AttachmentItem({ attachment, messageId }: AttachmentItemProps) {
         )}
         <button
           onClick={handleDownload}
-          disabled={downloading || summarizing}
+          disabled={downloading || summarizing || previewLoading}
           className="p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           title="Download"
         >

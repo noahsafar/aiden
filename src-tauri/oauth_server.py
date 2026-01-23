@@ -720,14 +720,41 @@ def detect_relationship_type(sender_string, past_emails):
 
     return 'neutral'
 
-def parse_natural_time(time_str: str, reference_time):
+def get_user_timezone():
+    """Get the user's local timezone as a pytz timezone object"""
+    import pytz
+    import os
+
+    # Method 1: Try reading from /etc/localtime on Unix (most reliable)
+    try:
+        if os.path.exists('/etc/localtime'):
+            tz_path = os.path.realpath('/etc/localtime')
+            print(f"[TIMEZONE] /etc/localtime points to: {tz_path}")
+            if 'zoneinfo' in tz_path:
+                tz_name = tz_path.split('zoneinfo/')[-1]
+                print(f"[TIMEZONE] Detected timezone: {tz_name}")
+                tz = pytz.timezone(tz_name)
+                # Test the timezone
+                from datetime import datetime, timezone
+                test_time = datetime.now(timezone.utc)
+                local_time = test_time.astimezone(tz)
+                print(f"[TIMEZONE] Test: UTC {test_time} -> {tz_name} {local_time}")
+                return tz
+    except Exception as e:
+        print(f"[TIMEZONE] Error reading /etc/localtime: {e}")
+
+    # Fallback to Eastern Time
+    print("[TIMEZONE] Using fallback: America/New_York")
+    return pytz.timezone('America/New_York')
+
+def parse_natural_time(time_str: str, reference_time, user_timezone):
     """Parse natural language time expressions like 'tomorrow at 2pm', 'Wednesday at 3pm'"""
     import re
-    from datetime import timedelta, datetime
+    from datetime import timedelta, datetime, timezone
     import pytz
 
     time_str = time_str.lower().strip()
-    pacific = pytz.timezone('America/Los_Angeles')
+    pacific = pytz.timezone(user_timezone)
 
     # Extract time if present (e.g., "2pm", "2:30pm", "2 pm")
     time_match = re.search(r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)', time_str)
@@ -826,6 +853,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_search_attachments()
         elif self.path.startswith('/calendar'):
             self.handle_calendar()
+        elif self.path.startswith('/execute-command'):
+            self.handle_execute_command()
         else:
             self.send_error(404)
 
@@ -2350,6 +2379,39 @@ Provide only the summary, no preamble."""
             response = {'success': False, 'error': f'Failed to search attachments: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
 
+    def handle_execute_command(self):
+        """Execute a shell command to open a file (for attachment preview)"""
+        import subprocess
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            command = data.get('command', '')
+            print(f"[execute-command] Executing: {command}")
+
+            # Execute the command
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+
+            if result.returncode == 0:
+                response = {'success': True, 'message': 'Command executed successfully'}
+            else:
+                print(f"[execute-command] Command failed: {result.stderr}")
+                response = {'success': False, 'error': result.stderr}
+
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode())
+
+        except Exception as e:
+            print(f"Error executing command: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {'success': False, 'error': f'Failed to execute command: {str(e)}'}
+            self.wfile.write(json.dumps(response).encode())
+
     def handle_calendar(self):
         """Handle calendar operations - find free slots or create events"""
         try:
@@ -2358,6 +2420,8 @@ Provide only the summary, no preamble."""
             data = json.loads(post_data.decode('utf-8'))
 
             action = data.get('action', '')
+            # Get timezone from request, default to Eastern Time
+            user_timezone = data.get('timezone', 'America/New_York')
             creds = get_stored_credentials()
 
             if not creds:
@@ -2384,13 +2448,13 @@ Provide only the summary, no preamble."""
                 duration_minutes = data.get('duration_minutes', 60)
                 print(f"[DEBUG check_conflict] proposed_times={proposed_times}, duration={duration_minutes}")
 
-                from datetime import datetime, timedelta
-                import pytz
+                from datetime import datetime, timedelta, timezone
                 from dateutil import parser as date_parser
+                import pytz
 
-                pacific = pytz.timezone('America/Los_Angeles')
-                utc_now = datetime.utcnow()
-                now_pacific = utc_now.replace(tzinfo=pytz.UTC).astimezone(pacific)
+                pacific = pytz.timezone(user_timezone)
+                utc_now = datetime.now(timezone.utc)
+                now_pacific = utc_now.astimezone(pacific)
 
                 conflict_results = []
 
@@ -2398,7 +2462,7 @@ Provide only the summary, no preamble."""
                     try:
                         print(f"[DEBUG check_conflict] Parsing time_str='{time_str}'")
                         # Parse the proposed time string (e.g., "tomorrow at 2pm", "Wednesday at 3pm")
-                        parsed_dt = parse_natural_time(time_str, now_pacific)
+                        parsed_dt = parse_natural_time(time_str, now_pacific, user_timezone)
                         print(f"[DEBUG check_conflict] parsed_dt={parsed_dt}")
 
                         if parsed_dt:
@@ -2495,13 +2559,12 @@ Provide only the summary, no preamble."""
                 # Find free time slots for a meeting
                 duration_minutes = data.get('duration_minutes', 60)
 
-                from datetime import datetime, timedelta
+                from datetime import datetime, timedelta, timezone
                 import pytz
 
-                # Get current time in user's timezone
-                utc_now = datetime.utcnow()
-                pacific = pytz.timezone('America/Los_Angeles')
-                now_pacific = utc_now.replace(tzinfo=pytz.UTC).astimezone(pacific)
+                pacific = pytz.timezone(user_timezone)
+                utc_now = datetime.now(timezone.utc)
+                now_pacific = utc_now.astimezone(pacific)
 
                 # Look for slots starting from tomorrow 9am
                 start_date = now_pacific + timedelta(days=1)
@@ -2608,32 +2671,41 @@ Provide only the summary, no preamble."""
 
             elif action == 'fetch_events':
                 # Fetch calendar events for a date range
-                from datetime import datetime, timedelta
+                from datetime import datetime, timedelta, timezone
                 import pytz
 
+                print("[CALENDAR] fetch_events called")
+                print(f"[CALENDAR] Request data: {data}")
                 # Extract the nested data object
                 request_data = data.get('data', {})
                 start_date = request_data.get('start_date')  # ISO date string or 'today'
                 end_date = request_data.get('end_date')  # ISO date string or date range end
 
-                # Parse dates
-                pacific = pytz.timezone('America/Los_Angeles')
-                utc_now = datetime.utcnow()
-                now_pacific = utc_now.replace(tzinfo=pytz.UTC).astimezone(pacific)
+                # Get timezone from settings or use default
+                user_timezone = data.get('timezone', 'America/New_York')
+                print(f"[CALENDAR] Received timezone from request: {user_timezone}")
+                user_tz = pytz.timezone(user_timezone)
+                print(f"[CALENDAR] Using pytz timezone: {user_tz.zone}")
+
+                # Debug: print current time in UTC and in user timezone
+                utc_now = datetime.now(timezone.utc)
+                print(f"[CALENDAR] Current UTC time: {utc_now}")
+                now_user = utc_now.astimezone(user_tz)
+                print(f"[CALENDAR] Current time in {user_tz.zone}: {now_user}")
 
                 if start_date == 'today' or not start_date:
-                    start_datetime = now_pacific.replace(hour=0, minute=0, second=0, microsecond=0)
+                    start_datetime = now_user.replace(hour=0, minute=0, second=0, microsecond=0)
                 else:
                     from dateutil import parser as date_parser
                     start_datetime = date_parser.parse(start_date)
                     if start_datetime.tzinfo is None:
-                        start_datetime = pacific.localize(start_datetime)
+                        start_datetime = user_tz.localize(start_datetime)
 
                 if end_date:
                     from dateutil import parser as date_parser
                     end_datetime = date_parser.parse(end_date)
                     if end_datetime.tzinfo is None:
-                        end_datetime = pacific.localize(end_datetime)
+                        end_datetime = user_tz.localize(end_datetime)
                     # End at end of day
                     end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
                 else:
@@ -2666,12 +2738,12 @@ Provide only the summary, no preamble."""
                         date_str = start_data.get('date')
                         start_dt = date_parser.parse(date_str)
                         if start_dt.tzinfo is None:
-                            start_dt = pacific.localize(start_dt)
+                            start_dt = user_tz.localize(start_dt)
 
                         end_str = end_data.get('date', date_str)
                         end_dt = date_parser.parse(end_str)
                         if end_dt.tzinfo is None:
-                            end_dt = pacific.localize(end_dt)
+                            end_dt = user_tz.localize(end_dt)
 
                         formatted_events.append({
                             'id': event.get('id'),
@@ -2693,10 +2765,20 @@ Provide only the summary, no preamble."""
                             continue
 
                         start_dt = date_parser.parse(start_str)
+
+                        # Convert to user's timezone
+                        # First get to UTC, then to user timezone
                         if start_dt.tzinfo is None:
-                            start_dt = pacific.localize(start_dt)
+                            # No timezone info - assume it's already in user's timezone
+                            start_dt = user_tz.localize(start_dt)
                         else:
-                            start_dt = start_dt.astimezone(pacific)
+                            # Has timezone info - convert from that timezone to user's timezone
+                            # Force conversion through UTC first
+                            from datetime import timezone as dt_timezone
+                            utc_dt = start_dt.astimezone(dt_timezone.utc)
+                            start_dt = utc_dt.astimezone(user_tz)
+
+                        print(f"[CALENDAR] {summary}: Raw={start_str} -> Converted to {user_tz.zone}={start_dt.strftime('%I:%M %p').lstrip('0')}")
 
                         # Some events might not have end time, use start + 1 hour as default
                         if end_str:
@@ -2705,9 +2787,9 @@ Provide only the summary, no preamble."""
                             end_dt = start_dt + timedelta(hours=1)
 
                         if end_dt.tzinfo is None:
-                            end_dt = pacific.localize(end_dt)
+                            end_dt = user_tz.localize(end_dt)
                         else:
-                            end_dt = end_dt.astimezone(pacific)
+                            end_dt = end_dt.astimezone(user_tz)
 
                         formatted_events.append({
                             'id': event.get('id'),
@@ -2719,6 +2801,11 @@ Provide only the summary, no preamble."""
                             'end_time': end_dt.strftime('%I:%M %p').lstrip('0'),
                             'all_day': False
                         })
+
+                # DEBUG: Print the final response
+                print(f"[CALENDAR] SENDING {len(formatted_events)} EVENTS TO FRONTEND:")
+                for fe in formatted_events[:5]:  # First 5 events
+                    print(f"  {fe['summary']}: {fe['time']} (date: {fe['date']})")
 
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
