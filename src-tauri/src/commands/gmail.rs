@@ -43,7 +43,7 @@ impl RateLimiter {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Email {
     pub id: String,
     pub gmail_id: String,

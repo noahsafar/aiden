@@ -30,7 +30,7 @@ struct ClaudeContent {
     text: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EmailSummary {
     pub summary: String,
     pub key_points: Vec<String>,

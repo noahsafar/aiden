@@ -284,7 +284,7 @@ function App() {
         try {
           const { getCurrentWindow } = await import('@tauri-apps/api/window');
           const { listen } = await import('@tauri-apps/api/event');
-          const { isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification');
+          const { isPermissionGranted, requestPermission, sendNotification } = await import('@tauri-apps/plugin-notification');
 
           // Request notification permission
           const permitted = await isPermissionGranted();
@@ -293,13 +293,21 @@ function App() {
           }
 
           // Listen for notification clicks
-          const unlisten = await listen('notification-clicked', () => {
+          const unlistenClick = await listen('notification-clicked', () => {
             getCurrentWindow().setFocus(true);
             getCurrentWindow().unminimize();
           });
 
+          // Listen for background notifications from Rust backend
+          const unlistenShow = await listen('show-notification', (event: any) => {
+            const { title, body } = event.payload as { title: string; body: string };
+            // Send native notification
+            sendNotification({ title, body });
+          });
+
           return () => {
-            unlisten.then(fn => fn());
+            unlistenClick.then(fn => fn());
+            unlistenShow.then(fn => fn());
           };
         } catch (e) {
           console.error('Failed to set up notification listener:', e);
