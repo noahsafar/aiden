@@ -55,6 +55,24 @@ export interface GenerateReplyResponse {
   subject: string;
 }
 
+// ==================== ATTACHMENT ANALYSIS ====================
+
+export interface AnalyzeAttachmentRequest {
+  filename: string;
+  attachment_data: string; // base64 encoded
+  mime_type: string;
+  email_subject?: string;
+  email_sender?: string;
+  email_body?: string;
+  email_summary?: string;
+}
+
+export interface AnalyzedAttachment {
+  summary: string;
+  key_points: string[];
+  action_items: string[];
+}
+
 // ==================== FUNCTIONS ====================
 
 /**
@@ -98,6 +116,20 @@ export async function editReply(currentReply: string, editPrompt: string): Promi
     return response;
   } catch (error) {
     console.error('Failed to edit reply with Claude:', error);
+    throw error;
+  }
+}
+
+/**
+ * Analyze an attachment using Claude API
+ * Supports images via vision API and text-based documents
+ */
+export async function analyzeAttachment(request: AnalyzeAttachmentRequest): Promise<AnalyzedAttachment> {
+  try {
+    const response = await invoke<AnalyzedAttachment>('analyze_attachment_claude', { request });
+    return response;
+  } catch (error) {
+    console.error('Failed to analyze attachment with Claude:', error);
     throw error;
   }
 }

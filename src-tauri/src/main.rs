@@ -30,6 +30,7 @@ fn main() {
             ai::analyze_email_claude,
             ai::generate_reply_claude,
             ai::edit_reply_claude,
+            ai::analyze_attachment_claude,
             // Database commands
             database::save_email,
             database::get_emails,

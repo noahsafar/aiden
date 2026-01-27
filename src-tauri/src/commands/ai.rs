@@ -13,9 +13,16 @@ struct ClaudeRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum ClaudeMessageContent {
+    Text(String),
+    Array(Vec<serde_json::Value>),
+}
+
+#[derive(Debug, Serialize)]
 struct ClaudeMessage {
     role: String,
-    content: String,
+    content: ClaudeMessageContent,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,7 +135,7 @@ async fn call_claude_api_with_system(prompt: String, system: Option<String>) -> 
         messages: vec![
             ClaudeMessage {
                 role: "user".to_string(),
-                content: prompt,
+                content: ClaudeMessageContent::Text(prompt),
             }
         ],
         system,
@@ -159,6 +166,70 @@ async fn call_claude_api_with_system(prompt: String, system: Option<String>) -> 
 
     if claude_response.content.is_empty() {
         return Err("Empty response from z.ai API".to_string());
+    }
+
+    Ok(claude_response.content[0].text.clone())
+}
+
+// Helper function to call Claude API with vision (for images)
+async fn call_claude_vision_api(prompt: String, base64_image: String, media_type: String, system: Option<String>) -> Result<String, String> {
+    let api_key = get_api_key().await?;
+
+    let client = reqwest::Client::new();
+
+    // Build content array with text and image
+    let content_array = vec![
+        serde_json::json!({
+            "type": "text",
+            "text": prompt
+        }),
+        serde_json::json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64_image
+            }
+        }),
+    ];
+
+    let request = ClaudeRequest {
+        model: "claude-sonnet-4-20250514".to_string(),
+        max_tokens: 4000,
+        messages: vec![
+            ClaudeMessage {
+                role: "user".to_string(),
+                content: ClaudeMessageContent::Array(content_array),
+            }
+        ],
+        system,
+    };
+
+    // Use z.ai endpoint (Anthropic-compatible API)
+    let response = client
+        .post("https://api.z.ai/api/anthropic/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&request)
+        .timeout(Duration::from_secs(60))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to call z.ai vision API: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_body = response.text().await.unwrap_or_default();
+        return Err(format!("z.ai vision API error: {} - {}", status, error_body));
+    }
+
+    let claude_response: ClaudeResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse z.ai vision response: {}", e))?;
+
+    if claude_response.content.is_empty() {
+        return Err("Empty response from z.ai vision API".to_string());
     }
 
     Ok(claude_response.content[0].text.clone())
@@ -652,4 +723,202 @@ Analyze:
         common_phrases,
         avg_sentence_length,
     })
+}
+
+// ==================== ATTACHMENT ANALYSIS ====================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnalyzeAttachmentRequest {
+    pub filename: String,
+    pub attachment_data: String, // base64 encoded
+    pub mime_type: String,
+    pub email_subject: Option<String>,
+    pub email_sender: Option<String>,
+    pub email_body: Option<String>, // for context
+    pub email_summary: Option<String>, // pre-generated email summary for context
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnalyzedAttachment {
+    pub summary: String,
+    pub key_points: Vec<String>,
+    pub action_items: Vec<String>,
+}
+
+#[command]
+pub async fn analyze_attachment_claude(request: AnalyzeAttachmentRequest) -> Result<AnalyzedAttachment, String> {
+    let system_prompt = r#"You are Aiden, an intelligent email assistant. Analyze email attachments and provide:
+1. A concise 2-3 sentence summary of what the attachment contains
+2. Key points extracted from the attachment content
+3. Any action items, dates, deadlines, or important information
+
+Focus primarily on the attachment's actual content. Use the email context only as secondary information for better understanding."#;
+
+    // Build email context section
+    let email_context = if let Some(summary) = &request.email_summary {
+        format!(
+            "\nEmail Context:\nSubject: {}\nFrom: {}\nEmail Summary: {}",
+            request.email_subject.as_deref().unwrap_or("N/A"),
+            request.email_sender.as_deref().unwrap_or("N/A"),
+            summary
+        )
+    } else if request.email_subject.is_some() || request.email_sender.is_some() {
+        format!(
+            "\nEmail Context:\nSubject: {}\nFrom: {}",
+            request.email_subject.as_deref().unwrap_or("N/A"),
+            request.email_sender.as_deref().unwrap_or("N/A")
+        )
+    } else {
+        String::new()
+    };
+
+    // Check if this is an image type
+    let is_image = request.mime_type.starts_with("image/");
+
+    // Store mime type for later use (before it's potentially moved)
+    let mime_type = request.mime_type.clone();
+
+    let response = if is_image {
+        // Use vision API for images
+        let prompt = format!(
+            r#"Analyze this email attachment image.
+
+Attachment filename: {}
+{}
+
+You are analyzing an attachment. Focus primarily on describing what the image contains - any text visible, data, charts, diagrams, or other visual information.
+
+Respond in this JSON format:
+{{
+  "summary": "Concise 2-3 sentence description of what the image shows",
+  "key_points": ["Main point 1", "Main point 2", "Main point 3"],
+  "action_items": ["Action item 1 if any", "Action item 2 if any"],
+  "file_type": "{}"
+}}"#,
+            request.filename,
+            email_context,
+            mime_type
+        );
+
+        call_claude_vision_api(prompt, request.attachment_data, request.mime_type, Some(system_prompt.to_string())).await?
+    } else {
+        // For non-images, extract text content
+        let decoded_data = base64_decode(&request.attachment_data)?;
+
+        let text_content = if mime_type == "application/pdf" {
+            // Extract text from PDF
+            extract_text_from_pdf(&decoded_data).unwrap_or_else(|e| {
+                format!("[Failed to extract text from PDF: {}]", e)
+            })
+        } else if mime_type.starts_with("text/") {
+            // Plain text file
+            String::from_utf8_lossy(&decoded_data).to_string()
+        } else {
+            // For other formats, try to decode as UTF-8
+            String::from_utf8_lossy(&decoded_data).to_string()
+        };
+
+        // Check if we got meaningful text content
+        let has_meaningful_content = text_content.len() > 50 &&
+            !text_content.starts_with("[Failed to extract") &&
+            !text_content.contains("%PDF-") &&
+            !text_content.starts_with("%") &&
+            text_content.chars().filter(|c| c.is_alphabetic()).count() > 20;
+
+        let truncated_text = if text_content.len() > 12000 {
+            format!("{}...(truncated)", &text_content[..12000])
+        } else {
+            text_content.clone()
+        };
+
+        let prompt = if has_meaningful_content {
+            // We have extracted text - analyze the actual content
+            format!(
+                r#"You are analyzing an email attachment. Focus primarily on the attachment's content.
+
+Attachment: {} ({}){}
+
+Analyze the attachment content and provide:
+
+Respond in this JSON format:
+{{
+  "summary": "Concise 2-3 sentence summary of the attachment's actual content",
+  "key_points": ["Main point 1", "Main point 2", "Main point 3"],
+  "action_items": ["Action item 1 if any", "Action item 2 if any"],
+  "file_type": "{}"
+}}
+
+Attachment content to analyze:
+{}"#,
+                request.filename,
+                mime_type,
+                email_context,
+                mime_type,
+                truncated_text
+            )
+        } else {
+            // No meaningful text extracted - provide generic analysis based on filename and context
+            format!(
+                r#"You are analyzing an email attachment. The attachment could not have its text content extracted (possibly a scanned PDF, image-based document, or unsupported format).
+
+Attachment: {} ({}){}
+
+Based on the filename, file type, and email context, provide your best assessment of what this attachment likely contains.
+
+Respond in this JSON format:
+{{
+  "summary": "Best guess summary based on filename and email context",
+  "key_points": ["Likely point 1", "Likely point 2"],
+  "action_items": ["Possible action 1 if any"],
+  "file_type": "{}"
+}}"#,
+                request.filename,
+                mime_type,
+                email_context,
+                mime_type
+            )
+        };
+
+        call_claude_api_with_system(prompt, Some(system_prompt.to_string())).await?
+    };
+
+    let json_str = extract_json_from_response(&response)?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| format!("Failed to parse JSON response: {}. Response was: {}", e, response))?;
+
+    let summary = parsed["summary"].as_str()
+        .ok_or("Missing summary in response")?
+        .to_string();
+
+    let key_points: Vec<String> = parsed["key_points"].as_array()
+        .and_then(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).ok())
+        .unwrap_or_default();
+
+    let action_items: Vec<String> = parsed["action_items"].as_array()
+        .and_then(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).ok())
+        .unwrap_or_default();
+
+    Ok(AnalyzedAttachment {
+        summary,
+        key_points,
+        action_items,
+    })
+}
+
+// Helper to decode base64
+fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
+    use base64::{Engine as _, engine::general_purpose};
+    general_purpose::STANDARD
+        .decode(input)
+        .map_err(|e| format!("Base64 decode error: {}", e))
+}
+
+// Helper to extract text from PDF bytes
+fn extract_text_from_pdf(pdf_data: &[u8]) -> Result<String, String> {
+    use pdf_extract::extract_text_from_mem;
+
+    extract_text_from_mem(pdf_data)
+        .map_err(|e| format!("PDF extraction error: {}", e))
+        .map(|s| s.trim().to_string())
 }

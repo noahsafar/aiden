@@ -704,17 +704,27 @@ function App() {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                                   </svg>
                                   <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                                    Attachments ({selectedEmail.attachments.length})
+                                    Attachments ({selectedEmail.attachments?.length || 0})
                                   </p>
                                 </div>
                                 <div className="space-y-2">
-                                  {selectedEmail.attachments.map((attachment: any) => (
-                                    <AttachmentItem
-                                      key={attachment.id}
-                                      attachment={attachment}
-                                      messageId={selectedEmail.id}
-                                    />
-                                  ))}
+                                  {selectedEmail.attachments?.map((attachment: any) => {
+                                    // Get the full email from store to include AI analysis data
+                                    const fullEmail = emails.find(e => e.id === selectedEmail.id);
+                                    const fullAttachment = fullEmail?.attachments?.find((a: any) => a.id === attachment.id) || attachment;
+
+                                    return (
+                                      <AttachmentItem
+                                        key={attachment.id}
+                                        attachment={fullAttachment}
+                                        messageId={selectedEmail.id}
+                                        emailSubject={selectedEmail.subject}
+                                        emailSender={`${selectedEmail.from?.name || ''} <${selectedEmail.from?.email || ''}>`.trim()}
+                                        emailBody={selectedEmail.body || selectedEmail.content || selectedEmail.snippet}
+                                        emailSummary={fullEmail?.summary}
+                                      />
+                                    );
+                                  })}
                                 </div>
                               </div>
                             )}

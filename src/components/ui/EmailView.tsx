@@ -1,12 +1,12 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useEmailStore, fetchWithTimeout } from '@/stores/emailStore';
+import { useEmailStore, fetchWithTimeout, type EmailAttachment } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
 import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X, Clock } from 'lucide-react';
 import DOMPurify from 'dompurify';
-import { serverURL, downloadAttachment, saveAttachmentToFile, summarizeAttachment } from '@/api/emails';
-import { analyzeEmail, generateReply as claudeGenerateReply, editReply, type AnalyzeEmailRequest, type GenerateReplyRequest } from '@/api/claude';
+import { serverURL, downloadAttachment, saveAttachmentToFile } from '@/api/emails';
+import { analyzeEmail, generateReply as claudeGenerateReply, editReply, analyzeAttachment, type AnalyzeEmailRequest, type GenerateReplyRequest } from '@/api/claude';
 
 // Helper to decode HTML entities
 function decodeHTMLEntities(text: string): string {
@@ -199,28 +199,52 @@ function EmailHtmlContent({ html }: { html: string }) {
 // ==================== ATTACHMENT COMPONENT ====================
 
 interface AttachmentItemProps {
-  attachment: {
-    id: string;
-    filename: string;
-    mimeType: string;
-    size: number;
-  };
+  attachment: EmailAttachment;
   messageId: string;
+  // Email context for better attachment analysis
+  emailSubject?: string;
+  emailSender?: string;
+  emailBody?: string;
+  emailSummary?: string;
 }
 
-export function AttachmentItem({ attachment, messageId }: AttachmentItemProps) {
+export function AttachmentItem({
+  attachment,
+  messageId,
+  emailSubject,
+  emailSender,
+  emailBody,
+  emailSummary
+}: AttachmentItemProps) {
   const [downloading, setDownloading] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
-  const [showSummary, setShowSummary] = useState(false);
+  const [showSummary, setShowSummary] = useState(!!attachment.aiSummary); // Show summary if already saved
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const updateAttachmentAnalysis = useEmailStore(state => state.updateAttachmentAnalysis);
 
-  const isSummarizable = attachment.mimeType === 'application/pdf' ||
-    attachment.mimeType.includes('word') ||
-    attachment.mimeType.includes('document') ||
-    attachment.mimeType.includes('text') ||
-    attachment.mimeType.includes('powerpoint');
+  // All attachment types can now be analyzed with Claude (including images)
+  const isSummarizable = true;
+
+  // Load saved analysis when attachment changes
+  useEffect(() => {
+    if (attachment.aiSummary) {
+      // Build summary from saved data
+      let summaryText = attachment.aiSummary;
+      if (attachment.aiKeyPoints && attachment.aiKeyPoints.length > 0) {
+        summaryText += '\n\nKey Points:\n' + attachment.aiKeyPoints.map((p, i) => `${i + 1}. ${p}`).join('\n');
+      }
+      if (attachment.aiActionItems && attachment.aiActionItems.length > 0) {
+        summaryText += '\n\nAction Items:\n' + attachment.aiActionItems.map((a, i) => `${i + 1}. ${a}`).join('\n');
+      }
+      setSummary(summaryText);
+      setShowSummary(true);
+    } else {
+      setSummary(null);
+      setShowSummary(false);
+    }
+  }, [attachment.id, attachment.aiSummary, attachment.aiKeyPoints, attachment.aiActionItems]);
 
   const isPreviewable = attachment.mimeType === 'application/pdf' ||
     attachment.mimeType.startsWith('image/') ||
@@ -300,20 +324,43 @@ export function AttachmentItem({ attachment, messageId }: AttachmentItemProps) {
       // First download the attachment
       const result = await downloadAttachment(messageId, attachment.id);
       if (result.success && result.data) {
-        // Then summarize it
-        const summaryResult = await summarizeAttachment(attachment.filename, result.data, attachment.mimeType);
-        if (summaryResult.success && summaryResult.summary) {
-          setSummary(summaryResult.summary);
-          setShowSummary(true);
-        } else {
-          alert('Failed to summarize: ' + (summaryResult.error || 'Unknown error'));
+        // Use Claude API for analysis (supports images and documents)
+        const analysisResult = await analyzeAttachment({
+          filename: attachment.filename,
+          attachment_data: result.data,
+          mime_type: attachment.mimeType,
+          email_subject: emailSubject,
+          email_sender: emailSender,
+          email_body: emailBody,
+          email_summary: emailSummary,
+        });
+
+        // Build a comprehensive summary from the analysis
+        let summaryText = analysisResult.summary;
+
+        if (analysisResult.key_points && analysisResult.key_points.length > 0) {
+          summaryText += '\n\nKey Points:\n' + analysisResult.key_points.map((p, i) => `${i + 1}. ${p}`).join('\n');
         }
+
+        if (analysisResult.action_items && analysisResult.action_items.length > 0) {
+          summaryText += '\n\nAction Items:\n' + analysisResult.action_items.map((a, i) => `${i + 1}. ${a}`).join('\n');
+        }
+
+        setSummary(summaryText);
+        setShowSummary(true);
+
+        // Save the analysis to the email store
+        updateAttachmentAnalysis(messageId, attachment.id, {
+          summary: analysisResult.summary,
+          key_points: analysisResult.key_points,
+          action_items: analysisResult.action_items,
+        });
       } else {
-        alert('Failed to download attachment for summarization');
+        alert('Failed to download attachment for analysis: ' + (result.error || 'Unknown error'));
       }
     } catch (error) {
-      console.error('Summarize error:', error);
-      alert('Failed to summarize attachment');
+      console.error('Analysis error:', error);
+      alert('Failed to analyze attachment: ' + String(error));
     } finally {
       setSummarizing(false);
     }
@@ -364,7 +411,7 @@ export function AttachmentItem({ attachment, messageId }: AttachmentItemProps) {
             onClick={handleSummarize}
             disabled={summarizing || downloading || previewLoading}
             className="p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 text-purple-600 dark:text-purple-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            title="Summarize with AI"
+            title="Analyze with AI (Claude)"
           >
             <Sparkles size={16} className={summarizing ? 'animate-spin' : ''} />
           </button>

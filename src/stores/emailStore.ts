@@ -305,6 +305,10 @@ export interface EmailAttachment {
   filename: string;
   mimeType: string;
   size: number;
+  // Store AI analysis results for this attachment
+  aiSummary?: string;
+  aiKeyPoints?: string[];
+  aiActionItems?: string[];
 }
 
 export interface EmailState {
@@ -333,6 +337,7 @@ export interface EmailState {
   markAsRead: (emailId: string) => Promise<void>;
   markAsStarred: (emailId: string, starred: boolean) => Promise<void>;
   updateEmailStatus: (emailId: string, status: Email['status']) => Promise<void>;
+  updateAttachmentAnalysis: (emailId: string, attachmentId: string, analysis: { summary: string; key_points: string[]; action_items: string[] }) => void;
   classifyEmail: (emailId: string) => Promise<void>;
   generateReply: (emailId: string) => Promise<void>;
   summarizeEmail: (emailId: string) => Promise<string | null>;
@@ -1013,6 +1018,35 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     } catch (error) {
       console.error('Failed to update email status:', error);
     }
+  },
+
+  updateAttachmentAnalysis: (emailId, attachmentId, analysis) => {
+    set((state) => {
+      const updateEmail = (email: Email) => {
+        if (email.id !== emailId) return email;
+
+        const updatedAttachments = email.attachments?.map(attachment =>
+          attachment.id === attachmentId
+            ? {
+                ...attachment,
+                aiSummary: analysis.summary,
+                aiKeyPoints: analysis.key_points,
+                aiActionItems: analysis.action_items,
+              }
+            : attachment
+        ) ?? email.attachments;
+
+        return { ...email, attachments: updatedAttachments };
+      };
+
+      return {
+        emails: state.emails.map(updateEmail),
+        sentEmails: state.sentEmails.map(updateEmail),
+        selectedEmail: state.selectedEmail?.id === emailId
+          ? updateEmail(state.selectedEmail)
+          : state.selectedEmail,
+      };
+    });
   },
 
   classifyEmail: async (emailId) => {
