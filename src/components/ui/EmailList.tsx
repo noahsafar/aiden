@@ -7,6 +7,7 @@ interface EmailQuestionData {
   requiresReply?: boolean;
   replyReasoning?: string;
   loaded: boolean;
+  meetingRequest?: { is_meeting: boolean };
 }
 
 interface EmailListProps {
@@ -75,11 +76,25 @@ function getThreadCount(emailId: string, emails: any[]): number {
 const ActionBadge = React.memo(({ emailId }: { emailId: string }) => {
   const data = getEmailReplyData(emailId);
 
-  // Default to FYI until AI analysis completes
-  // Once loaded, show Action Required or FYI based on analysis
-  const requiresReply = data?.loaded ? data.requiresReply : false;
+  // Meeting requests always require action
+  const isMeetingRequest = data?.meetingRequest?.is_meeting;
 
-  if (requiresReply) {
+  // If not loaded yet, show nothing (waiting for AI analysis)
+  if (!data?.loaded) {
+    return null;
+  }
+
+  // Meeting requests always show as Action Required
+  if (isMeetingRequest) {
+    return (
+      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 border border-blue-200">
+        Meeting
+      </span>
+    );
+  }
+
+  // After analysis, show Action Required or FYI based on analysis
+  if (data.requiresReply) {
     return (
       <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 border border-amber-200">
         Action Required

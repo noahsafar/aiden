@@ -316,7 +316,19 @@ Guidelines:
 - Formality: 0=very casual, 50=neutral, 100=very formal
 - Meeting: Set is_meeting=true if they want to meet; extract proposed times like "Tuesday at 2pm"
 - Missing attachment: Warn if they mention "attached file" but no attachments exist
-- Document types: List mentioned file types (resume, PDF, etc.)"#,
+- Document types: List mentioned file types (resume, PDF, etc.)
+
+IMPORTANT - Set requires_reply to FALSE for:
+- Newsletters, marketing emails, notifications, or automated emails
+- Emails that are purely informational with no questions asked
+- Receipts, confirmations, or updates that don't need a response
+- Emails from known senders like "NYT Cooking", "Substack", newsletters, etc.
+
+Set requires_reply to TRUE for:
+- Emails asking direct questions
+- Meeting requests
+- Emails requesting your input, approval, or action
+- Messages from real people expecting a response"#,
         request.sender, request.subject, request.body_text, request.has_attachments
     );
 
