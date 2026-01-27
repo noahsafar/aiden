@@ -75,11 +75,9 @@ function getThreadCount(emailId: string, emails: any[]): number {
 const ActionBadge = React.memo(({ emailId }: { emailId: string }) => {
   const data = getEmailReplyData(emailId);
 
-  if (!data?.loaded) {
-    return null;
-  }
-
-  const requiresReply = data.requiresReply;
+  // Default to FYI until AI analysis completes
+  // Once loaded, show Action Required or FYI based on analysis
+  const requiresReply = data?.loaded ? data.requiresReply : false;
 
   if (requiresReply) {
     return (
