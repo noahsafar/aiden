@@ -9,6 +9,7 @@ import { OAuthHandler } from '@/components/OAuthHandler';
 import { TestPage } from '@/components/TestPage';
 import { Settings as SettingsPage } from '@/pages/Settings';
 import { Calendar } from '@/pages/Calendar';
+import { CRM } from '@/pages/CRM';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ToastContainer, ToastData } from '@/components/ui/Toast';
@@ -23,6 +24,7 @@ import {
   LogOut,
   Settings as SettingsIcon,
   Calendar as CalendarIcon,
+  Users,
   Bookmark,
   File,
   Image,
@@ -546,6 +548,11 @@ function App() {
                       <CalendarIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                     </Button>
                   </Link>
+                  <Link to="/crm">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="CRM">
+                      <Users className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                    </Button>
+                  </Link>
                   <Link to="/settings">
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="Settings">
                       <SettingsIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
@@ -870,6 +877,18 @@ function App() {
         element={
           isAuthenticated ? (
             <Calendar />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+
+      {/* CRM route - protected */}
+      <Route
+        path="/crm"
+        element={
+          isAuthenticated ? (
+            <CRM />
           ) : (
             <Navigate to="/login" replace />
           )
