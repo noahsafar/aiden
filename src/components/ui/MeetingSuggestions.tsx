@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Check, Loader, AlertCircle, ChevronDown } from 'lucide-react';
+import { Clock, Check, Loader, AlertCircle, ChevronDown, Calendar as CalendarIcon, X } from 'lucide-react';
 import { serverURL } from '@/api/emails';
 import { CalendarPicker } from './CalendarPicker';
 
@@ -155,6 +155,18 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
         const data = await response.json();
         if (data.success) {
           setCreated(slot.start);
+          // Also update selected time and notify parent
+          const timeSlot: TimeSlot = {
+            date: slot.date,
+            time: slot.time,
+            start: slot.start,
+            end: slot.end,
+            dayName: 'dayName' in slot ? slot.dayName : getDayNameFromDate(slot.start),
+            isRecommended: false,
+            hasConflict: false,
+          };
+          setSelectedTime(timeSlot);
+          onTimeSelected?.(timeSlot);
           onCreated?.();
         }
       }
@@ -163,6 +175,21 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
     } finally {
       setCreating(null);
     }
+  };
+
+  const getDayNameFromDate = (isoDate: string): string => {
+    const date = new Date(isoDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const dateOnly = new Date(date);
+    dateOnly.setHours(0, 0, 0, 0);
+
+    if (dateOnly.getTime() === today.getTime()) return 'Today';
+    if (dateOnly.getTime() === tomorrow.getTime()) return 'Tomorrow';
+    return date.toLocaleDateString('en-US', { weekday: 'long' });
   };
 
   const handleTimeSelect = (slot: TimeSlot) => {
@@ -200,33 +227,37 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
   const hasConflict = conflicts.some(c => c.has_conflict === true);
 
   return (
+    <div className="relative">
     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4 mb-4 border border-blue-200 dark:border-blue-700">
-      <div className="flex items-start gap-3">
-        <div className="p-2 bg-blue-100 dark:bg-blue-800 rounded-lg">
-          <Calendar className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-        </div>
-        <div className="flex-1">
-          <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-1">
-            Meeting Request Detected
-          </h3>
+      <div>
+        <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+          Meeting Request Detected
+        </h3>
 
-          {loading ? (
-            <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
-              <Loader className="w-4 h-4 animate-spin" />
-              Checking your calendar...
-            </div>
-          ) : showingSlots ? (
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+            <Loader className="w-4 h-4 animate-spin" />
+            Checking your calendar...
+          </div>
+        ) : showingSlots ? (
             <>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-blue-800 dark:text-blue-200 uppercase tracking-wide">
+                  Available Time Slots
+                </p>
+                <button
+                  onClick={() => setShowingSlots(false)}
+                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
               {loadingSlots ? (
-                <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
-                  <Loader className="w-4 h-4 animate-spin" />
-                  Finding available time slots...
+                <div className="flex items-center justify-center py-8">
+                  <Loader className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
                 </div>
               ) : freeSlots.length > 0 ? (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-blue-800 dark:text-blue-200 uppercase tracking-wide">
-                    Available Time Slots
-                  </p>
                   {freeSlots.map((slot, idx) => (
                     <div
                       key={idx}
@@ -241,25 +272,36 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
                           <p className="text-xs text-gray-500 dark:text-gray-400">{slot.time}</p>
                         </div>
                       </div>
-                      {created === slot.start ? (
+                      {selectedTime?.start === slot.start ? (
                         <div className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400 font-medium">
                           <Check className="w-4 h-4" />
-                          Created
+                          Selected
                         </div>
                       ) : (
                         <button
-                          onClick={() => createEvent(slot)}
-                          disabled={creating !== null}
-                          className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                          onClick={() => {
+                            const timeSlot: TimeSlot = {
+                              date: slot.date,
+                              time: slot.time,
+                              start: slot.start,
+                              end: slot.end,
+                              dayName: getDayNameFromDate(slot.start),
+                              isRecommended: false,
+                              hasConflict: false,
+                            };
+                            setSelectedTime(timeSlot);
+                            onTimeSelected?.(timeSlot);
+                          }}
+                          className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
                         >
-                          {creating === slot.start ? 'Creating...' : 'Create Event'}
+                          Select
                         </button>
                       )}
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-blue-600 dark:text-blue-400">
+                <p className="text-sm text-blue-600 dark:text-blue-400 text-center py-4">
                   No available time slots found.
                 </p>
               )}
@@ -298,9 +340,13 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
                         </div>
                         <div className="flex items-center gap-2">
                           {conflict.has_conflict === false && (
-                            <span className="text-xs font-medium text-green-600 dark:text-green-400">
-                              No conflict
-                            </span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); createEvent(conflict); }}
+                              disabled={creating !== null}
+                              className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                            >
+                              {creating === conflict.start ? 'Creating...' : 'Schedule'}
+                            </button>
                           )}
                           {conflict.has_conflict === true && (
                             <span className="text-xs font-medium text-red-600 dark:text-red-400">
@@ -322,37 +368,25 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
                           ))}
                         </div>
                       )}
-                      {conflict.has_conflict === false && (
-                        <div className="px-3 pb-3 border-t border-gray-100 dark:border-gray-700 flex justify-end">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); createEvent(conflict); }}
-                            disabled={creating !== null}
-                            className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-                          >
-                            {creating === conflict.start ? 'Creating...' : 'Schedule This Time'}
-                          </button>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
               )}
 
               {(hasConflict || conflicts.length === 0) && (
-                <div className="space-y-2">
+                <div className="flex gap-2">
                   <button
                     onClick={showFreeSlots}
                     disabled={loadingSlots}
-                    className="w-full px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                    className="flex-1 text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 py-2 text-sm rounded-lg font-medium transition-colors"
                   >
                     Find a Time That Works
                   </button>
                   <button
                     onClick={handleOpenCalendarPicker}
                     disabled={loadingSlots}
-                    className="w-full px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    className="flex-1 text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 py-2 text-sm rounded-lg font-medium transition-colors"
                   >
-                    <Calendar className="w-4 h-4" />
                     Pick from Calendar
                   </button>
                 </div>
@@ -363,20 +397,19 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
               <p className="text-sm text-blue-700 dark:text-blue-300">
                 No specific time was proposed. Would you like Aiden to find available time slots?
               </p>
-              <div className="space-y-2">
+              <div className="flex gap-2">
                 <button
                   onClick={showFreeSlots}
                   disabled={loadingSlots}
-                  className="w-full px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  className="flex-1 text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 py-2 text-sm rounded-lg font-medium transition-colors"
                 >
                   Find a Time That Works
                 </button>
                 <button
                   onClick={handleOpenCalendarPicker}
                   disabled={loadingSlots}
-                  className="w-full px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 py-2 text-sm rounded-lg font-medium transition-colors"
                 >
-                  <Calendar className="w-4 h-4" />
                   Pick from Calendar
                 </button>
               </div>
@@ -419,20 +452,18 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
         </div>
       </div>
 
-      {/* Calendar Picker Modal */}
-      {showCalendarPicker && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="w-full max-w-md">
-            <CalendarPicker
-              durationMinutes={meetingRequest.duration_minutes || 60}
-              timezone={timezone}
-              onTimeSelect={handleTimeSelect}
-              onClose={handleCloseCalendarPicker}
-              selectedSlot={selectedTime}
-            />
-          </div>
-        </div>
-      )}
+    {/* Calendar Picker Modal */}
+    {showCalendarPicker && (
+      <div className="absolute inset-0 bg-white dark:bg-gray-800 z-10 rounded-xl overflow-hidden flex flex-col">
+        <CalendarPicker
+          durationMinutes={meetingRequest.duration_minutes || 60}
+          timezone={timezone}
+          onTimeSelect={handleTimeSelect}
+          onClose={handleCloseCalendarPicker}
+          selectedSlot={selectedTime}
+        />
+      </div>
+    )}
     </div>
   );
 }

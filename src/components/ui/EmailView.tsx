@@ -1271,41 +1271,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
               />
             )}
 
-            {/* Selected Meeting Time Display */}
-            {selectedMeetingTime && !displayAiReply && (
-              <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-indigo-100 dark:bg-indigo-800 rounded-lg">
-                      <Clock size={18} className="text-indigo-600 dark:text-indigo-400" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100">
-                        Meeting Time Selected
-                      </p>
-                      <p className="text-sm text-indigo-700 dark:text-indigo-300">
-                        {selectedMeetingTime.dayName} at {selectedMeetingTime.time}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setSelectedMeetingTime(null);
-                      setAdditionalContext('');
-                    }}
-                    className="p-2 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-500"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Missing Attachment Warning */}
             <MissingAttachmentWarning warning={missingAttachmentWarning} />
 
             {/* Questions list */}
-            {pendingQuestions.length > 0 ? (
+            {pendingQuestions.length > 0 && (
               <div className="space-y-3">
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Questions to answer:</p>
                 {pendingQuestions.map((question, idx) => (
@@ -1370,18 +1340,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
                     </div>
                   </div>
                 ))}
-              </div>
-            ) : (
-              /* No questions found - show a message */
-              <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
-                <div className="flex items-center gap-2">
-                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    No questions or decisions needed. You can generate a reply directly.
-                  </p>
-                </div>
               </div>
             )}
 

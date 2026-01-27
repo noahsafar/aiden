@@ -59,6 +59,26 @@ export function CalendarPicker({
     }
   };
 
+  // Check if a time slot conflicts with existing events
+  const checkConflict = (start: Date, end: Date, dayEvents: CalendarEvent[]): boolean => {
+    for (const event of dayEvents) {
+      const eventStart = new Date(event.start);
+      const eventEnd = new Date(event.end);
+
+      // Check for overlap
+      if (start < eventEnd && end > eventStart) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const isTomorrow = (date: Date): boolean => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return date.toDateString() === tomorrow.toDateString();
+  };
+
   // Generate time slots for each day
   const generateTimeSlots = useMemo(() => {
     const slots: TimeSlot[] = [];
@@ -126,34 +146,16 @@ export function CalendarPicker({
     return slots;
   }, [events, viewStartDate, durationMinutes]);
 
-  // Check if a time slot conflicts with existing events
-  const checkConflict = (start: Date, end: Date, dayEvents: CalendarEvent[]): boolean => {
-    for (const event of dayEvents) {
-      const eventStart = new Date(event.start);
-      const eventEnd = new Date(event.end);
-
-      // Check for overlap
-      if (start < eventEnd && end > eventStart) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  const isTomorrow = (date: Date): boolean => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return date.toDateString() === tomorrow.toDateString();
-  };
-
   // Group slots by day
   const slotsByDay = useMemo(() => {
     const grouped: Record<string, TimeSlot[]> = {};
     for (const slot of generateTimeSlots) {
-      if (!grouped[slot.dayName]) {
-        grouped[slot.dayName] = [];
+      // Use both date and dayName as key to avoid grouping different dates with same weekday
+      const key = `${slot.date}|${slot.dayName}`;
+      if (!grouped[key]) {
+        grouped[key] = [];
       }
-      grouped[slot.dayName].push(slot);
+      grouped[key].push(slot);
     }
     return grouped;
   }, [generateTimeSlots]);
@@ -178,125 +180,111 @@ export function CalendarPicker({
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex items-center gap-2">
-          <Calendar className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-          <h3 className="font-semibold text-gray-900 dark:text-white">Pick a Time</h3>
-        </div>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Compact Header with Nav */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 gap-2">
+        <button
+          onClick={() => navigateWeek('prev')}
+          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 flex-shrink-0"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <span className="text-xs font-medium text-gray-700 dark:text-gray-300 text-center flex-1 truncate">{getDateRangeText()}</span>
+        <button
+          onClick={() => navigateWeek('next')}
+          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 flex-shrink-0"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
         <button
           onClick={onClose}
-          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Week Navigation */}
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
-        <button
-          onClick={() => navigateWeek('prev')}
-          className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{getDateRangeText()}</span>
-        <button
-          onClick={() => navigateWeek('next')}
-          className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Legend */}
-      <div className="flex items-center gap-4 px-4 py-2 border-b border-gray-200 dark:border-gray-700 text-xs">
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-green-500" />
-          <span className="text-gray-600 dark:text-gray-400">Available</span>
+      {/* Compact Legend */}
+      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 text-[10px]">
+        <div className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded bg-green-500" />
+          <span className="text-gray-500 dark:text-gray-400">Avail</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-blue-500" />
-          <span className="text-gray-600 dark:text-gray-400">Recommended</span>
+        <div className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded bg-blue-500" />
+          <span className="text-gray-500 dark:text-gray-400">Best</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-gray-300 dark:bg-gray-600" />
-          <span className="text-gray-600 dark:text-gray-400">Unavailable</span>
+        <div className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded bg-gray-300 dark:bg-gray-600" />
+          <span className="text-gray-500 dark:text-gray-400">Busy</span>
         </div>
       </div>
 
       {/* Time Slots Grid */}
-      <div className="max-h-80 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-3 min-h-0">
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <Loader className="w-6 h-6 text-blue-600 dark:text-blue-400 animate-spin" />
+            <Loader className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
           </div>
         ) : (
-          <div className="space-y-4">
-            {Object.entries(slotsByDay).map(([dayName, slots]) => (
-              <div key={dayName}>
-                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-                  {dayName}
-                </p>
-                <div className="grid grid-cols-4 gap-2">
+          <div className="space-y-3">
+            {Object.entries(slotsByDay).map(([key, slots]) => {
+              const dayName = key.split('|')[1];
+              return (
+                <div key={key}>
+                  <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1.5">
+                    {dayName}
+                  </p>
+                  <div className="grid grid-cols-5 gap-1.5">
                   {slots.map((slot, idx) => (
                     <button
                       key={idx}
                       onClick={() => handleSlotClick(slot)}
-                      onMouseEnter={() => setHoveredSlot(slot)}
-                      onMouseLeave={() => setHoveredSlot(null)}
                       disabled={slot.hasConflict}
                       className={`
-                        relative px-2 py-2 rounded-lg text-xs font-medium transition-all
+                        relative px-1.5 py-1.5 rounded text-[10px] font-medium transition-all
                         ${slot.hasConflict
-                          ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-60'
+                          ? 'bg-gray-100 dark:bg-gray-800 text-gray-350 dark:text-gray-600 cursor-not-allowed opacity-50'
                           : slot.isRecommended
                             ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700'
                             : 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60 border border-green-300 dark:border-green-700'
                         }
                         ${selectedSlot?.start === slot.start
-                          ? 'ring-2 ring-blue-500 ring-offset-1'
+                          ? 'ring-1.5 ring-blue-500'
                           : ''
                         }
                       `}
                     >
                       <div className="flex flex-col items-center gap-0.5">
-                        <Clock className={`w-3 h-3 ${slot.hasConflict ? 'opacity-50' : ''}`} />
                         <span>{slot.time}</span>
-                        {slot.isRecommended && !slot.hasConflict && (
-                          <span className="text-[10px] opacity-75">★</span>
-                        )}
                       </div>
                       {selectedSlot?.start === slot.start && (
-                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
-                          <Check className="w-2.5 h-2.5 text-white" />
+                        <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
+                          <Check className="w-2 h-2 text-white" />
                         </div>
                       )}
                     </button>
                   ))}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </div>
 
-      {/* Selected Time Display */}
+      {/* Compact Selected Time Display */}
       {selectedSlot && (
-        <div className="px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border-t border-blue-200 dark:border-blue-800">
+        <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border-t border-blue-200 dark:border-blue-800">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+              <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
                 {selectedSlot.dayName} at {selectedSlot.time}
-              </p>
-              <p className="text-xs text-blue-600 dark:text-blue-400">
-                {durationMinutes} minutes
               </p>
             </div>
             <button
               onClick={() => onTimeSelect(selectedSlot)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors"
             >
               Confirm
             </button>
