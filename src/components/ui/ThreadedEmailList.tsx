@@ -433,12 +433,12 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
             <div
               key={threadId}
               className={`bg-surface dark:bg-gray-800 border rounded-lg overflow-hidden transition-all ${
-                isSelected ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900' : 'border-border'
+                isSelected ? 'border-blue-500 dark:border-blue-400' : 'border-gray-200 dark:border-gray-700'
               }`}
             >
               {/* Thread header - always visible */}
               <div
-                className={`p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                className={`relative p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
                   hasUnread ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''
                 }`}
                 onClick={() => handleEmailClick(mostRecent.id)}
