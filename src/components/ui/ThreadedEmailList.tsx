@@ -517,7 +517,6 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                   {/* Selection strip */}
                   <div
                     className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-lg transition-all cursor-pointer ${
-                      focusedEmailId === mostRecent.id ? 'bg-purple-500' :
                       isEmailSelected(mostRecent.id) ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
                     }`}
                     onClick={(e) => handleStripClick(mostRecent.id, threadId, e)}
@@ -588,7 +587,6 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                           {/* Selection strip for individual email in thread */}
                           <div
                             className={`w-1 rounded transition-all cursor-pointer ${
-                              isFocused ? 'bg-purple-500' :
                               emailIsSelected ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
                             }`}
                             onClick={(e) => handleStripClick(email.id, threadId, e)}
