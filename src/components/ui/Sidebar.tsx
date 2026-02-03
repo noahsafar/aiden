@@ -6,8 +6,6 @@ import {
   BookmarkIcon,
   ArchiveBoxIcon,
   BoltIcon,
-  Squares2X2Icon,
-  Bars3BottomLeftIcon,
   SparklesIcon as SparklesIconHero,
 } from '@heroicons/react/24/outline';
 
@@ -22,7 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   children,
   inboxCount
 }) => {
-  const { currentFilter, setCurrentFilter, emails, sentEmails, viewMode, setViewMode } = useEmailStore();
+  const { currentFilter, setCurrentFilter, emails, sentEmails } = useEmailStore();
 
   const filters = [
     { id: 'inbox', label: 'Inbox', icon: InboxIcon },
@@ -95,37 +93,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
         </nav>
-
-        {/* View Mode Toggle */}
-        <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 hidden sm:block">
-          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 px-2">View Mode</p>
-          <div className="flex gap-1 px-2">
-            <button
-              onClick={() => setViewMode('individual')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md transition-colors ${
-                viewMode === 'individual'
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-              title="Individual emails"
-            >
-              <Bars3BottomLeftIcon className="h-4 w-4" />
-              <span>List</span>
-            </button>
-            <button
-              onClick={() => setViewMode('threaded')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md transition-colors ${
-                viewMode === 'threaded'
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-              title="Threaded conversations"
-            >
-              <Squares2X2Icon className="h-4 w-4" />
-              <span>Threads</span>
-            </button>
-          </div>
-        </div>
       </div>
       {children}
     </div>
