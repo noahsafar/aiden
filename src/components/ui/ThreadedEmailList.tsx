@@ -571,11 +571,9 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                               <div className="w-0.5 h-full bg-gray-200 dark:bg-gray-700" />
                             )}
                             <div className={`w-2 h-2 rounded-full mt-1 ${
-                              isFocused
-                                ? 'bg-purple-500'
-                                : isLast
-                                  ? 'bg-blue-500'
-                                  : 'bg-gray-300 dark:bg-gray-600'
+                              isLast
+                                ? 'bg-blue-500'
+                                : 'bg-gray-300 dark:bg-gray-600'
                             }`} />
                           </div>
 
