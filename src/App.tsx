@@ -34,7 +34,9 @@ import {
   Video,
   Download,
   Eye,
-  X
+  X,
+  ArrowDownAZ,
+  Signal,
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -82,7 +84,7 @@ function App() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
-  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, markAsStarred, updateEmailStatus, viewMode } = useEmailStore();
+  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
 
   // Animation state for focused view
@@ -199,9 +201,26 @@ function App() {
           })
           .map(convertToUIEmail);
 
-    // Sort by date (newest first)
-    return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI]
+    // Sort by selected mode
+    if (sortMode === 'importance') {
+      // Sort by category priority: Urgent > Important > Normal > Low
+      const categoryOrder = { 'Urgent': 0, 'Important': 1, 'Normal': 2, 'Low': 3 };
+      return result.sort((a, b) => {
+        const aCategory = a.aiCategory || 'Normal';
+        const bCategory = b.aiCategory || 'Normal';
+        const aOrder = categoryOrder[aCategory as keyof typeof categoryOrder] ?? 2;
+        const bOrder = categoryOrder[bCategory as keyof typeof categoryOrder] ?? 2;
+        if (aOrder !== bOrder) {
+          return aOrder - bOrder;
+        }
+        // Within same category, sort by date (newest first)
+        return new Date(b.date).getTime() - new Date(a.date).getTime();
+      });
+    } else {
+      // Sort by date (newest first)
+      return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
+  }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI, sortMode]
   );
 
   // Calculate actual inbox count (emails not archived/saved/deleted)
@@ -626,6 +645,38 @@ function App() {
                     </div>
                   ) : (
                     <div className="h-full flex flex-col">
+                      {/* Sort toggle - only show for non-triage views */}
+                      {currentFilter !== 'triage' && (
+                        <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                          <span className="text-xs text-gray-500 dark:text-gray-400">Sort by</span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setSortMode('date')}
+                              className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
+                                sortMode === 'date'
+                                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                              }`}
+                              title="Sort by date"
+                            >
+                              <ArrowDownAZ className="w-3 h-3" />
+                              <span>Date</span>
+                            </button>
+                            <button
+                              onClick={() => setSortMode('importance')}
+                              className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
+                                sortMode === 'importance'
+                                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                              }`}
+                              title="Sort by importance"
+                            >
+                              <Signal className="w-3 h-3" />
+                              <span>Importance</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {viewMode === 'threaded' ? (
                         <ThreadedEmailList
                           emails={filteredEmails}

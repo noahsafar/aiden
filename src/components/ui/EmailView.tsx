@@ -1273,16 +1273,23 @@ export const EmailView: React.FC<EmailViewProps> = ({
             {/* Thread participants preview */}
             <div className="flex items-center gap-1 mt-2 flex-wrap">
               {threadEmails.map((e, idx) => (
-                <div
+                <button
                   key={e.id}
-                  className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                  onClick={() => {
+                    selectEmail(e);
+                    if (onEmailSelect) {
+                      onEmailSelect(e.id);
+                    }
+                  }}
+                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
                     e.id === email?.id
                       ? 'bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300'
-                      : 'bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400'
+                      : 'bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer'
                   }`}
+                  title={`Go to email ${idx + 1}`}
                 >
                   {idx + 1}
-                </div>
+                </button>
               ))}
             </div>
           </div>

@@ -335,6 +335,9 @@ export interface EmailState {
   viewMode: 'individual' | 'threaded';  // How to display emails
   expandedThreads: Set<string>;         // Thread IDs that are expanded
 
+  // Sort state
+  sortMode: 'date' | 'importance';      // How to sort emails
+
   // Actions
   fetchEmails: () => Promise<void>;
   selectEmail: (email: Email | null) => void;
@@ -352,6 +355,7 @@ export interface EmailState {
   sendEmailNotification: (emailId: string, summary: string, reply: string) => void;
   setSearchQuery: (query: string) => void;
   setCurrentFilter: (filter: EmailState['currentFilter']) => void;
+  setSortMode: (sort: EmailState['sortMode']) => void;
   refreshEmails: () => Promise<void>;
   getFilteredEmails: () => Email[];
   isGeneratingReply: (emailId: string) => boolean;
@@ -745,6 +749,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   // Thread view state
   viewMode: 'individual',
   expandedThreads: new Set<string>(),
+
+  // Sort state
+  sortMode: 'date',
 
   fetchEmails: async () => {
     try {
@@ -1234,6 +1241,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   setCurrentFilter: (filter) => {
     set({ currentFilter: filter });
+  },
+
+  setSortMode: (sort) => {
+    set({ sortMode: sort });
   },
 
   refreshEmails: async () => {
