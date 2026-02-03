@@ -333,13 +333,13 @@ export const EmailList: React.FC<EmailListProps> = ({
       }
 
       // Navigation shortcuts (j/k) - work even in select mode
-      if (e.key === 'j' || e.key === 'ArrowDown') {
+      if (e.key === 'k' || e.key === 'ArrowDown') {
         e.preventDefault();
         cb.navigateEmail('next');
         return;
       }
 
-      if (e.key === 'k' || e.key === 'ArrowUp') {
+      if (e.key === 'j' || e.key === 'ArrowUp') {
         e.preventDefault();
         cb.navigateEmail('prev');
         return;

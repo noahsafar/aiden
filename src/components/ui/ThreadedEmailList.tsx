@@ -236,13 +236,13 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         return;
       }
 
-      if (e.key === 'j' || e.key === 'ArrowDown') {
+      if (e.key === 'k' || e.key === 'ArrowDown') {
         e.preventDefault();
         navigateEmail('next');
         return;
       }
 
-      if (e.key === 'k' || e.key === 'ArrowUp') {
+      if (e.key === 'j' || e.key === 'ArrowUp') {
         e.preventDefault();
         navigateEmail('prev');
         return;
@@ -336,7 +336,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
           <span className="text-purple-600 dark:text-purple-400">{sortedThreads.length} conversations</span>
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">j</kbd> <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">k</kbd> navigate</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">k</kbd> <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">j</kbd> navigate</span>
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Enter</kbd> expand</span>
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Space</kbd> select</span>
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> all</span>
