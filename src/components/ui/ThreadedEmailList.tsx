@@ -74,9 +74,6 @@ interface ThreadedEmailListProps {
   sortMode?: 'date' | 'importance';
 }
 
-// Thread selection mode state
-let threadSelectMode = false;
-
 export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   emails,
   selectedEmailId,
@@ -88,7 +85,6 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   sortMode = 'date',
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
-  const [localThreadSelectMode, setLocalThreadSelectMode] = React.useState(false);
 
   const {
     expandedThreads,
@@ -96,6 +92,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     groupEmailsByThread,
     isEmailSelected,
     toggleEmailSelection,
+    selectMultipleEmails,
     isSelectMode,
     bulkArchive,
     bulkDelete,
@@ -161,35 +158,27 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     }
   }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail]);
 
-  // Handle strip click for selection (supports thread mode)
-  const handleStripClick = useCallback((emailId: string, threadId: string | null, e: React.MouseEvent) => {
+  // Handle strip click - selects all emails in the thread
+  const handleStripClick = useCallback((emailId: string, threadId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (localThreadSelectMode && threadId) {
-      // Select all emails in the thread
-      const thread = threadGroups.get(threadId);
-      if (thread) {
-        const allSelected = thread.every((email: any) => isEmailSelected(email.id));
-        if (allSelected) {
-          // Deselect all in thread
-          thread.forEach((email: any) => {
-            if (isEmailSelected(email.id)) {
-              toggleEmailSelection(email.id);
-            }
-          });
-        } else {
-          // Select all in thread
-          thread.forEach((email: any) => {
-            if (!isEmailSelected(email.id)) {
-              toggleEmailSelection(email.id);
-            }
-          });
-        }
+    // Select all emails in the thread
+    const thread = threadGroups.get(threadId);
+    if (thread) {
+      const allSelected = thread.every((email: any) => isEmailSelected(email.id));
+      if (allSelected) {
+        // Deselect all in thread
+        thread.forEach((email: any) => {
+          if (isEmailSelected(email.id)) {
+            toggleEmailSelection(email.id);
+          }
+        });
+      } else {
+        // Select all in thread
+        const threadIds = thread.map((e: any) => e.id);
+        selectMultipleEmails(threadIds);
       }
-    } else {
-      // Individual selection
-      toggleEmailSelection(emailId);
     }
-  }, [toggleEmailSelection, localThreadSelectMode, threadGroups, isEmailSelected]);
+  }, [toggleEmailSelection, threadGroups, isEmailSelected, selectMultipleEmails]);
 
   // Bulk action handlers
   const handleBulkAction = useCallback(async (action: string) => {
@@ -326,13 +315,6 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         return;
       }
 
-      // t to toggle thread selection mode
-      if (e.key === 't') {
-        e.preventDefault();
-        setLocalThreadSelectMode(prev => !prev);
-        return;
-      }
-
       if (isSelectMode) return;
 
       // Enter to open focused view
@@ -362,7 +344,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView, setLocalThreadSelectMode]);
+  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView]);
 
   // Helper to format date
   const formatDate = (dateString: string) => {
@@ -428,22 +410,14 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
       <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 space-y-1.5">
         <div className="flex items-center justify-between">
           <span className="font-medium text-gray-600 dark:text-gray-300">Thread View</span>
-          <div className="flex items-center gap-3">
-            <span className="text-purple-600 dark:text-purple-400">{sortedThreads.length} conversations</span>
-            {localThreadSelectMode && (
-              <span className="px-2 py-0.5 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-full font-medium">
-                Thread Select Mode
-              </span>
-            )}
-          </div>
+          <span className="text-purple-600 dark:text-purple-400">{sortedThreads.length} conversations</span>
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">k</kbd> <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">j</kbd> navigate</span>
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">e</kbd> expand</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">t</kbd> thread select</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Space</kbd> select thread</span>
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Enter</kbd> focused view</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Space</kbd> select</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> all</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> all visible</span>
         </div>
       </div>
 
@@ -460,7 +434,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
               key={threadId}
               className={`bg-surface dark:bg-gray-800 border rounded-lg overflow-hidden transition-all ${
                 isSelected ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900' : 'border-border'
-              } ${localThreadSelectMode ? 'ring-2 ring-purple-300 dark:ring-purple-700' : ''}`}
+              }`}
             >
               {/* Thread header - always visible */}
               <div
