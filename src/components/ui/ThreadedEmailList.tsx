@@ -554,7 +554,6 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                   {threadEmails.map((email: any, index: number) => {
                     const isLast = index === threadEmails.length - 1;
                     const emailIsSelected = isEmailSelected(email.id);
-                    const isFocused = focusedEmailId === email.id;
 
                     return (
                       <div
@@ -562,9 +561,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                         id={`threaded-email-item-${email.id}`}
                         className={`p-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors ${
                           !email.is_read ? 'bg-blue-50/20 dark:bg-blue-900/5' : ''
-                        } ${email.id === selectedEmailId ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${
-                          isFocused ? 'ring-1 ring-inset ring-purple-500' : ''
-                        }`}
+                        } ${email.id === selectedEmailId ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                         onClick={() => handleEmailClick(email.id, threadId)}
                       >
                         <div className="flex items-start gap-3">
