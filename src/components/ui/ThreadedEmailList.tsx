@@ -176,23 +176,58 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     }
   }, [bulkArchive, bulkDelete, bulkSave]);
 
-  // Navigate to next/previous email
+  // Navigate to next/previous email (navigates through threads)
   const navigateEmail = useCallback((direction: 'next' | 'prev') => {
-    const flatEmails = emails;
-    if (flatEmails.length === 0) return;
+    if (sortedThreads.length === 0) return;
 
-    const currentIndex = focusedEmailId
-      ? flatEmails.findIndex((e: any) => e.id === focusedEmailId)
-      : -1;
+    // Find current thread and email position
+    let currentThreadIndex = -1;
+    let currentEmailIndexInThread = -1;
 
-    let nextIndex: number;
-    if (direction === 'next') {
-      nextIndex = currentIndex < flatEmails.length - 1 ? currentIndex + 1 : 0;
-    } else {
-      nextIndex = currentIndex > 0 ? currentIndex - 1 : flatEmails.length - 1;
+    for (let i = 0; i < sortedThreads.length; i++) {
+      const thread = sortedThreads[i];
+      const emailIdx = thread.emails.findIndex((e: any) => e.id === focusedEmailId);
+      if (emailIdx !== -1) {
+        currentThreadIndex = i;
+        currentEmailIndexInThread = emailIdx;
+        break;
+      }
     }
 
-    const nextEmail = flatEmails[nextIndex];
+    // If no focused email, start with first thread's most recent email
+    if (currentThreadIndex === -1) {
+      const firstThread = sortedThreads[0];
+      const emailToSelect = firstThread.mostRecent;
+      if (emailToSelect) {
+        onFocusEmail(emailToSelect.id);
+        onEmailSelect(emailToSelect.id);
+      }
+      return;
+    }
+
+    let nextEmail: any = null;
+
+    if (direction === 'next') {
+      // Try to move to next email in current thread
+      if (currentEmailIndexInThread < sortedThreads[currentThreadIndex].emails.length - 1) {
+        nextEmail = sortedThreads[currentThreadIndex].emails[currentEmailIndexInThread + 1];
+      } else {
+        // Move to first email of next thread
+        const nextThreadIndex = (currentThreadIndex + 1) % sortedThreads.length;
+        nextEmail = sortedThreads[nextThreadIndex].emails[0];
+      }
+    } else {
+      // Try to move to previous email in current thread
+      if (currentEmailIndexInThread > 0) {
+        nextEmail = sortedThreads[currentThreadIndex].emails[currentEmailIndexInThread - 1];
+      } else {
+        // Move to last email of previous thread
+        const prevThreadIndex = currentThreadIndex > 0 ? currentThreadIndex - 1 : sortedThreads.length - 1;
+        const prevThread = sortedThreads[prevThreadIndex];
+        nextEmail = prevThread.emails[prevThread.emails.length - 1];
+      }
+    }
+
     if (nextEmail) {
       onFocusEmail(nextEmail.id);
       onEmailSelect(nextEmail.id);
@@ -204,7 +239,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         }
       }, 0);
     }
-  }, [emails, focusedEmailId, onFocusEmail, onEmailSelect]);
+  }, [sortedThreads, focusedEmailId, onFocusEmail, onEmailSelect]);
 
   // Keyboard shortcuts
   useEffect(() => {
