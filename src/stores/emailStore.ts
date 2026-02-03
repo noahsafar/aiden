@@ -317,7 +317,7 @@ export interface EmailState {
   selectedEmail: Email | null;
   isLoading: boolean;
   error: string | null;
-  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'archived' | 'deleted' | 'urgent' | 'important' | 'normal' | 'low';
+  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'archived' | 'deleted' | 'urgent' | 'important' | 'normal' | 'low' | 'focus' | 'triage';
   searchQuery: string;
   notifiedEmailIds: Set<string>;  // Track which emails we've sent notifications for
   initialEmailIds: Set<string>;   // Track emails that existed at app startup
@@ -330,6 +330,10 @@ export interface EmailState {
   // Bulk selection state
   selectedEmailIds: Set<string>;  // Track which emails are selected for bulk actions
   isSelectMode: boolean;          // Whether bulk select mode is active
+
+  // Thread view state
+  viewMode: 'individual' | 'threaded';  // How to display emails
+  expandedThreads: Set<string>;         // Thread IDs that are expanded
 
   // Actions
   fetchEmails: () => Promise<void>;
@@ -366,12 +370,25 @@ export interface EmailState {
   bulkSave: (emailIds?: string[]) => void;
   isEmailSelected: (emailId: string) => boolean;
   getSelectedCount: () => number;
+
+  // Threading methods
+  setEmails: (emails: Email[]) => void;
+  setViewMode: (mode: 'individual' | 'threaded') => void;
+  toggleThreadExpanded: (threadId: string) => void;
+  expandAllThreads: () => void;
+  collapseAllThreads: () => void;
+  getThreadEmails: (threadId: string) => Email[];
+  getThreadRepresentative: (threadId: string) => Email | null;
+  groupEmailsByThread: (emails: Email[]) => Map<string, Email[]>;
+  getFilteredThreads: () => Map<string, Email[]>;
+  isInThread: (emailId: string) => boolean;
+  getThreadPosition: (emailId: string) => { current: number; total: number } | null;
 }
 
 // Track which emails are being processed (for both summary and reply)
 let processingEmails = new Set<string>();
-// Limit concurrent AI operations to avoid overwhelming the system
-const MAX_CONCURRENT_AI_OPERATIONS = 5; // Increased back to 5 for faster processing with z.ai API
+// Process only one email at a time for better control
+const MAX_CONCURRENT_AI_OPERATIONS = 1;
 let activeAIOperations = 0;
 let aiOperationQueue: Array<() => void> = [];
 
@@ -664,40 +681,44 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
   }
 }
 
-// Process an email completely (summary + questions)
-async function processEmail(emailId: string) {
+// Process an email completely (summary + questions) - does the actual work, should be queued
+async function processEmailCore(emailId: string) {
   // Generate summary first, then questions after summary completes
   useEmailStore.setState((state) => ({
     generatingSummaries: new Set(state.generatingSummaries).add(emailId)
   }));
 
-  // Queue summary generation, which will then trigger questions
-  queueAIOperation(async () => {
-    await generateSummaryForEmail(emailId);
-    // After summary completes, queue question generation
-    // We queue it separately so it goes through the queue system
-    setTimeout(() => {
-      queueAIOperation(() => generateQuestionsForEmail(emailId));
-    }, 100);
+  await generateSummaryForEmail(emailId);
+  // After summary completes, process questions
+  await generateQuestionsForEmail(emailId);
+
+  // Remove from generating summaries
+  useEmailStore.setState((state) => {
+    const newSet = new Set(state.generatingSummaries);
+    newSet.delete(emailId);
+    return { generatingSummaries: newSet };
   });
+}
+
+// Process an email with queuing (for immediate processing)
+function processEmail(emailId: string) {
+  queueAIOperation(() => processEmailCore(emailId));
 }
 
 // Process a single email immediately (for when user clicks on an email)
 function processEmailImmediately(emailId: string) {
   // Only process if not already being processed
   if (!processingEmails.has(`${emailId}-summary`)) {
-    processEmail(emailId);
+    queueAIOperation(() => processEmailCore(emailId));
   }
 }
 
-// Process multiple emails with staggered delay to prevent CPU spike
+// Process multiple emails - adds them to the queue for sequential processing
 function processMultipleEmails(emailIds: string[]) {
-  console.log('[AI Processing] Processing emails with stagger:', emailIds);
-  // Process emails quickly with small delay (using z.ai API)
-  emailIds.forEach((emailId, index) => {
-    setTimeout(() => {
-      processEmail(emailId);
-    }, index * 200); // 200ms delay between each email - much faster with API
+  console.log('[AI Processing] Queuing emails for sequential processing:', emailIds);
+  // Add all emails to the queue - they will be processed one at a time
+  emailIds.forEach((emailId) => {
+    queueAIOperation(() => processEmailCore(emailId));
   });
 }
 
@@ -720,6 +741,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   // Bulk selection state
   selectedEmailIds: new Set<string>(),
   isSelectMode: false,
+
+  // Thread view state
+  viewMode: 'individual',
+  expandedThreads: new Set<string>(),
 
   fetchEmails: async () => {
     try {
@@ -1307,6 +1332,20 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       case 'low':
         filtered = emails.filter(e => e.category === 'Low');
         break;
+      case 'focus':
+        // Focus Mode: Only show emails that require action (Action Required)
+        filtered = emails.filter(e => {
+          // Exclude archived and saved
+          if (e.status === 'Archived' || e.status === 'Saved') return false;
+          // Check AI analysis for requires_reply
+          if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
+            const data = (window as any).emailQuestionData.get(e.id);
+            return data?.loaded && data.requiresReply;
+          }
+          // Fallback to category if AI analysis not available
+          return e.category === 'Urgent' || e.category === 'Important';
+        });
+        break;
       default:
         filtered = emails;
     }
@@ -1446,4 +1485,508 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     // Clear selection after bulk action
     get().clearSelection();
   },
+
+  // ===== Threading Methods =====
+
+  setEmails: (emails: Email[]) => {
+    set({ emails });
+  },
+
+  setViewMode: (mode: 'individual' | 'threaded') => {
+    set({ viewMode: mode });
+    // When switching to threaded view, expand all threads by default
+    if (mode === 'threaded') {
+      get().expandAllThreads();
+    }
+  },
+
+  toggleThreadExpanded: (threadId: string) => {
+    set((state) => {
+      const newExpanded = new Set(state.expandedThreads);
+      if (newExpanded.has(threadId)) {
+        newExpanded.delete(threadId);
+      } else {
+        newExpanded.add(threadId);
+      }
+      return { expandedThreads: newExpanded };
+    });
+  },
+
+  expandAllThreads: () => {
+    const state = get();
+    const filteredEmails = state.getFilteredEmails();
+    const threadIds = new Set(filteredEmails.map(e => e.thread_id).filter(Boolean));
+    set({ expandedThreads: threadIds });
+  },
+
+  collapseAllThreads: () => {
+    set({ expandedThreads: new Set() });
+  },
+
+  getThreadEmails: (threadId: string) => {
+    const state = get();
+    return state.emails.filter(e => e.thread_id === threadId)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  },
+
+  getThreadRepresentative: (threadId: string) => {
+    const threadEmails = get().getThreadEmails(threadId);
+    if (threadEmails.length === 0) return null;
+    // Return the most recent email as the representative
+    return threadEmails[threadEmails.length - 1];
+  },
+
+  groupEmailsByThread: (emails: Email[]) => {
+    const threadMap = new Map<string, Email[]>();
+    emails.forEach(email => {
+      const threadId = email.thread_id || email.id;
+      if (!threadMap.has(threadId)) {
+        threadMap.set(threadId, []);
+      }
+      threadMap.get(threadId)!.push(email);
+    });
+    // Sort emails within each thread by date
+    threadMap.forEach(threadEmails => {
+      threadEmails.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    });
+    return threadMap;
+  },
+
+  getFilteredThreads: () => {
+    const state = get();
+    const filteredEmails = state.getFilteredEmails();
+    return state.groupEmailsByThread(filteredEmails);
+  },
+
+  isInThread: (emailId: string) => {
+    const state = get();
+    const email = state.emails.find(e => e.id === emailId);
+    if (!email || !email.thread_id) return false;
+    const threadEmails = state.emails.filter(e => e.thread_id === email.thread_id);
+    return threadEmails.length > 1;
+  },
+
+  getThreadPosition: (emailId: string) => {
+    const state = get();
+    const email = state.emails.find(e => e.id === emailId);
+    if (!email || !email.thread_id) return null;
+    const threadEmails = state.getThreadEmails(email.thread_id);
+    const index = threadEmails.findIndex(e => e.id === emailId);
+    if (index === -1) return null;
+    return { current: index + 1, total: threadEmails.length };
+  },
 }));
+
+// ===== SAMPLE DATA FOR TESTING =====
+// Load sample emails automatically when there are no real emails
+if (typeof window !== 'undefined') {
+  (window as any).loadSampleEmails = () => {
+    // Use a base time that's AFTER the app's start time to ensure emails appear in inbox
+    // The app uses appStartTime to filter emails, so we need emails newer than that
+    const baseTime = Date.now() + 1000; // 1 second in the future to be safe
+    const baseThreadId = 'sample-thread-';
+
+    const sampleEmails: Email[] = [
+      // Thread 1: Meeting Request (3 emails back and forth)
+      {
+        id: `sample-1`,
+        gmail_id: `sample-1`,
+        thread_id: `${baseThreadId}1`,
+        subject: 'Q4 Planning Meeting - Tuesday 3pm',
+        sender: 'Sarah Chen <schen@company.com>',
+        recipients: 'me@company.com, team@company.com',
+        date: new Date(baseTime - 1000 * 60 * 2).toISOString(), // 2 minutes ago
+        body_text: 'Hi team, let\'s sync on Q4 planning this Tuesday at 3pm. Please bring your roadmap updates.',
+        snippet: 'Hi team, let\'s sync on Q4 planning this Tuesday at 3pm...',
+        is_read: false,
+        is_starred: false,
+        has_attachments: true,
+        status: 'Unhandled',
+        category: 'Urgent',
+        summary: 'Sarah is proposing a Q4 planning meeting for Tuesday at 3pm',
+        key_points: ['Meeting proposed for Tuesday 3pm', 'Bring roadmap updates'],
+        action_items: ['RSVP to meeting', 'Prepare roadmap updates'],
+        requires_reply: true,
+        attachments: [{ id: 'att1', filename: 'Q4_Roadmap_Draft.pdf', mimeType: 'application/pdf', size: 2400000 }],
+      },
+      {
+        id: `sample-2`,
+        gmail_id: `sample-2`,
+        thread_id: `${baseThreadId}1`,
+        subject: 'Re: Q4 Planning Meeting - Tuesday 3pm',
+        sender: 'Me <me@company.com>',
+        recipients: 'schen@company.com, team@company.com',
+        date: new Date(baseTime - 1000 * 60 * 1.5).toISOString(), // 90 seconds ago
+        body_text: 'Sounds good! I\'ll have the product roadmap ready.',
+        snippet: 'Sounds good! I\'ll have the product roadmap ready.',
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Replied',
+        category: 'Normal',
+        summary: 'You confirmed attendance',
+        key_points: ['Confirmed attendance', 'Will bring product roadmap'],
+        action_items: [],
+        requires_reply: false,
+      },
+      {
+        id: `sample-3`,
+        gmail_id: `sample-3`,
+        thread_id: `${baseThreadId}1`,
+        subject: 'Re: Q4 Planning Meeting - Tuesday 3pm',
+        sender: 'Sarah Chen <schen@company.com>',
+        recipients: 'me@company.com, team@company.com',
+        date: new Date(baseTime - 1000 * 60 * 1).toISOString(), // 1 minute ago
+        body_text: 'Great! I\'ve sent a calendar invite. See you there.',
+        snippet: 'Great! I\'ve sent a calendar invite. See you there.',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Normal',
+        summary: 'Sarah sent a calendar invite',
+        key_points: ['Calendar invite sent'],
+        action_items: ['Accept calendar invite'],
+        requires_reply: false,
+      },
+
+      // Thread 2: Shipping Updates (2 emails)
+      {
+        id: `sample-4`,
+        gmail_id: `sample-4`,
+        thread_id: `${baseThreadId}2`,
+        subject: 'Your order has shipped! 📦',
+        sender: 'Amazon Shipping <ship-confirm@amazon.com>',
+        recipients: 'me@gmail.com',
+        date: new Date(baseTime - 1000 * 50).toISOString(), // 50 seconds ago
+        body_text: 'Your Amazon order is on its way! Track your package for delivery estimated tomorrow.',
+        snippet: 'Your Amazon order is on its way! Track your package...',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Low',
+        summary: 'Amazon shipping notification for package delivery',
+        key_points: ['Package shipped', 'Delivery expected tomorrow'],
+        action_items: [],
+        requires_reply: false,
+      },
+      {
+        id: `sample-5`,
+        gmail_id: `sample-5`,
+        thread_id: `${baseThreadId}2`,
+        subject: 'Re: Your order has shipped! 📦',
+        sender: 'Amazon Shipping <ship-confirm@amazon.com>',
+        recipients: 'me@gmail.com',
+        date: new Date(baseTime - 1000 * 30).toISOString(), // 30 seconds ago
+        body_text: 'Your package is out for delivery and will arrive by 8pm today.',
+        snippet: 'Your package is out for delivery and will arrive by 8pm today.',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Low',
+        summary: 'Package is out for delivery today by 8pm',
+        key_points: ['Out for delivery', 'Expected by 8pm'],
+        action_items: [],
+        requires_reply: false,
+      },
+
+      // Thread 3: Newsletter
+      {
+        id: `sample-6`,
+        gmail_id: `sample-6`,
+        thread_id: `${baseThreadId}3`,
+        subject: 'Weekly Tech Digest: AI Breakthroughs This Week',
+        sender: 'Tech Newsletter <digest@technewsletter.com>',
+        recipients: 'me@gmail.com',
+        date: new Date(baseTime - 1000 * 25).toISOString(), // 25 seconds ago
+        body_text: 'This week in AI: New models, exciting research, and industry news. Unsubscribe to stop receiving these emails.',
+        snippet: 'This week in AI: New models, exciting research...',
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Low',
+        summary: 'Weekly tech newsletter about AI developments',
+        key_points: ['AI model updates', 'Industry news roundup'],
+        action_items: [],
+        requires_reply: false,
+      },
+
+      // Thread 4: Finance/Invoice (4 emails in thread)
+      {
+        id: `sample-7`,
+        gmail_id: `sample-7`,
+        thread_id: `${baseThreadId}4`,
+        subject: 'Invoice #12345 - October Services',
+        sender: 'Billing <billing@saas-tool.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 3).toISOString(), // 3 minutes ago
+        body_text: 'Please find attached invoice for October services. Amount: $299.00',
+        snippet: 'Please find attached invoice for October services. Amount: $299.00',
+        is_read: false,
+        is_starred: false,
+        has_attachments: true,
+        status: 'Unhandled',
+        category: 'Important',
+        summary: 'Invoice for October services - $299',
+        key_points: ['Invoice #12345', 'Amount: $299', 'October services'],
+        action_items: ['Review invoice', 'Process payment'],
+        requires_reply: false,
+        attachments: [{ id: 'att2', filename: 'Invoice_12345.pdf', mimeType: 'application/pdf', size: 159744 }],
+      },
+      {
+        id: `sample-8`,
+        gmail_id: `sample-8`,
+        thread_id: `${baseThreadId}4`,
+        subject: 'Re: Invoice #12345 - October Services',
+        sender: 'Me <me@company.com>',
+        recipients: 'billing@saas-tool.com',
+        date: new Date(baseTime - 1000 * 60 * 2.5).toISOString(), // 2.5 minutes ago
+        body_text: 'Thanks, can you clarify line item 3?',
+        snippet: 'Thanks, can you clarify line item 3?',
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Replied',
+        category: 'Normal',
+        summary: 'You asked for clarification on line item 3',
+        key_points: ['Question about line item 3'],
+        action_items: [],
+        requires_reply: false,
+      },
+      {
+        id: `sample-9`,
+        gmail_id: `sample-9`,
+        thread_id: `${baseThreadId}4`,
+        subject: 'Re: Invoice #12345 - October Services',
+        sender: 'Billing <billing@saas-tool.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 2).toISOString(), // 2 minutes ago
+        body_text: 'Line item 3 is for the additional storage add-on you requested.',
+        snippet: 'Line item 3 is for the additional storage add-on you requested.',
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Normal',
+        summary: 'Billing clarified line item 3 is for storage add-on',
+        key_points: ['Line item 3 = storage add-on'],
+        action_items: [],
+        requires_reply: false,
+      },
+      {
+        id: `sample-10`,
+        gmail_id: `sample-10`,
+        thread_id: `${baseThreadId}4`,
+        subject: 'Re: Invoice #12345 - October Services',
+        sender: 'Me <me@company.com>',
+        recipients: 'billing@saas-tool.com',
+        date: new Date(baseTime - 1000 * 60 * 1.5).toISOString(), // 90 seconds ago
+        body_text: 'Got it, thanks for the clarification. Payment scheduled.',
+        snippet: 'Got it, thanks for the clarification. Payment scheduled.',
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Replied',
+        category: 'Normal',
+        summary: 'You acknowledged and scheduled payment',
+        key_points: ['Payment scheduled'],
+        action_items: [],
+        requires_reply: false,
+      },
+
+      // Thread 5: Meeting invite from Zoom
+      {
+        id: `sample-11`,
+        gmail_id: `sample-11`,
+        thread_id: `${baseThreadId}5`,
+        subject: 'Invitation: Product Review with Alex',
+        sender: 'Zoom <noreply@zoom.us>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 15).toISOString(), // 15 seconds ago
+        body_text: 'You are invited to a Zoom meeting: Product Review with Alex. Thursday, Nov 7, 2024 2:00 PM',
+        snippet: 'You are invited to a Zoom meeting: Product Review with Alex...',
+        is_read: false,
+        is_starred: true,
+        has_attachments: true,
+        status: 'Unhandled',
+        category: 'Urgent',
+        summary: 'Zoom meeting invite for Product Review with Alex on Thursday',
+        key_points: ['Thursday Nov 7 at 2pm', 'Product Review', 'With Alex'],
+        action_items: ['Accept meeting invitation'],
+        requires_reply: true,
+        attachments: [{ id: 'att3', filename: 'meeting.ics', mimeType: 'text/calendar', size: 2048 }],
+      },
+
+      // Thread 6: Social media updates
+      {
+        id: `sample-12`,
+        gmail_id: `sample-12`,
+        thread_id: `${baseThreadId}6`,
+        subject: 'You have 5 new followers on LinkedIn!',
+        sender: 'LinkedIn <notifications-noreply@linkedin.com>',
+        recipients: 'me@gmail.com',
+        date: new Date(baseTime - 1000 * 10).toISOString(), // 10 seconds ago
+        body_text: 'See who\'s viewing your profile and connect with new people in your industry.',
+        snippet: 'See who\'s viewing your profile and connect with new people...',
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Low',
+        summary: 'LinkedIn notification about new followers',
+        key_points: ['5 new followers'],
+        action_items: [],
+        requires_reply: false,
+      },
+
+      // Thread 7: Work discussion (3 emails)
+      {
+        id: `sample-13`,
+        gmail_id: `sample-13`,
+        thread_id: `${baseThreadId}7`,
+        subject: 'API Integration Question',
+        sender: 'Mike Johnson <mjohnson@partner.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 1.2).toISOString(), // 72 seconds ago
+        body_text: 'Hey, we\'re having trouble with the API integration. The auth token seems to expire after 1 hour.',
+        snippet: 'Hey, we\'re having trouble with the API integration...',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Important',
+        summary: 'Mike is reporting an API integration issue with auth tokens',
+        key_points: ['Auth token expires after 1 hour', 'API integration problem'],
+        action_items: ['Investigate auth token expiry', 'Respond to Mike'],
+        requires_reply: true,
+      },
+      {
+        id: `sample-14`,
+        gmail_id: `sample-14`,
+        thread_id: `${baseThreadId}7`,
+        subject: 'Re: API Integration Question',
+        sender: 'Me <me@company.com>',
+        recipients: 'mjohnson@partner.com',
+        date: new Date(baseTime - 1000 * 50).toISOString(), // 50 seconds ago
+        body_text: 'Sorry to hear that. Can you share your request headers? We\'ll look into it.',
+        snippet: 'Sorry to hear that. Can you share your request headers?...',
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Replied',
+        category: 'Normal',
+        summary: 'You asked for request headers to debug',
+        key_points: ['Asked for request headers'],
+        action_items: [],
+        requires_reply: false,
+      },
+      {
+        id: `sample-15`,
+        gmail_id: `sample-15`,
+        thread_id: `${baseThreadId}7`,
+        subject: 'Re: API Integration Question',
+        sender: 'Mike Johnson <mjohnson@partner.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 25).toISOString(), // 25 seconds ago
+        body_text: 'Here are the headers. Let me know if you need anything else!',
+        snippet: 'Here are the headers. Let me know if you need anything else!',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Important',
+        summary: 'Mike shared the request headers',
+        key_points: ['Headers shared', 'Waiting for fix'],
+        action_items: ['Debug with provided headers'],
+        requires_reply: true,
+      },
+
+      // Thread 8: Another shipping update
+      {
+        id: `sample-16`,
+        gmail_id: `sample-16`,
+        thread_id: `${baseThreadId}8`,
+        subject: 'Delivery Update: Your package from Etsy',
+        sender: 'Etsy Shipping <shipping@etsy.com>',
+        recipients: 'me@gmail.com',
+        date: new Date(baseTime - 1000 * 5).toISOString(), // 5 seconds ago
+        body_text: 'Good news! Your handmade item has been shipped and will arrive in 3-5 business days.',
+        snippet: 'Good news! Your handmade item has been shipped...',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Low',
+        summary: 'Etsy shipping notification - 3-5 business days',
+        key_points: ['Handmade item shipped', '3-5 business days delivery'],
+        action_items: [],
+        requires_reply: false,
+      },
+    ];
+
+    // Set the sample emails in the store
+    useEmailStore.getState().setEmails(sampleEmails);
+
+    // Set up the question data for the sample emails
+    if (!(window as any).emailQuestionData) {
+      (window as any).emailQuestionData = new Map();
+    }
+    const questionData = (window as any).emailQuestionData;
+
+    sampleEmails.forEach(email => {
+      questionData.set(email.id, {
+        questions: email.action_items.map(a => ({ question: a, options: [] })) || [],
+        suggestedFormalityScore: 50,
+        requires_reply: email.requires_reply || false,
+        reply_reasoning: email.requires_reply ? 'This email requires a response' : 'FYI only',
+        loaded: true,
+        meetingRequest: email.subject.includes('Meeting') || email.subject.includes('Invitation')
+          ? { is_meeting: true, proposed_times: [] }
+          : { is_meeting: false },
+      });
+    });
+
+    console.log(`✅ Loaded ${sampleEmails.length} sample emails for testing!`);
+    console.log('Sample data includes:');
+    console.log('  - Threaded conversations (try thread view!)');
+    console.log('  - Meeting requests');
+    console.log('  - Shipping updates');
+    console.log('  - Newsletters');
+    console.log('  - Finance/invoices');
+    console.log('  - Social notifications');
+    console.log('');
+    console.log('Try these views:');
+    console.log('  - Click "Inbox" in sidebar for normal inbox view');
+    console.log('  - Click "Threads" in sidebar for threaded view');
+    console.log('  - Click "Smart Triage" for grouped batch actions');
+    console.log('  - Click "Focus Mode" for action-required emails only');
+
+    return sampleEmails.length;
+  };
+
+  (window as any).clearSampleEmails = () => {
+    useEmailStore.getState().setEmails([]);
+    console.log('✅ Cleared sample emails');
+  };
+
+  // Auto-load sample emails immediately (DEV MODE - always load for now)
+  setTimeout(() => {
+    console.log('DEV MODE: Loading sample data for testing...');
+    (window as any).loadSampleEmails();
+  }, 100);
+
+  // Also make the sample emails available to the global window object for easier debugging
+  // and to ensure they populate the inbox properly
+  (window as any).ensureSampleEmailsInInbox = () => {
+    const currentEmails = useEmailStore.getState().emails;
+    if (currentEmails.length === 0) {
+      console.log('No emails found, loading sample emails...');
+      (window as any).loadSampleEmails();
+    } else {
+      console.log(`Already have ${currentEmails.length} emails in store`);
+    }
+  };
+}
