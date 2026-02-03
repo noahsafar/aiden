@@ -152,11 +152,14 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   const handleEmailClick = useCallback((emailId: string) => {
     if (isSelectMode) {
       toggleEmailSelection(emailId);
+    } else if (focusedEmailId === emailId) {
+      // If clicking on already focused email, toggle selection
+      toggleEmailSelection(emailId);
     } else {
       onEmailSelect(emailId);
       onFocusEmail(emailId);
     }
-  }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail]);
+  }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail, focusedEmailId]);
 
   // Handle strip click - selects all emails in the thread
   const handleStripClick = useCallback((emailId: string, threadId: string, e: React.MouseEvent) => {
