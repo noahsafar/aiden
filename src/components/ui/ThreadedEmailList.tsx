@@ -283,6 +283,19 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         return;
       }
 
+      // Enter to expand/collapse thread
+      if (e.key === 'Enter' && focusedEmailId) {
+        e.preventDefault();
+        // Find which thread the focused email belongs to
+        for (const [threadId, threadEmails] of threadGroups.entries()) {
+          if (threadEmails.some((e: any) => e.id === focusedEmailId)) {
+            toggleThreadExpanded(threadId);
+            break;
+          }
+        }
+        return;
+      }
+
       if (isSelectMode) return;
 
       if (e.key === 'a') {
@@ -302,7 +315,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction]);
+  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups]);
 
   // Helper to format date
   const formatDate = (dateString: string) => {
