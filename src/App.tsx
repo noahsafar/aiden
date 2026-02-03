@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Sidebar } from '@/components/ui/Sidebar';
 import { EmailList } from '@/components/ui/EmailList';
+import { ThreadedEmailList } from '@/components/ui/ThreadedEmailList';
 import { EmailView } from '@/components/ui/EmailView';
+import { SmartTriage } from '@/components/ui/SmartTriage';
 import { AttachmentItem, getFileIcon, formatFileSize } from '@/components/ui/EmailView';
 import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
@@ -38,6 +40,9 @@ import logo from '/aiden-logo.png';
 
 interface Email {
   id: string;
+  thread_id?: string;
+  sender?: string;
+  date?: string;
   from: {
     name: string;
     email: string;
@@ -63,6 +68,8 @@ interface Email {
   aiSummary?: string;
   aiActionItems?: string[];
   aiPriority?: 'high' | 'medium' | 'low';
+  key_points?: string[];
+  action_items?: string[];
   attachments?: Array<{
     id: string;
     name: string;
@@ -74,9 +81,8 @@ interface Email {
 function App() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
-  const [appStartTime] = useState(Date.now());
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
-  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, markAsStarred, updateEmailStatus } = useEmailStore();
+  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, markAsStarred, updateEmailStatus, viewMode } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
 
   // Animation state for focused view
@@ -104,6 +110,9 @@ function App() {
 
     return {
       id: email.id,
+      thread_id: email.thread_id,
+      sender: email.sender,
+      date: email.date,
       from: {
         name: fromName,
         email: fromEmail,
@@ -126,6 +135,8 @@ function App() {
       aiCategory: email.category,
       aiSummary: email.summary,
       aiActionItems: email.key_points || [],
+      key_points: email.key_points || [],
+      action_items: email.action_items || [],
       aiPriority: email.category === 'Urgent' ? 'high' : email.category === 'Important' ? 'medium' : 'low' as const
     };
   }, []);
@@ -167,38 +178,39 @@ function App() {
   }, []);
 
   // Filter emails based on current filter - use useMemo to avoid recalculating on every render
-  const filteredEmails = React.useMemo(() =>
-    currentFilter === 'sent'
+  const filteredEmails = React.useMemo(() => {
+    const result = currentFilter === 'sent'
       ? sentEmails.map(convertSentEmailToUI)
       : emails
           .filter(email => {
             // Always exclude deleted emails from all views
             if (email.status === 'Deleted') return false;
 
-            const emailTime = new Date(email.date).getTime();
             // For Saved category, only show saved emails
             if (currentFilter === 'saved') {
-              return emailTime >= appStartTime && email.status === 'Saved';
+              return email.status === 'Saved';
             }
             // For Archived category, show archived emails
             if (currentFilter === 'archived') {
-              return emailTime >= appStartTime && email.status === 'Archived';
+              return email.status === 'Archived';
             }
             // For inbox, exclude saved/archived
-            return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved';
+            return email.status !== 'Archived' && email.status !== 'Saved';
           })
-          .map(convertToUIEmail),
-    [currentFilter, sentEmails, emails, appStartTime, convertToUIEmail, convertSentEmailToUI]
+          .map(convertToUIEmail);
+
+    // Sort by date (newest first)
+    return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI]
   );
 
-  // Calculate actual inbox count (emails after app start, not archived/saved/deleted)
+  // Calculate actual inbox count (emails not archived/saved/deleted)
   // Use useMemo to avoid recalculating on every render
   const inboxCount = React.useMemo(() =>
     emails.filter(email => {
-      const emailTime = new Date(email.date).getTime();
-      return emailTime >= appStartTime && email.status !== 'Archived' && email.status !== 'Saved' && email.status !== 'Deleted';
+      return email.status !== 'Archived' && email.status !== 'Saved' && email.status !== 'Deleted';
     }).length,
-    [emails, appStartTime]
+    [emails]
   );
 
   useEffect(() => {
@@ -221,15 +233,18 @@ function App() {
 
       await initialize();
       // After auth is initialized, start fetching emails
-      if (isAuthenticated) {
-        fetchEmails();
-      }
+      // DEV MODE: disabled to use mock data instead
+      // if (isAuthenticated) {
+      //   fetchEmails();
+      // }
     };
 
     initAuth();
   }, [initialize, isAuthenticated, loadThemeFromSettings]);
 
   // Set up polling for new emails - only poll when window is focused to reduce load
+  // DEV MODE: disabled to use mock data
+  /*
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -276,6 +291,7 @@ function App() {
       }
     };
   }, [isAuthenticated, fetchEmails]);
+  */
 
   // Set up notification click handler to focus window
   useEffect(() => {
@@ -578,13 +594,22 @@ function App() {
                   animationPhase === 'idle' ? '' :
                   '-translate-x-[20rem]'
                 }`}>
-                  {filteredEmails.length === 0 && !emailsLoading ? (
+                  {/* Smart Triage View */}
+                  {currentFilter === 'triage' ? (
+                    <div className="h-full overflow-y-auto">
+                      <SmartTriage
+                        onAction={handleEmailAction}
+                        onEmailSelect={(emailId) => setSelectedEmailId(emailId)}
+                      />
+                    </div>
+                  ) : filteredEmails.length === 0 && !emailsLoading ? (
                     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                       <Mail className="h-12 w-12 text-gray-400 mb-4" />
                       <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
                         {currentFilter === 'sent' ? 'No sent emails yet' :
                          currentFilter === 'saved' ? 'No saved emails yet' :
                          currentFilter === 'archived' ? 'No archived emails yet' :
+                         currentFilter === 'focus' ? 'No action-required emails' :
                          'No new emails yet'}
                       </h3>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -594,36 +619,52 @@ function App() {
                           ? 'Emails you bookmark will appear here.'
                           : currentFilter === 'archived'
                           ? 'Emails you archive will appear here.'
+                          : currentFilter === 'focus'
+                          ? 'Emails requiring action will appear here.'
                           : 'Emails that arrive will appear here.'}
                       </p>
                     </div>
                   ) : (
                     <div className="h-full flex flex-col">
-                      <EmailList
-                        emails={filteredEmails}
-                        selectedEmailId={selectedEmailId}
-                        onEmailSelect={(id) => {
-                        setSelectedEmailId(id);
-                        setFocusedEmailId(id);
-                      }}
-                      onEmailAction={handleEmailAction}
-                      focusedEmailId={focusedEmailId}
-                      onFocusEmail={setFocusedEmailId}
-                      onTriggerReply={() => {
-                        // Select the email first if not selected
-                        if (focusedEmailId && focusedEmailId !== selectedEmailId) {
-                          setSelectedEmailId(focusedEmailId);
-                        }
-                        // Scroll to the reply section
-                        setTimeout(() => {
-                          const replySection = document.querySelector('[data-reply-section]') as HTMLElement;
-                          if (replySection) {
-                            replySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }
-                        }, 100);
-                      }}
-                      onOpenFocusedView={handleOpenFocusedView}
-                    />
+                      {viewMode === 'threaded' ? (
+                        <ThreadedEmailList
+                          emails={filteredEmails}
+                          selectedEmailId={selectedEmailId}
+                          onEmailSelect={(id) => {
+                            setSelectedEmailId(id);
+                            setFocusedEmailId(id);
+                          }}
+                          onEmailAction={handleEmailAction}
+                          focusedEmailId={focusedEmailId}
+                          onFocusEmail={setFocusedEmailId}
+                        />
+                      ) : (
+                        <EmailList
+                          emails={filteredEmails}
+                          selectedEmailId={selectedEmailId}
+                          onEmailSelect={(id) => {
+                            setSelectedEmailId(id);
+                            setFocusedEmailId(id);
+                          }}
+                          onEmailAction={handleEmailAction}
+                          focusedEmailId={focusedEmailId}
+                          onFocusEmail={setFocusedEmailId}
+                          onTriggerReply={() => {
+                            // Select the email first if not selected
+                            if (focusedEmailId && focusedEmailId !== selectedEmailId) {
+                              setSelectedEmailId(focusedEmailId);
+                            }
+                            // Scroll to the reply section
+                            setTimeout(() => {
+                              const replySection = document.querySelector('[data-reply-section]') as HTMLElement;
+                              if (replySection) {
+                                replySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                              }
+                            }, 100);
+                          }}
+                          onOpenFocusedView={handleOpenFocusedView}
+                        />
+                      )}
                     </div>
                   )}
                 </div>
@@ -796,6 +837,7 @@ function App() {
                         onForward={() => console.log('Forward email')}
                         onDelete={() => console.log('Delete email')}
                         onAction={handleEmailAction}
+                        onEmailSelect={(emailId) => setSelectedEmailId(emailId)}
                         focusedView={false}
                         animationPhase={animationPhase}
                       />

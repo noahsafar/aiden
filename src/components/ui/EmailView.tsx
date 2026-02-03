@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEmailStore, fetchWithTimeout, type EmailAttachment } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
-import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X, Clock } from 'lucide-react';
+import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X, Clock, ChevronUp, ChevronDown, MessageSquare } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { serverURL, downloadAttachment, saveAttachmentToFile } from '@/api/emails';
 import { analyzeEmail, generateReply as claudeGenerateReply, editReply, analyzeAttachment, type AnalyzeEmailRequest, type GenerateReplyRequest } from '@/api/claude';
@@ -466,6 +466,7 @@ interface EmailViewProps {
   onForward?: () => void;
   onDelete?: () => void;
   onAction?: (id: string, action: string) => void;
+  onEmailSelect?: (emailId: string) => void;
   focusedView?: boolean; // If true, only show analysis panel (for split view)
   animationPhase?: 'idle' | 'slideLeft' | 'expand'; // Animation phase for focused view transition
 }
@@ -478,10 +479,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onForward = () => {},
   onDelete = () => {},
   onAction = () => {},
+  onEmailSelect,
   focusedView = false,
   animationPhase = 'idle',
 }) => {
-  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead } = useEmailStore();
+  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead, getThreadEmails, getThreadPosition, selectEmail } = useEmailStore();
 
   // Type definition for email state
   interface EmailState {
@@ -1135,6 +1137,39 @@ export const EmailView: React.FC<EmailViewProps> = ({
     setSendCountdown(5);
   };
 
+  // Thread navigation - get thread emails and position
+  const threadPosition = React.useMemo(() => {
+    if (!email?.id || !fullEmail?.thread_id) return null;
+    return getThreadPosition(email.id);
+  }, [email?.id, fullEmail?.thread_id, getThreadPosition]);
+
+  const threadEmails = React.useMemo(() => {
+    if (!fullEmail?.thread_id) return [];
+    return getThreadEmails(fullEmail.thread_id);
+  }, [fullEmail?.thread_id, getThreadEmails]);
+
+  const handleNavigateThread = (direction: 'prev' | 'next') => {
+    console.log('[handleNavigateThread] direction:', direction, 'threadPosition:', threadPosition, 'threadEmails.length:', threadEmails.length);
+    if (!threadPosition || !threadEmails.length) return;
+    const currentIndex = threadPosition.current - 1;
+    let nextIndex: number;
+    if (direction === 'next') {
+      nextIndex = currentIndex < threadEmails.length - 1 ? currentIndex + 1 : 0;
+    } else {
+      nextIndex = currentIndex > 0 ? currentIndex - 1 : threadEmails.length - 1;
+    }
+    console.log('[handleNavigateThread] currentIndex:', currentIndex, 'nextIndex:', nextIndex);
+    const nextEmail = threadEmails[nextIndex];
+    console.log('[handleNavigateThread] nextEmail:', nextEmail);
+    if (nextEmail) {
+      selectEmail(nextEmail);
+      // Notify parent to update selected email ID
+      if (onEmailSelect) {
+        onEmailSelect(nextEmail.id);
+      }
+    }
+  };
+
   if (!email) {
     return (
       <div className="flex-1 p-6 bg-white">
@@ -1203,6 +1238,53 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 </ul>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Thread Navigation - show when in a thread with multiple emails */}
+        {threadPosition && threadPosition.total > 1 && !isSentEmail && (
+          <div className={`p-3 bg-gray-50 dark:bg-gray-900/30 rounded-lg border border-gray-200 dark:border-gray-700 ${summary ? 'mt-4' : ''}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                <span className="text-xs text-gray-600 dark:text-gray-400">
+                  {threadPosition.current} of {threadPosition.total} in conversation
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleNavigateThread('prev')}
+                  disabled={threadPosition.current <= 1}
+                  className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Previous in thread"
+                >
+                  <ChevronUp className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                </button>
+                <button
+                  onClick={() => handleNavigateThread('next')}
+                  disabled={threadPosition.current >= threadPosition.total}
+                  className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Next in thread"
+                >
+                  <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                </button>
+              </div>
+            </div>
+            {/* Thread participants preview */}
+            <div className="flex items-center gap-1 mt-2 flex-wrap">
+              {threadEmails.map((e, idx) => (
+                <div
+                  key={e.id}
+                  className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                    e.id === email?.id
+                      ? 'bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300'
+                      : 'bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400'
+                  }`}
+                >
+                  {idx + 1}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
