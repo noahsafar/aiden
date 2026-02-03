@@ -688,6 +688,7 @@ function App() {
                           onEmailAction={handleEmailAction}
                           focusedEmailId={focusedEmailId}
                           onFocusEmail={setFocusedEmailId}
+                          sortMode={sortMode}
                         />
                       ) : (
                         <EmailList

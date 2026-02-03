@@ -70,6 +70,7 @@ interface ThreadedEmailListProps {
   onEmailAction: (id: string, action: string) => void;
   focusedEmailId: string | null;
   onFocusEmail: (id: string) => void;
+  sortMode?: 'date' | 'importance';
 }
 
 export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
@@ -79,6 +80,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   onEmailAction,
   focusedEmailId,
   onFocusEmail,
+  sortMode = 'date',
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -104,17 +106,38 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
   // Convert to array and sort by most recent email in each thread
   const sortedThreads = useMemo(() => {
-    return Array.from(threadGroups.entries())
+    const threads = Array.from(threadGroups.entries())
       .map(([threadId, threadEmails]) => {
         const mostRecent = threadEmails[threadEmails.length - 1];
         return { threadId, emails: threadEmails, mostRecent };
-      })
-      .sort((a, b) => {
+      });
+
+    // Sort by selected mode
+    if (sortMode === 'importance') {
+      // Sort by category priority: Urgent > Important > Normal > Low
+      const categoryOrder = { 'Urgent': 0, 'Important': 1, 'Normal': 2, 'Low': 3 };
+      return threads.sort((a, b) => {
+        const aCategory = a.mostRecent.aiCategory || a.mostRecent.category || 'Normal';
+        const bCategory = b.mostRecent.aiCategory || b.mostRecent.category || 'Normal';
+        const aOrder = categoryOrder[aCategory as keyof typeof categoryOrder] ?? 2;
+        const bOrder = categoryOrder[bCategory as keyof typeof categoryOrder] ?? 2;
+        if (aOrder !== bOrder) {
+          return aOrder - bOrder;
+        }
+        // Within same category, sort by date (newest first)
         const aTime = new Date(a.mostRecent.date).getTime();
         const bTime = new Date(b.mostRecent.date).getTime();
         return bTime - aTime;
       });
-  }, [threadGroups]);
+    } else {
+      // Sort by date (newest first)
+      return threads.sort((a, b) => {
+        const aTime = new Date(a.mostRecent.date).getTime();
+        const bTime = new Date(b.mostRecent.date).getTime();
+        return bTime - aTime;
+      });
+    }
+  }, [threadGroups, sortMode]);
 
   // Handle thread expansion toggle
   const handleThreadToggle = useCallback((threadId: string, e: React.MouseEvent) => {
