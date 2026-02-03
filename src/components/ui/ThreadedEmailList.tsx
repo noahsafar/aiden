@@ -149,17 +149,38 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   }, [toggleThreadExpanded]);
 
   // Handle email click
-  const handleEmailClick = useCallback((emailId: string) => {
+  const handleEmailClick = useCallback((emailId: string, threadId?: string) => {
     if (isSelectMode) {
       toggleEmailSelection(emailId);
     } else if (focusedEmailId === emailId) {
       // If clicking on already focused email, toggle selection
+      if (threadId) {
+        // For multi-email threads, select/deselect all in thread
+        const thread = threadGroups.get(threadId);
+        if (thread && thread.length > 1) {
+          const allSelected = thread.every((email: any) => isEmailSelected(email.id));
+          if (allSelected) {
+            // Deselect all in thread
+            thread.forEach((email: any) => {
+              if (isEmailSelected(email.id)) {
+                toggleEmailSelection(email.id);
+              }
+            });
+          } else {
+            // Select all in thread
+            const threadIds = thread.map((e: any) => e.id);
+            selectMultipleEmails(threadIds);
+          }
+          return;
+        }
+      }
+      // Single email - toggle just this one
       toggleEmailSelection(emailId);
     } else {
       onEmailSelect(emailId);
       onFocusEmail(emailId);
     }
-  }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail, focusedEmailId]);
+  }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail, focusedEmailId, threadGroups, isEmailSelected, selectMultipleEmails]);
 
   // Handle strip click - selects all emails in the thread
   const handleStripClick = useCallback((emailId: string, threadId: string, e: React.MouseEvent) => {
@@ -444,7 +465,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                 className={`relative p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
                   hasUnread ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''
                 }`}
-                onClick={() => handleEmailClick(mostRecent.id)}
+                onClick={() => handleEmailClick(mostRecent.id, threadId)}
               >
                 <div className="flex items-start gap-3">
                   {/* Expand/collapse button */}
@@ -544,7 +565,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                         } ${email.id === selectedEmailId ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${
                           isFocused ? 'ring-1 ring-inset ring-purple-500' : ''
                         }`}
-                        onClick={() => handleEmailClick(email.id)}
+                        onClick={() => handleEmailClick(email.id, threadId)}
                       >
                         <div className="flex items-start gap-3">
                           {/* Connector line */}
