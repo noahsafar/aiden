@@ -37,6 +37,7 @@ import {
   X,
   ArrowDownAZ,
   Signal,
+  MessageSquare,
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -84,7 +85,7 @@ function App() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
-  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode } = useEmailStore();
+  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
 
   // Animation state for focused view
@@ -645,35 +646,65 @@ function App() {
                     </div>
                   ) : (
                     <div className="h-full flex flex-col">
-                      {/* Sort toggle - only show for non-triage views */}
+                      {/* Sort and view mode toggle - only show for non-triage views */}
                       {currentFilter !== 'triage' && (
-                        <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                          <span className="text-xs text-gray-500 dark:text-gray-400">Sort by</span>
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => setSortMode('date')}
-                              className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
-                                sortMode === 'date'
-                                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-                                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                              }`}
-                              title="Sort by date"
-                            >
-                              <ArrowDownAZ className="w-3 h-3" />
-                              <span>Date</span>
-                            </button>
-                            <button
-                              onClick={() => setSortMode('importance')}
-                              className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
-                                sortMode === 'importance'
-                                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-                                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                              }`}
-                              title="Sort by importance"
-                            >
-                              <Signal className="w-3 h-3" />
-                              <span>Importance</span>
-                            </button>
+                        <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 dark:text-gray-400">Sort by</span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => setSortMode('date')}
+                                  className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
+                                    sortMode === 'date'
+                                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                  }`}
+                                  title="Sort by date"
+                                >
+                                  <ArrowDownAZ className="w-3 h-3" />
+                                  <span>Date</span>
+                                </button>
+                                <button
+                                  onClick={() => setSortMode('importance')}
+                                  className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
+                                    sortMode === 'importance'
+                                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                  }`}
+                                  title="Sort by importance"
+                                >
+                                  <Signal className="w-3 h-3" />
+                                  <span>Importance</span>
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setViewMode('individual')}
+                                className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
+                                  viewMode === 'individual'
+                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                }`}
+                                title="List view"
+                              >
+                                <Mail className="w-3 h-3" />
+                                <span>List</span>
+                              </button>
+                              <button
+                                onClick={() => setViewMode('threaded')}
+                                className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
+                                  viewMode === 'threaded'
+                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                }`}
+                                title="Threaded view"
+                              >
+                                <MessageSquare className="w-3 h-3" />
+                                <span>Thread</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )}
