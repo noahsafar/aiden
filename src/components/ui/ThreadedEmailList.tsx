@@ -70,6 +70,7 @@ interface ThreadedEmailListProps {
   onEmailAction: (id: string, action: string) => void;
   focusedEmailId: string | null;
   onFocusEmail: (id: string) => void;
+  onOpenFocusedView?: () => void;
   sortMode?: 'date' | 'importance';
 }
 
@@ -80,6 +81,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   onEmailAction,
   focusedEmailId,
   onFocusEmail,
+  onOpenFocusedView,
   sortMode = 'date',
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
@@ -283,8 +285,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         return;
       }
 
-      // Enter to expand/collapse thread
-      if (e.key === 'Enter' && focusedEmailId) {
+      // e to expand/collapse thread
+      if (e.key === 'e' && focusedEmailId) {
         e.preventDefault();
         // Find which thread the focused email belongs to
         for (const [threadId, threadEmails] of threadGroups.entries()) {
@@ -297,6 +299,16 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
       }
 
       if (isSelectMode) return;
+
+      // Enter to open focused view
+      if (e.key === 'Enter' && focusedEmailId) {
+        e.preventDefault();
+        onEmailSelect(focusedEmailId);
+        if (onOpenFocusedView) {
+          onOpenFocusedView();
+        }
+        return;
+      }
 
       if (e.key === 'a') {
         e.preventDefault();
@@ -315,7 +327,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups]);
+  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView]);
 
   // Helper to format date
   const formatDate = (dateString: string) => {
@@ -385,7 +397,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">k</kbd> <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">j</kbd> navigate</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Enter</kbd> expand</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">e</kbd> expand</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Enter</kbd> focused view</span>
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Space</kbd> select</span>
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> all</span>
         </div>

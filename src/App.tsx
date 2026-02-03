@@ -718,6 +718,7 @@ function App() {
                           onEmailAction={handleEmailAction}
                           focusedEmailId={focusedEmailId}
                           onFocusEmail={setFocusedEmailId}
+                          onOpenFocusedView={handleOpenFocusedView}
                           sortMode={sortMode}
                         />
                       ) : (
