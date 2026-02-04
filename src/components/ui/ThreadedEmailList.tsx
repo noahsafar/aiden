@@ -493,7 +493,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
             >
               {/* Full-height selection strip when all emails are selected */}
               {allSelected && (
-                <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-purple-500 rounded-l-lg" />
+                <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-purple-500 rounded-l-lg z-20" />
               )}
               {/* Thread header - always visible */}
               <div
@@ -576,8 +576,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                     </div>
                   </div>
 
-                  {/* Selection strip - hide when all selected (full-height strip covers entire thread) */}
-                  {!allSelected && (
+                  {/* Selection strip - hide when all selected OR when expanded (individual emails show their own strips) */}
+                  {!allSelected && !isExpanded && (
                     <div
                       className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-lg transition-all cursor-pointer ${
                         isEmailSelected(mostRecent.id) ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
@@ -595,22 +595,27 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                     const isLast = index === threadEmails.length - 1;
                     const emailIsSelected = isEmailSelected(email.id);
                     const isFocused = focusedEmailId === email.id;
-                    // Don't show individual purple highlight if all emails are selected (whole card is purple)
-                    const showIndividualHighlight = emailIsSelected && !allSelected;
 
                     return (
                       <div
                         key={email.id}
                         id={`threaded-email-item-${email.id}`}
-                        className={`p-3 ${allSelected ? '' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'} cursor-pointer transition-colors border-l-2 ${
+                        className={`relative p-3 ${allSelected ? '' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'} cursor-pointer transition-colors ${
                           !email.is_read ? 'bg-blue-50/20 dark:bg-blue-900/5' : ''
                         } ${email.id === selectedEmailId ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${
                           isFocused ? 'bg-gray-100 dark:bg-gray-800/50' : ''
-                        } ${
-                          showIndividualHighlight ? 'border-purple-500 bg-purple-50/50 dark:bg-purple-900/20' : 'border-transparent'
                         }`}
                         onClick={() => handleIndividualEmailClick(email.id)}
                       >
+                        {/* Selection strip for individual email - absolute positioned like collapsed view */}
+                        {!allSelected && (
+                          <div
+                            className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-lg transition-all cursor-pointer z-10 ${
+                              emailIsSelected ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
+                            }`}
+                            onClick={(e) => handleIndividualStripClick(email.id, e)}
+                          />
+                        )}
                         <div className="flex items-start gap-3">
                           {/* Connector line */}
                           <div className="flex-shrink-0 flex flex-col items-center">
@@ -651,16 +656,6 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                               </div>
                             )}
                           </div>
-
-                          {/* Selection strip for individual email in thread - hide when all selected */}
-                          {!allSelected && (
-                            <div
-                              className={`w-1 rounded transition-all cursor-pointer ${
-                                showIndividualHighlight ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
-                              }`}
-                              onClick={(e) => handleIndividualStripClick(email.id, e)}
-                            />
-                          )}
                         </div>
                       </div>
                     );
