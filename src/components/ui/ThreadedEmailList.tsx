@@ -554,6 +554,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                   {threadEmails.map((email: any, index: number) => {
                     const isLast = index === threadEmails.length - 1;
                     const emailIsSelected = isEmailSelected(email.id);
+                    const isFocused = focusedEmailId === email.id;
 
                     return (
                       <div
@@ -561,7 +562,9 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                         id={`threaded-email-item-${email.id}`}
                         className={`p-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors ${
                           !email.is_read ? 'bg-blue-50/20 dark:bg-blue-900/5' : ''
-                        } ${email.id === selectedEmailId ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                        } ${email.id === selectedEmailId ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${
+                          isFocused ? 'bg-gray-100 dark:bg-gray-800/50' : ''
+                        }`}
                         onClick={() => handleEmailClick(email.id, threadId)}
                       >
                         <div className="flex items-start gap-3">
@@ -571,9 +574,11 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                               <div className="w-0.5 h-full bg-gray-200 dark:bg-gray-700" />
                             )}
                             <div className={`w-2 h-2 rounded-full mt-1 ${
-                              isLast
-                                ? 'bg-blue-500'
-                                : 'bg-gray-300 dark:bg-gray-600'
+                              isFocused
+                                ? 'bg-purple-500 ring-2 ring-purple-200 dark:ring-purple-700'
+                                : isLast
+                                  ? 'bg-blue-500'
+                                  : 'bg-gray-300 dark:bg-gray-600'
                             }`} />
                           </div>
 
