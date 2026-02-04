@@ -197,6 +197,23 @@ function App() {
             if (currentFilter === 'archived') {
               return email.status === 'Archived';
             }
+            // For Focus mode, show only important/action-required emails
+            if (currentFilter === 'focus') {
+              // Exclude archived and saved
+              if (email.status === 'Archived' || email.status === 'Saved') return false;
+              // Always show Urgent category
+              if (email.category === 'Urgent') return true;
+              // Check AI analysis for action items or requires reply
+              if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
+                const data = (window as any).emailQuestionData.get(email.id);
+                if (data?.loaded) {
+                  // Show if requires reply OR has action items OR is Important category
+                  return data.requiresReply || (data.questions && data.questions.length > 0) || email.category === 'Important';
+                }
+              }
+              // Fallback: Important category or has action items in email data
+              return email.category === 'Important' || (email.action_items && email.action_items.length > 0);
+            }
             // For inbox, exclude saved/archived
             return email.status !== 'Archived' && email.status !== 'Saved';
           })

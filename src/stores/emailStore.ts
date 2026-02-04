@@ -1345,17 +1345,25 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         filtered = emails.filter(e => e.category === 'Low');
         break;
       case 'focus':
-        // Focus Mode: Only show emails that require action (Action Required)
+        // Focus Mode: Only show emails that require action or are important
         filtered = emails.filter(e => {
           // Exclude archived and saved
           if (e.status === 'Archived' || e.status === 'Saved') return false;
-          // Check AI analysis for requires_reply
+
+          // Always show Urgent category
+          if (e.category === 'Urgent') return true;
+
+          // Check AI analysis for action items or requires reply
           if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
             const data = (window as any).emailQuestionData.get(e.id);
-            return data?.loaded && data.requiresReply;
+            if (data?.loaded) {
+              // Show if requires reply OR has action items OR is Important category
+              return data.requiresReply || (data.questions && data.questions.length > 0) || e.category === 'Important';
+            }
           }
-          // Fallback to category if AI analysis not available
-          return e.category === 'Urgent' || e.category === 'Important';
+
+          // Fallback: Important category or has action items in email data
+          return e.category === 'Important' || (e.action_items && e.action_items.length > 0);
         });
         break;
       default:
@@ -1968,6 +1976,8 @@ if (typeof window !== 'undefined') {
       questionData.set(email.id, {
         questions: email.action_items.map(a => ({ question: a, options: [] })) || [],
         suggestedFormalityScore: 50,
+        suggested_formality_score: 50,
+        requiresReply: email.requires_reply || false,
         requires_reply: email.requires_reply || false,
         reply_reasoning: email.requires_reply ? 'This email requires a response' : 'FYI only',
         loaded: true,

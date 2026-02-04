@@ -1138,17 +1138,27 @@ export const EmailView: React.FC<EmailViewProps> = ({
   };
 
   // Thread navigation - get thread emails and position
+  // Use the email prop first, then fall back to storeSelectedEmail
   const threadEmails = React.useMemo(() => {
-    const currentEmail = storeSelectedEmail || email;
+    // Prioritize the email prop over storeSelectedEmail
+    const currentEmail = email || storeSelectedEmail;
     if (!currentEmail?.thread_id) return [];
-    return getThreadEmails(currentEmail.thread_id);
-  }, [storeSelectedEmail, email, getThreadEmails]);
+    // Filter emails by thread_id directly to ensure we get fresh data
+    return emails
+      .filter(e => e.thread_id === currentEmail.thread_id)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [email?.id, storeSelectedEmail?.id, emails]);
 
   const handleNavigateThread = React.useCallback((direction: 'prev' | 'next') => {
-    const currentEmail = storeSelectedEmail || email;
+    // Prioritize the email prop over storeSelectedEmail
+    const currentEmail = email || storeSelectedEmail;
     if (!currentEmail?.thread_id) return;
 
-    const allThreadEmails = getThreadEmails(currentEmail.thread_id);
+    // Compute thread emails directly to ensure fresh data
+    const allThreadEmails = emails
+      .filter(e => e.thread_id === currentEmail.thread_id)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
     if (allThreadEmails.length <= 1) return;
 
     const currentIndex = allThreadEmails.findIndex(e => e.id === currentEmail.id);
@@ -1169,7 +1179,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         onEmailSelect(nextEmail.id);
       }
     }
-  }, [storeSelectedEmail, email, getThreadEmails, selectEmail, onEmailSelect]);
+  }, [email?.id, storeSelectedEmail?.id, emails, selectEmail, onEmailSelect]);
 
   if (!email) {
     return (
@@ -1244,7 +1254,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
         {/* Thread Navigation - show when in a thread with multiple emails */}
         {threadEmails.length > 1 && !isSentEmail && (() => {
-          const currentId = storeSelectedEmail?.id || email?.id;
+          const currentId = email?.id || storeSelectedEmail?.id;
           const currentIndex = threadEmails.findIndex(e => e.id === currentId);
           const current = currentIndex >= 0 ? currentIndex + 1 : 1;
           const total = threadEmails.length;
@@ -1256,7 +1266,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 <MessageSquare className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 <span className="text-xs text-gray-600 dark:text-gray-400">
                   {(() => {
-                    const currentId = storeSelectedEmail?.id || email?.id;
+                    const currentId = email?.id || storeSelectedEmail?.id;
                     const currentIndex = threadEmails.findIndex(e => e.id === currentId);
                     const current = currentIndex >= 0 ? currentIndex + 1 : 1;
                     const total = threadEmails.length;
@@ -1283,25 +1293,28 @@ export const EmailView: React.FC<EmailViewProps> = ({
             </div>
             {/* Thread participants preview */}
             <div className="flex items-center gap-1 mt-2 flex-wrap">
-              {threadEmails.map((e, idx) => (
-                <button
-                  key={e.id}
-                  onClick={() => {
-                    selectEmail(e);
-                    if (onEmailSelect) {
-                      onEmailSelect(e.id);
-                    }
-                  }}
-                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                    e.id === email?.id
-                      ? 'bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300'
-                      : 'bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer'
-                  }`}
-                  title={`Go to email ${idx + 1}`}
-                >
-                  {idx + 1}
-                </button>
-              ))}
+              {threadEmails.map((e, idx) => {
+                const currentId = email?.id || storeSelectedEmail?.id;
+                return (
+                  <button
+                    key={e.id}
+                    onClick={() => {
+                      selectEmail(e);
+                      if (onEmailSelect) {
+                        onEmailSelect(e.id);
+                      }
+                    }}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                      e.id === currentId
+                        ? 'bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300'
+                        : 'bg-gray-100 border-gray-200 text-gray-600 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer'
+                    }`}
+                    title={`Go to email ${idx + 1}`}
+                  >
+                    {idx + 1}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
