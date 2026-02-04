@@ -39,6 +39,7 @@ export const Crm: React.FC = () => {
   } = useCrmStore();
 
   const [currentView, setCurrentView] = useState<CrmView>('all');
+  const [previousView, setPreviousView] = useState<CrmView>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -54,8 +55,13 @@ export const Crm: React.FC = () => {
   };
 
   const handleContactClick = (contact: Contact) => {
+    setPreviousView(currentView);
     setSelectedContact(contact);
     setCurrentView('profile');
+  };
+
+  const handleBack = () => {
+    setCurrentView(previousView);
   };
 
   const filteredContacts = contacts.filter(contact => {
@@ -207,7 +213,7 @@ export const Crm: React.FC = () => {
           {currentView === 'profile' && selectedContact && (
             <ContactProfile
               contact={selectedContact}
-              onBack={() => setCurrentView('all')}
+              onBack={handleBack}
             />
           )}
         </div>
