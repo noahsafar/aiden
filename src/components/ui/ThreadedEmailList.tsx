@@ -587,7 +587,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                   {!allSelected && !isExpanded && (
                     <div
                       className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-lg transition-all cursor-pointer ${
-                        isEmailSelected(mostRecent.id) ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
+                        anySelected ? 'bg-purple-500/50' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
                       }`}
                       onClick={(e) => handleThreadStripClick(threadId, threadEmails, e)}
                     />
