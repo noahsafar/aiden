@@ -100,6 +100,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     clearSelection,
     selectedEmailIds,
     selectAllVisible,
+    deselectMultipleEmails,
   } = useEmailStore();
 
   // Group emails by thread
@@ -166,11 +167,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
     if (allSelected) {
       // All emails are selected - deselect all regardless of focus
-      thread.forEach((email: any) => {
-        if (isEmailSelected(email.id)) {
-          toggleEmailSelection(email.id);
-        }
-      });
+      const threadIds = thread.map((e: any) => e.id);
+      deselectMultipleEmails(threadIds);
       // Also focus this thread
       onEmailSelect(emailId);
       onFocusEmail(emailId);
@@ -183,7 +181,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
       onEmailSelect(emailId);
       onFocusEmail(emailId);
     }
-  }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail, focusedEmailId, threadGroups, isEmailSelected, selectMultipleEmails]);
+  }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail, focusedEmailId, threadGroups, isEmailSelected, selectMultipleEmails, deselectMultipleEmails]);
 
   // Handle individual email click in expanded view - selects just that email
   const handleIndividualEmailClick = useCallback((emailId: string) => {
@@ -204,21 +202,20 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     // Select all emails in the thread
     const thread = threadGroups.get(threadId);
     if (thread) {
-      const allSelected = thread.every((email: any) => isEmailSelected(email.id));
-      if (allSelected) {
+      const selectedCount = Array.from(thread).filter((e: any) => isEmailSelected(e.id)).length;
+      const allSelected = selectedCount === thread.length;
+
+      if (allSelected && selectedCount > 0) {
         // Deselect all in thread
-        thread.forEach((email: any) => {
-          if (isEmailSelected(email.id)) {
-            toggleEmailSelection(email.id);
-          }
-        });
+        const threadIds = thread.map((e: any) => e.id);
+        deselectMultipleEmails(threadIds);
       } else {
         // Select all in thread
         const threadIds = thread.map((e: any) => e.id);
         selectMultipleEmails(threadIds);
       }
     }
-  }, [toggleEmailSelection, threadGroups, isEmailSelected, selectMultipleEmails]);
+  }, [threadGroups, isEmailSelected, deselectMultipleEmails, selectMultipleEmails]);
 
   // Bulk action handlers
   const handleBulkAction = useCallback(async (action: string) => {
@@ -332,11 +329,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
             const allSelected = threadEmails.every((email: any) => isEmailSelected(email.id));
             if (allSelected) {
               // Deselect all in thread
-              threadEmails.forEach((email: any) => {
-                if (isEmailSelected(email.id)) {
-                  toggleEmailSelection(email.id);
-                }
-              });
+              const threadIds = threadEmails.map((e: any) => e.id);
+              deselectMultipleEmails(threadIds);
             } else {
               // Select all in thread
               const threadIds = threadEmails.map((e: any) => e.id);
@@ -402,7 +396,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView, isEmailSelected, selectMultipleEmails]);
+  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView, isEmailSelected, selectMultipleEmails, deselectMultipleEmails]);
 
   // Helper to format date
   const formatDate = (dateString: string) => {

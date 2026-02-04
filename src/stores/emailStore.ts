@@ -366,6 +366,7 @@ export interface EmailState {
   // Bulk action methods
   toggleEmailSelection: (emailId: string) => void;
   selectMultipleEmails: (emailIds: string[]) => void;
+  deselectMultipleEmails: (emailIds: string[]) => void;
   clearSelection: () => void;
   selectAllVisible: () => void;
   bulkArchive: (emailIds?: string[]) => Promise<void>;
@@ -1409,6 +1410,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     set({
       selectedEmailIds: new Set(emailIds),
       isSelectMode: true,
+    });
+  },
+
+  deselectMultipleEmails: (emailIds: string[]) => {
+    const state = get();
+    const newSelection = new Set(state.selectedEmailIds);
+    emailIds.forEach(id => newSelection.delete(id));
+    set({
+      selectedEmailIds: newSelection,
+      isSelectMode: newSelection.size > 0,
     });
   },
 
