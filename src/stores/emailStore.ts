@@ -1345,7 +1345,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         filtered = emails.filter(e => e.category === 'Low');
         break;
       case 'focus':
-        // Focus Mode: Only show emails that require action or are important
+        // Focus Mode: Only show emails that require action (exclude FYI)
         filtered = emails.filter(e => {
           // Exclude archived and saved
           if (e.status === 'Archived' || e.status === 'Saved') return false;
@@ -1353,17 +1353,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           // Always show Urgent category
           if (e.category === 'Urgent') return true;
 
-          // Check AI analysis for action items or requires reply
+          // Check AI analysis - only show if explicitly requires action
           if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
             const data = (window as any).emailQuestionData.get(e.id);
             if (data?.loaded) {
-              // Show if requires reply OR has action items OR is Important category
-              return data.requiresReply || (data.questions && data.questions.length > 0) || e.category === 'Important';
+              // Only show if requiresReply is explicitly true (exclude FYI emails)
+              return data.requiresReply === true;
             }
           }
 
-          // Fallback: Important category or has action items in email data
-          return e.category === 'Important' || (e.action_items && e.action_items.length > 0);
+          // Fallback: Only show Important category (not Normal or Low)
+          return e.category === 'Important';
         });
         break;
       default:

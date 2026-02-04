@@ -38,6 +38,7 @@ import {
   ArrowDownAZ,
   Signal,
   MessageSquare,
+  Target,
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -197,22 +198,22 @@ function App() {
             if (currentFilter === 'archived') {
               return email.status === 'Archived';
             }
-            // For Focus mode, show only important/action-required emails
+            // For Focus mode, show only important/action-required emails (exclude FYI)
             if (currentFilter === 'focus') {
               // Exclude archived and saved
               if (email.status === 'Archived' || email.status === 'Saved') return false;
               // Always show Urgent category
               if (email.category === 'Urgent') return true;
-              // Check AI analysis for action items or requires reply
+              // Check AI analysis - only show if explicitly requires action
               if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
                 const data = (window as any).emailQuestionData.get(email.id);
                 if (data?.loaded) {
-                  // Show if requires reply OR has action items OR is Important category
-                  return data.requiresReply || (data.questions && data.questions.length > 0) || email.category === 'Important';
+                  // Only show if requiresReply is explicitly true (exclude FYI emails)
+                  return data.requiresReply === true;
                 }
               }
-              // Fallback: Important category or has action items in email data
-              return email.category === 'Important' || (email.action_items && email.action_items.length > 0);
+              // Fallback: Only show Important category (not Normal or Low)
+              return email.category === 'Important';
             }
             // For inbox, exclude saved/archived
             return email.status !== 'Archived' && email.status !== 'Saved';
@@ -672,7 +673,7 @@ function App() {
                       {/* Sort and view mode toggle - only show for non-triage views */}
                       {currentFilter !== 'triage' && (
                         <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                          <div className="flex items-center justify-center gap-4">
+                          <div className="flex items-center justify-center gap-3">
                             {/* Sort options */}
                             <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
                               <button
@@ -727,6 +728,28 @@ function App() {
                                 <span>Thread</span>
                               </button>
                             </div>
+                            {/* Focus Mode button */}
+                            {currentFilter === 'inbox' && (
+                              <button
+                                onClick={() => setCurrentFilter('focus')}
+                                className="px-2.5 py-1 text-xs rounded flex items-center gap-1.5 transition-colors bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/50"
+                                title="Focus Mode - only important emails"
+                              >
+                                <Target className="w-3 h-3" />
+                                <span>Focus</span>
+                              </button>
+                            )}
+                            {/* Back to inbox button in Focus Mode */}
+                            {currentFilter === 'focus' && (
+                              <button
+                                onClick={() => setCurrentFilter('inbox')}
+                                className="px-2.5 py-1 text-xs rounded flex items-center gap-1.5 transition-colors bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                                title="Back to inbox"
+                              >
+                                <MessageSquare className="w-3 h-3" />
+                                <span>Inbox</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}

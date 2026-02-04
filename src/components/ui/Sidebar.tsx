@@ -5,7 +5,6 @@ import {
   PaperAirplaneIcon,
   BookmarkIcon,
   ArchiveBoxIcon,
-  BoltIcon,
   SparklesIcon as SparklesIconHero,
 } from '@heroicons/react/24/outline';
 
@@ -24,7 +23,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const filters = [
     { id: 'inbox', label: 'Inbox', icon: InboxIcon },
-    { id: 'focus', label: 'Focus Mode', icon: BoltIcon },
     { id: 'triage', label: 'Smart Triage', icon: SparklesIconHero },
     { id: 'saved', label: 'Saved', icon: BookmarkIcon },
     { id: 'sent', label: 'Sent', icon: PaperAirplaneIcon },
@@ -35,15 +33,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     switch (filterId) {
       case 'inbox':
         return inboxCount !== undefined ? inboxCount : emails.filter(e => e.status !== 'Archived' && e.status !== 'Saved').length;
-      case 'focus':
-        // Count emails that require action (Action Required based on AI analysis)
-        return emails.filter(e => {
-          if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
-            const data = (window as any).emailQuestionData.get(e.id);
-            return data?.loaded && data.requiresReply && e.status !== 'Archived' && e.status !== 'Saved';
-          }
-          return e.category === 'Urgent' && e.status !== 'Archived' && e.status !== 'Saved';
-        }).length;
       case 'saved':
         return emails.filter(e => e.status === 'Saved').length;
       case 'sent':
