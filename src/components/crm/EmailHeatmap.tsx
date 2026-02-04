@@ -173,7 +173,7 @@ export const EmailHeatmap: React.FC = () => {
       {/* Selected Contact Info */}
       {currentContact && (
         <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl flex items-center gap-4">
-          <div className="w-12 h-12 rounded-full bg-gradient-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-bold">
+          <div className="w-12 h-12 rounded-full bg-gray-400 flex items-center justify-center text-white font-bold">
             {currentContact.name?.charAt(0).toUpperCase() || currentContact.email_address.charAt(0).toUpperCase()}
           </div>
           <div>
