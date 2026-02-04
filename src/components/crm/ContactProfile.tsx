@@ -108,7 +108,7 @@ export const ContactProfile: React.FC<ContactProfileProps> = ({ contact, onBack 
             </button>
 
             {/* Avatar */}
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center text-white text-2xl font-bold">
+            <div className="w-16 h-16 rounded-full bg-gray-600 flex items-center justify-center text-white text-2xl font-bold">
               {contact.name?.charAt(0).toUpperCase() || contact.email_address.charAt(0).toUpperCase()}
             </div>
 
