@@ -181,17 +181,19 @@ export const Crm: React.FC = () => {
           )}
 
           {currentView === 'top' && (
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Top Contacts</h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Your most important relationships based on email frequency, recency, and response patterns.
-              </p>
+            <>
+              <div className="px-6 pt-6">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Top Contacts</h2>
+                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                  Your most important relationships based on email frequency, recency, and response patterns.
+                </p>
+              </div>
               <ContactList
                 contacts={contacts.filter(c => c.relationship_score > 50).slice(0, 20)}
                 onContactClick={handleContactClick}
                 showRank
               />
-            </div>
+            </>
           )}
 
           {currentView === 'stale' && (
