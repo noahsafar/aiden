@@ -73,9 +73,21 @@ export const NetworkGraph: React.FC = () => {
   const [minEmails, setMinEmails] = useState(3);
   const [isLoading, setIsLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set(['Colleague', 'Client', 'Vendor', 'Friend', 'Family', 'Other']));
 
   const convertToReactFlow = useCallback((data: typeof networkData) => {
     if (!data) return { nodes: [], edges: [] };
+
+    // Filter nodes by selected categories
+    const filteredNodes = data.nodes.filter(node => selectedCategories.has(node.category));
+
+    // Get IDs of filtered nodes for edge filtering
+    const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+
+    // Filter edges to only include connections between visible nodes
+    const filteredLinks = data.links.filter(
+      link => filteredNodeIds.has(link.source) && filteredNodeIds.has(link.target)
+    );
 
     // Calculate positions based on relationship score (radial layout)
     // High score = closer to center, low score = outer edges
@@ -85,7 +97,7 @@ export const NetworkGraph: React.FC = () => {
     const maxRadius = 350;
 
     // Sort nodes by score (highest first for center positioning)
-    const sortedNodes = [...data.nodes].sort((a, b) => b.score - a.score);
+    const sortedNodes = [...filteredNodes].sort((a, b) => b.score - a.score);
 
     const nodePositions = new Map<string, { x: number; y: number }>();
 
@@ -103,7 +115,7 @@ export const NetworkGraph: React.FC = () => {
       });
     });
 
-    const flowNodes: Node[] = data.nodes.map(node => {
+    const flowNodes: Node[] = filteredNodes.map(node => {
       const position = nodePositions.get(node.id) || {
         x: Math.random() * 800,
         y: Math.random() * 600,
@@ -120,7 +132,7 @@ export const NetworkGraph: React.FC = () => {
       };
     });
 
-    const flowEdges: Edge[] = data.links.map(link => ({
+    const flowEdges: Edge[] = filteredLinks.map(link => ({
       id: `${link.source}-${link.target}`,
       source: link.source,
       target: link.target,
@@ -133,7 +145,7 @@ export const NetworkGraph: React.FC = () => {
     }));
 
     return { nodes: flowNodes, edges: flowEdges };
-  }, [selectedNode]);
+  }, [selectedNode, selectedCategories]);
 
   useEffect(() => {
     if (!networkData) {
@@ -141,15 +153,15 @@ export const NetworkGraph: React.FC = () => {
     }
   }, []);
 
-  // Initialize nodes/edges when network data first loads
+  // Initialize nodes/edges when network data first loads or categories change
   useEffect(() => {
-    if (networkData && !initialized) {
+    if (networkData) {
       const { nodes: flowNodes, edges: flowEdges } = convertToReactFlow(networkData);
       setNodes(flowNodes);
       setEdges(flowEdges);
       setInitialized(true);
     }
-  }, [networkData, initialized, convertToReactFlow, setNodes, setEdges]);
+  }, [networkData, convertToReactFlow, setNodes, setEdges]);
 
   // Update only the selected state without changing positions
   useEffect(() => {
@@ -175,6 +187,19 @@ export const NetworkGraph: React.FC = () => {
 
   const handleNodeClick = (_: React.MouseEvent, node: Node) => {
     setSelectedNode(node.id === selectedNode ? null : node.id);
+  };
+
+  const handleCategoryToggle = (category: string) => {
+    const newSelected = new Set(selectedCategories);
+    if (newSelected.has(category)) {
+      // Don't allow deselecting all categories
+      if (newSelected.size > 1) {
+        newSelected.delete(category);
+      }
+    } else {
+      newSelected.add(category);
+    }
+    setSelectedCategories(newSelected);
   };
 
   const categoryColors: Record<string, string> = {
@@ -206,36 +231,49 @@ export const NetworkGraph: React.FC = () => {
       </div>
 
       {/* Controls */}
-      <div className="mb-4 flex items-center gap-4">
+      <div className="mb-4 flex items-center gap-6">
         <div className="flex items-center gap-2">
           <label className="text-sm text-gray-600 dark:text-gray-400">Min Emails:</label>
           <input
-            type="range"
+            type="number"
             min="1"
-            max="20"
+            max="100"
             value={minEmails}
             onChange={(e) => setMinEmails(Number(e.target.value))}
-            className="w-24"
+            className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
-          <span className="text-sm font-medium text-gray-900 dark:text-white">{minEmails}</span>
+          <button
+            onClick={() => {
+              setInitialized(false);
+              fetchNetworkData(minEmails, 50);
+            }}
+            className="px-3 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-lg text-sm font-medium hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
+          >
+            Apply
+          </button>
         </div>
-        <button
-          onClick={() => fetchNetworkData(minEmails, 50)}
-          className="px-3 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-lg text-sm font-medium hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
-        >
-          Apply Filter
-        </button>
       </div>
 
-      {/* Legend */}
-      <div className="mb-4 flex items-center gap-4 text-sm">
+      {/* Legend with clickable categories */}
+      <div className="mb-4 flex items-center gap-4 text-sm flex-wrap">
         <span className="text-gray-600 dark:text-gray-400">Categories:</span>
-        {Object.entries(categoryColors).map(([category, color]) => (
-          <div key={category} className="flex items-center gap-1">
-            <div className={`w-3 h-3 rounded-full ${color}`} />
-            <span className="text-gray-700 dark:text-gray-300">{category}</span>
-          </div>
-        ))}
+        {Object.entries(categoryColors).map(([category, color]) => {
+          const isSelected = selectedCategories.has(category);
+          return (
+            <button
+              key={category}
+              onClick={() => handleCategoryToggle(category)}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all ${
+                isSelected
+                  ? 'bg-gray-100 dark:bg-gray-700'
+                  : 'bg-transparent opacity-40'
+              }`}
+            >
+              <div className={`w-3 h-3 rounded-full ${color}`} />
+              <span className="text-gray-700 dark:text-gray-300">{category}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Network Graph */}
