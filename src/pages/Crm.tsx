@@ -183,7 +183,10 @@ export const Crm: React.FC = () => {
           {currentView === 'top' && (
             <>
               <div className="px-6 pt-6">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Top Contacts</h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Top Contacts</h2>
+                  <span className="text-sm text-gray-500">{contacts.filter(c => c.relationship_score > 50).slice(0, 20).length} contacts</span>
+                </div>
                 <p className="text-gray-600 dark:text-gray-400 mb-6">
                   Your most important relationships based on email frequency, recency, and response patterns.
                 </p>
@@ -192,6 +195,7 @@ export const Crm: React.FC = () => {
                 contacts={contacts.filter(c => c.relationship_score > 50).slice(0, 20)}
                 onContactClick={handleContactClick}
                 showRank
+                hideHeader
               />
             </>
           )}

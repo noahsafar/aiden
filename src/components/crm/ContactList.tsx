@@ -6,6 +6,7 @@ interface ContactListProps {
   contacts: Contact[];
   onContactClick: (contact: Contact) => void;
   showRank?: boolean;
+  hideHeader?: boolean;
 }
 
 const categoryIcons = {
@@ -49,7 +50,7 @@ function formatDaysSinceContact(days?: number): string {
   return `${Math.floor(days / 30)} months ago`;
 }
 
-export const ContactList: React.FC<ContactListProps> = ({ contacts, onContactClick, showRank = false }) => {
+export const ContactList: React.FC<ContactListProps> = ({ contacts, onContactClick, showRank = false, hideHeader = false }) => {
   if (contacts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-12 text-center">
@@ -64,15 +65,17 @@ export const ContactList: React.FC<ContactListProps> = ({ contacts, onContactCli
 
   return (
     <div className="p-6">
-      {!showRank ? (
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">All Contacts</h2>
-          <span className="text-sm text-gray-500">{contacts.length} contacts</span>
-        </div>
-      ) : (
-        <div className="flex justify-end mb-4">
-          <span className="text-sm text-gray-500">{contacts.length} contacts</span>
-        </div>
+      {!hideHeader && (
+        !showRank ? (
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">All Contacts</h2>
+            <span className="text-sm text-gray-500">{contacts.length} contacts</span>
+          </div>
+        ) : (
+          <div className="flex justify-end mb-4">
+            <span className="text-sm text-gray-500">{contacts.length} contacts</span>
+          </div>
+        )
       )}
 
       <div className="space-y-3">
