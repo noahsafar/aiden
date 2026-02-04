@@ -102,6 +102,7 @@ export interface CrmState {
   setSelectedContact: (contact: Contact | null) => void;
   updateContactVIP: (contactId: string, isVIP: boolean) => Promise<void>;
   updateContactNotes: (contactId: string, notes: string) => Promise<void>;
+  updateContactCategory: (contactId: string, category: Contact['category']) => Promise<void>;
   fetchContactAnalytics: (contactId: string) => Promise<void>;
   fetchNetworkData: (minEmails?: number, limit?: number) => Promise<void>;
   fetchStaleContacts: (daysThreshold?: number) => Promise<void>;
@@ -259,6 +260,39 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       console.error('Failed to update notes:', error);
       set({
         error: error instanceof Error ? error.message : 'Failed to update notes'
+      });
+    }
+  },
+
+  updateContactCategory: async (contactId: string, category: Contact['category']) => {
+    if (USE_MOCK_DATA) {
+      // Update local state for mock data
+      set((state) => ({
+        contacts: state.contacts.map(c =>
+          c.id === contactId ? { ...c, category } : c
+        ),
+        selectedContact: state.selectedContact?.id === contactId
+          ? { ...state.selectedContact, category }
+          : state.selectedContact
+      }));
+      return;
+    }
+
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('update_contact_category', { contactId, category });
+      set((state) => ({
+        contacts: state.contacts.map(c =>
+          c.id === contactId ? { ...c, category } : c
+        ),
+        selectedContact: state.selectedContact?.id === contactId
+          ? { ...state.selectedContact, category }
+          : state.selectedContact
+      }));
+    } catch (error) {
+      console.error('Failed to update category:', error);
+      set({
+        error: error instanceof Error ? error.message : 'Failed to update category'
       });
     }
   },

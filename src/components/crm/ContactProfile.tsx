@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Contact, useCrmStore } from '@/stores/crmStore';
 import {
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Send,
   Reply,
+  ChevronDown,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import { formatDistanceToNow } from 'date-fns';
@@ -36,20 +37,41 @@ const categoryIcons = {
   Other: UserIcon,
 };
 
+const categories: Array<Contact['category']> = ['Colleague', 'Client', 'Vendor', 'Friend', 'Family', 'Other'];
+
 export const ContactProfile: React.FC<ContactProfileProps> = ({ contact, onBack }) => {
   const {
     analytics,
     fetchContactAnalytics,
     updateContactVIP,
     updateContactNotes,
+    updateContactCategory,
   } = useCrmStore();
 
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesText, setNotesText] = useState(contact.notes || '');
+  const [isEditingCategory, setIsEditingCategory] = useState(false);
+  const categoryDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchContactAnalytics(contact.id);
   }, [contact.id]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(event.target as Node)) {
+        setIsEditingCategory(false);
+      }
+    };
+
+    if (isEditingCategory) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isEditingCategory]);
 
   const handleToggleVIP = () => {
     updateContactVIP(contact.id, !contact.is_vip);
@@ -58,6 +80,11 @@ export const ContactProfile: React.FC<ContactProfileProps> = ({ contact, onBack 
   const handleSaveNotes = () => {
     updateContactNotes(contact.id, notesText);
     setIsEditingNotes(false);
+  };
+
+  const handleCategoryChange = (category: Contact['category']) => {
+    updateContactCategory(contact.id, category);
+    setIsEditingCategory(false);
   };
 
   const CategoryIcon = categoryIcons[contact.category];
@@ -145,9 +172,32 @@ export const ContactProfile: React.FC<ContactProfileProps> = ({ contact, onBack 
 
           {/* Quick Stats */}
           <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-              <CategoryIcon className="h-4 w-4" />
-              <span>{contact.category}</span>
+            <div className="relative" ref={categoryDropdownRef}>
+              <button
+                onClick={() => setIsEditingCategory(!isEditingCategory)}
+                className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+              >
+                <CategoryIcon className="h-4 w-4" />
+                <span>{contact.category}</span>
+                <ChevronDown className="h-3 w-3" />
+              </button>
+              {isEditingCategory && (
+                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10 min-w-[140px]">
+                  {categories.map((cat) => {
+                    const CatIcon = categoryIcons[cat];
+                    return (
+                      <button
+                        key={cat}
+                        onClick={() => handleCategoryChange(cat)}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 first:rounded-t-lg last:rounded-b-lg transition-colors"
+                      >
+                        <CatIcon className="h-4 w-4" />
+                        <span>{cat}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             {contact.domain && (
               <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
