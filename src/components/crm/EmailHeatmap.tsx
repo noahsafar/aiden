@@ -244,7 +244,7 @@ export const EmailHeatmap: React.FC = () => {
           <div className="mt-4 p-3 bg-white dark:bg-gray-700 rounded-lg inline-flex items-center gap-2">
             <Clock className="h-4 w-4 text-gray-500" />
             <span className="text-sm text-gray-700 dark:text-gray-300">
-              {hoveredCell.day}s at {formatHour(hoveredCell.hour)}: <strong>{hoveredCell.count} emails</strong>
+              {hoveredCell.day} at {formatHour(hoveredCell.hour)}: <strong>{hoveredCell.count} emails</strong>
             </span>
           </div>
         )}
