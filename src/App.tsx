@@ -349,7 +349,13 @@ function App() {
     };
   }, []);
 
-  const selectedEmail = filteredEmails.find(email => email.id === selectedEmailId);
+  // Find selected email - first in filtered emails, then fall back to all emails
+  // This allows viewing thread emails that aren't in the current filter (e.g., unsaved emails in a thread when viewing saved)
+  const selectedEmail = filteredEmails.find(email => email.id === selectedEmailId) ||
+    (() => {
+      const emailFromStore = emails.find(email => email.id === selectedEmailId && email.status !== 'Deleted');
+      return emailFromStore ? convertToUIEmail(emailFromStore) : undefined;
+    })();
 
   // Measure analysis panel height to position email panel correctly
   useEffect(() => {

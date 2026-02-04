@@ -483,7 +483,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   focusedView = false,
   animationPhase = 'idle',
 }) => {
-  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead, getThreadEmails, getThreadPosition, selectEmail } = useEmailStore();
+  const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead, getThreadEmails, getThreadPosition, selectEmail, selectedEmail: storeSelectedEmail } = useEmailStore();
 
   // Type definition for email state
   interface EmailState {
@@ -1138,37 +1138,38 @@ export const EmailView: React.FC<EmailViewProps> = ({
   };
 
   // Thread navigation - get thread emails and position
-  const threadPosition = React.useMemo(() => {
-    if (!email?.id || !fullEmail?.thread_id) return null;
-    return getThreadPosition(email.id);
-  }, [email?.id, fullEmail?.thread_id, getThreadPosition]);
-
   const threadEmails = React.useMemo(() => {
-    if (!fullEmail?.thread_id) return [];
-    return getThreadEmails(fullEmail.thread_id);
-  }, [fullEmail?.thread_id, getThreadEmails]);
+    const currentEmail = storeSelectedEmail || email;
+    if (!currentEmail?.thread_id) return [];
+    return getThreadEmails(currentEmail.thread_id);
+  }, [storeSelectedEmail, email, getThreadEmails]);
 
-  const handleNavigateThread = (direction: 'prev' | 'next') => {
-    console.log('[handleNavigateThread] direction:', direction, 'threadPosition:', threadPosition, 'threadEmails.length:', threadEmails.length);
-    if (!threadPosition || !threadEmails.length) return;
-    const currentIndex = threadPosition.current - 1;
+  const handleNavigateThread = React.useCallback((direction: 'prev' | 'next') => {
+    const currentEmail = storeSelectedEmail || email;
+    if (!currentEmail?.thread_id) return;
+
+    const allThreadEmails = getThreadEmails(currentEmail.thread_id);
+    if (allThreadEmails.length <= 1) return;
+
+    const currentIndex = allThreadEmails.findIndex(e => e.id === currentEmail.id);
+    if (currentIndex === -1) return;
+
     let nextIndex: number;
     if (direction === 'next') {
-      nextIndex = currentIndex < threadEmails.length - 1 ? currentIndex + 1 : 0;
+      nextIndex = (currentIndex + 1) % allThreadEmails.length;
     } else {
-      nextIndex = currentIndex > 0 ? currentIndex - 1 : threadEmails.length - 1;
+      nextIndex = currentIndex - 1;
+      if (nextIndex < 0) nextIndex = allThreadEmails.length - 1;
     }
-    console.log('[handleNavigateThread] currentIndex:', currentIndex, 'nextIndex:', nextIndex);
-    const nextEmail = threadEmails[nextIndex];
-    console.log('[handleNavigateThread] nextEmail:', nextEmail);
+
+    const nextEmail = allThreadEmails[nextIndex];
     if (nextEmail) {
       selectEmail(nextEmail);
-      // Notify parent to update selected email ID
       if (onEmailSelect) {
         onEmailSelect(nextEmail.id);
       }
     }
-  };
+  }, [storeSelectedEmail, email, getThreadEmails, selectEmail, onEmailSelect]);
 
   if (!email) {
     return (
@@ -1242,28 +1243,38 @@ export const EmailView: React.FC<EmailViewProps> = ({
         )}
 
         {/* Thread Navigation - show when in a thread with multiple emails */}
-        {threadPosition && threadPosition.total > 1 && !isSentEmail && (
+        {threadEmails.length > 1 && !isSentEmail && (() => {
+          const currentId = storeSelectedEmail?.id || email?.id;
+          const currentIndex = threadEmails.findIndex(e => e.id === currentId);
+          const current = currentIndex >= 0 ? currentIndex + 1 : 1;
+          const total = threadEmails.length;
+          return { current, total };
+        })() && (
           <div className={`p-3 bg-gray-50 dark:bg-gray-900/30 rounded-lg border border-gray-200 dark:border-gray-700 ${summary ? 'mt-4' : ''}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MessageSquare className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 <span className="text-xs text-gray-600 dark:text-gray-400">
-                  {threadPosition.current} of {threadPosition.total} in conversation
+                  {(() => {
+                    const currentId = storeSelectedEmail?.id || email?.id;
+                    const currentIndex = threadEmails.findIndex(e => e.id === currentId);
+                    const current = currentIndex >= 0 ? currentIndex + 1 : 1;
+                    const total = threadEmails.length;
+                    return `${current} of ${total} in conversation`;
+                  })()}
                 </span>
               </div>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => handleNavigateThread('prev')}
-                  disabled={threadPosition.current <= 1}
-                  className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                   title="Previous in thread"
                 >
                   <ChevronUp className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                 </button>
                 <button
                   onClick={() => handleNavigateThread('next')}
-                  disabled={threadPosition.current >= threadPosition.total}
-                  className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                   title="Next in thread"
                 >
                   <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400" />
