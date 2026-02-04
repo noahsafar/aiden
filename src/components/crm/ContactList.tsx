@@ -64,14 +64,18 @@ export const ContactList: React.FC<ContactListProps> = ({ contacts, onContactCli
 
   return (
     <div className="p-6">
-      {!showRank && (
+      {!showRank ? (
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">All Contacts</h2>
           <span className="text-sm text-gray-500">{contacts.length} contacts</span>
         </div>
+      ) : (
+        <div className="flex justify-end mb-4">
+          <span className="text-sm text-gray-500">{contacts.length} contacts</span>
+        </div>
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         {contacts.map((contact, index) => {
           const CategoryIcon = categoryIcons[contact.category];
           const scoreColor = getRelationshipScoreColor(contact.relationship_score);
@@ -80,18 +84,18 @@ export const ContactList: React.FC<ContactListProps> = ({ contacts, onContactCli
             <button
               key={contact.id}
               onClick={() => onContactClick(contact)}
-              className="w-full flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors text-left"
+              className="w-full flex items-center gap-4 p-5 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors text-left"
             >
               {/* Rank or Avatar */}
               <div className="flex-shrink-0">
                 {showRank ? (
-                  <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                    <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
+                  <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                    <span className="text-base font-bold text-purple-700 dark:text-purple-300">
                       #{index + 1}
                     </span>
                   </div>
                 ) : (
-                  <div className="w-10 h-10 rounded-full bg-gray-400 flex items-center justify-center text-white font-semibold">
+                  <div className="w-12 h-12 rounded-full bg-gray-400 flex items-center justify-center text-white font-semibold">
                     {contact.name?.charAt(0).toUpperCase() || contact.email_address.charAt(0).toUpperCase()}
                   </div>
                 )}
