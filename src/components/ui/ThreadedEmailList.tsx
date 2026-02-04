@@ -161,13 +161,16 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
     // Check if all emails in this thread are selected
     const allSelected = thread.every((email: any) => isEmailSelected(email.id));
+    console.log('[handleThreadHeaderClick] emailId:', emailId, 'threadId:', threadId, 'allSelected:', allSelected, 'thread.length:', thread.length);
 
     // Check if any email in this thread is focused
     const isThreadFocused = thread.some((e: any) => e.id === focusedEmailId);
+    console.log('[handleThreadHeaderClick] isThreadFocused:', isThreadFocused, 'focusedEmailId:', focusedEmailId);
 
     if (allSelected) {
       // All emails are selected - deselect all regardless of focus
       const threadIds = thread.map((e: any) => e.id);
+      console.log('[handleThreadHeaderClick] deselecting threadIds:', threadIds);
       deselectMultipleEmails(threadIds);
       // Also focus this thread
       onEmailSelect(emailId);
@@ -199,15 +202,18 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   // Handle strip click - selects all emails in the thread
   const handleStripClick = useCallback((emailId: string, threadId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    console.log('[handleStripClick] emailId:', emailId, 'threadId:', threadId);
     // Select all emails in the thread
     const thread = threadGroups.get(threadId);
     if (thread) {
       const selectedCount = Array.from(thread).filter((e: any) => isEmailSelected(e.id)).length;
       const allSelected = selectedCount === thread.length;
+      console.log('[handleStripClick] selectedCount:', selectedCount, 'thread.length:', thread.length, 'allSelected:', allSelected);
 
       if (allSelected && selectedCount > 0) {
         // Deselect all in thread
         const threadIds = thread.map((e: any) => e.id);
+        console.log('[handleStripClick] deselecting threadIds:', threadIds);
         deselectMultipleEmails(threadIds);
       } else {
         // Select all in thread

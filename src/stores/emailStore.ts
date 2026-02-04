@@ -1416,7 +1416,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   deselectMultipleEmails: (emailIds: string[]) => {
     const state = get();
     const newSelection = new Set(state.selectedEmailIds);
+    console.log('[deselectMultipleEmails] input emailIds:', emailIds);
+    console.log('[deselectMultipleEmails] current selectedEmailIds:', Array.from(state.selectedEmailIds));
     emailIds.forEach(id => newSelection.delete(id));
+    console.log('[deselectMultipleEmails] newSelection after delete:', Array.from(newSelection));
     set({
       selectedEmailIds: newSelection,
       isSelectMode: newSelection.size > 0,
