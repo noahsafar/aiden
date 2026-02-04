@@ -72,6 +72,7 @@ export const NetworkGraph: React.FC = () => {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [minEmails, setMinEmails] = useState(3);
   const [isLoading, setIsLoading] = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
   const convertToReactFlow = useCallback((data: typeof networkData) => {
     if (!data) return { nodes: [], edges: [] };
@@ -110,16 +111,34 @@ export const NetworkGraph: React.FC = () => {
     }
   }, []);
 
+  // Initialize nodes/edges when network data first loads
   useEffect(() => {
-    if (networkData) {
+    if (networkData && !initialized) {
       const { nodes: flowNodes, edges: flowEdges } = convertToReactFlow(networkData);
       setNodes(flowNodes);
       setEdges(flowEdges);
+      setInitialized(true);
     }
-  }, [networkData, selectedNode, convertToReactFlow, setNodes, setEdges]);
+  }, [networkData, initialized, convertToReactFlow, setNodes, setEdges]);
+
+  // Update only the selected state without changing positions
+  useEffect(() => {
+    if (initialized) {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            selected: node.id === selectedNode,
+          },
+        }))
+      );
+    }
+  }, [selectedNode, initialized, setNodes]);
 
   const handleRefresh = async () => {
     setIsLoading(true);
+    setInitialized(false);
     await fetchNetworkData(minEmails, 50);
     setIsLoading(false);
   };
