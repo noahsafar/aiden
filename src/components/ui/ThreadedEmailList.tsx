@@ -105,7 +105,9 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
   // Group emails by thread
   const threadGroups = useMemo(() => {
-    return groupEmailsByThread(emails);
+    const groups = groupEmailsByThread(emails);
+    console.log('[threadGroups] groups:', Array.from(groups.entries()).map(([tid, emails]) => [tid, emails.map((e: any) => e.id)]));
+    return groups;
   }, [emails, groupEmailsByThread]);
 
   // Convert to array and sort by most recent email in each thread
@@ -157,9 +159,16 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     }
 
     const thread = threadGroups.get(threadId);
-    if (!thread) return;
+    if (!thread) {
+      console.log('[handleThreadHeaderClick] NO THREAD FOUND for threadId:', threadId);
+      return;
+    }
+
+    console.log('[handleThreadHeaderClick] thread emails:', thread.map((e: any) => e.id));
 
     // Check if all emails in this thread are selected
+    const selectionStatus = thread.map((e: any) => ({ id: e.id, selected: isEmailSelected(e.id) }));
+    console.log('[handleThreadHeaderClick] selectionStatus:', selectionStatus);
     const allSelected = thread.every((email: any) => isEmailSelected(email.id));
     console.log('[handleThreadHeaderClick] emailId:', emailId, 'threadId:', threadId, 'allSelected:', allSelected, 'thread.length:', thread.length);
 
