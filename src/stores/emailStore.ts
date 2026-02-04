@@ -1350,20 +1350,27 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           // Exclude archived and saved
           if (e.status === 'Archived' || e.status === 'Saved') return false;
 
-          // Always show Urgent category
-          if (e.category === 'Urgent') return true;
-
-          // Check AI analysis - only show if explicitly requires action
+          // Check AI analysis for more precise filtering
+          let requiresReply: boolean | null = null;
           if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
             const data = (window as any).emailQuestionData.get(e.id);
             if (data?.loaded) {
-              // Only show if requiresReply is explicitly true (exclude FYI emails)
-              return data.requiresReply === true;
+              requiresReply = data.requiresReply === true;
             }
           }
 
-          // Fallback: Only show Important category (not Normal or Low)
-          return e.category === 'Important';
+          // Show if AI has determined it requires reply
+          if (requiresReply === true) return true;
+          // Explicitly exclude if AI says no reply needed (FYI)
+          if (requiresReply === false) return false;
+
+          // Before AI analysis completes, include based on category
+          // Always show Urgent and Important categories
+          if (e.category === 'Urgent' || e.category === 'Important') return true;
+
+          // Exclude Normal and Low categories when AI hasn't analyzed yet
+          // (they'll appear if AI later determines they require action)
+          return false;
         });
         break;
       default:

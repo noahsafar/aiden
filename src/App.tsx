@@ -86,13 +86,15 @@ function App() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
-  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode } = useEmailStore();
+  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
 
   // Animation state for focused view
   const [isAnimatingToFocused, setIsAnimatingToFocused] = useState(false);
   const [animationPhase, setAnimationPhase] = useState<'idle' | 'slideLeft' | 'expand'>('idle');
   const [isClosingAnimation, setIsClosingAnimation] = useState(false);
+  // Focus mode toggle - separate from currentFilter so inbox stays highlighted
+  const [isFocusMode, setIsFocusMode] = useState(false);
   const [analysisPanelHeight, setAnalysisPanelHeight] = useState(0);
   const [emailPanelTopPosition, setEmailPanelTopPosition] = useState<number | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
@@ -198,22 +200,32 @@ function App() {
             if (currentFilter === 'archived') {
               return email.status === 'Archived';
             }
-            // For Focus mode, show only important/action-required emails (exclude FYI)
-            if (currentFilter === 'focus') {
+            // For Focus mode (only applies to inbox), show only important/action-required emails (exclude FYI)
+            if (isFocusMode && currentFilter === 'inbox') {
               // Exclude archived and saved
               if (email.status === 'Archived' || email.status === 'Saved') return false;
-              // Always show Urgent category
-              if (email.category === 'Urgent') return true;
-              // Check AI analysis - only show if explicitly requires action
+
+              // Check AI analysis for more precise filtering
+              let requiresReply: boolean | null = null;
               if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
                 const data = (window as any).emailQuestionData.get(email.id);
                 if (data?.loaded) {
-                  // Only show if requiresReply is explicitly true (exclude FYI emails)
-                  return data.requiresReply === true;
+                  requiresReply = data.requiresReply === true;
                 }
               }
-              // Fallback: Only show Important category (not Normal or Low)
-              return email.category === 'Important';
+
+              // Show if AI has determined it requires reply
+              if (requiresReply === true) return true;
+              // Explicitly exclude if AI says no reply needed (FYI)
+              if (requiresReply === false) return false;
+
+              // Before AI analysis completes, include based on category
+              // Always show Urgent and Important categories
+              if (email.category === 'Urgent' || email.category === 'Important') return true;
+
+              // Exclude Normal and Low categories when AI hasn't analyzed yet
+              // (they'll appear if AI later determines they require action)
+              return false;
             }
             // For inbox, exclude saved/archived
             return email.status !== 'Archived' && email.status !== 'Saved';
@@ -239,7 +251,7 @@ function App() {
       // Sort by date (newest first)
       return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }
-  }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI, sortMode]
+  }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI, sortMode, isFocusMode]
   );
 
   // Calculate actual inbox count (emails not archived/saved/deleted)
@@ -653,7 +665,7 @@ function App() {
                         {currentFilter === 'sent' ? 'No sent emails yet' :
                          currentFilter === 'saved' ? 'No saved emails yet' :
                          currentFilter === 'archived' ? 'No archived emails yet' :
-                         currentFilter === 'focus' ? 'No action-required emails' :
+                         isFocusMode && currentFilter === 'inbox' ? 'No action-required emails' :
                          'No new emails yet'}
                       </h3>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -663,7 +675,7 @@ function App() {
                           ? 'Emails you bookmark will appear here.'
                           : currentFilter === 'archived'
                           ? 'Emails you archive will appear here.'
-                          : currentFilter === 'focus'
+                          : isFocusMode && currentFilter === 'inbox'
                           ? 'Emails requiring action will appear here.'
                           : 'Emails that arrive will appear here.'}
                       </p>
@@ -672,13 +684,13 @@ function App() {
                     <div className="h-full flex flex-col">
                       {/* Sort and view mode toggle - only show for non-triage views */}
                       {currentFilter !== 'triage' && (
-                        <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                          <div className="flex items-center justify-center gap-3">
+                        <div className="px-2 py-2 border-b border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center justify-center gap-1 flex-wrap">
                             {/* Sort options */}
                             <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
                               <button
                                 onClick={() => setSortMode('date')}
-                                className={`px-2.5 py-1 text-xs rounded flex items-center gap-1.5 transition-colors ${
+                                className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
                                   sortMode === 'date'
                                     ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -686,11 +698,11 @@ function App() {
                                 title="Sort by date"
                               >
                                 <ArrowDownAZ className="w-3 h-3" />
-                                <span>Date</span>
+                                <span className="hidden sm:inline">Date</span>
                               </button>
                               <button
                                 onClick={() => setSortMode('importance')}
-                                className={`px-2.5 py-1 text-xs rounded flex items-center gap-1.5 transition-colors ${
+                                className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
                                   sortMode === 'importance'
                                     ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -698,14 +710,14 @@ function App() {
                                 title="Sort by importance"
                               >
                                 <Signal className="w-3 h-3" />
-                                <span>Importance</span>
+                                <span className="hidden sm:inline">Importance</span>
                               </button>
                             </div>
                             {/* View options */}
                             <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
                               <button
                                 onClick={() => setViewMode('individual')}
-                                className={`px-2.5 py-1 text-xs rounded flex items-center gap-1.5 transition-colors ${
+                                className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
                                   viewMode === 'individual'
                                     ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -713,11 +725,11 @@ function App() {
                                 title="List view"
                               >
                                 <Mail className="w-3 h-3" />
-                                <span>List</span>
+                                <span className="hidden sm:inline">List</span>
                               </button>
                               <button
                                 onClick={() => setViewMode('threaded')}
-                                className={`px-2.5 py-1 text-xs rounded flex items-center gap-1.5 transition-colors ${
+                                className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
                                   viewMode === 'threaded'
                                     ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
@@ -725,29 +737,21 @@ function App() {
                                 title="Threaded view"
                               >
                                 <MessageSquare className="w-3 h-3" />
-                                <span>Thread</span>
+                                <span className="hidden sm:inline">Thread</span>
                               </button>
                             </div>
-                            {/* Focus Mode button */}
+                            {/* Focus Mode button - only show in inbox */}
                             {currentFilter === 'inbox' && (
                               <button
-                                onClick={() => setCurrentFilter('focus')}
-                                className="px-2.5 py-1 text-xs rounded flex items-center gap-1.5 transition-colors bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/50"
+                                onClick={() => setIsFocusMode(!isFocusMode)}
+                                className={`p-1 text-xs rounded flex items-center justify-center transition-colors cursor-pointer ${
+                                  isFocusMode
+                                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                                }`}
                                 title="Focus Mode - only important emails"
                               >
-                                <Target className="w-3 h-3" />
-                                <span>Focus</span>
-                              </button>
-                            )}
-                            {/* Back to inbox button in Focus Mode */}
-                            {currentFilter === 'focus' && (
-                              <button
-                                onClick={() => setCurrentFilter('inbox')}
-                                className="px-2.5 py-1 text-xs rounded flex items-center gap-1.5 transition-colors bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-                                title="Back to inbox"
-                              >
-                                <MessageSquare className="w-3 h-3" />
-                                <span>Inbox</span>
+                                <Target className="w-3.5 h-3.5" />
                               </button>
                             )}
                           </div>
