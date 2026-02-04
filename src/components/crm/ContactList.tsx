@@ -64,12 +64,12 @@ export const ContactList: React.FC<ContactListProps> = ({ contacts, onContactCli
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-          {showRank ? 'Top Contacts' : 'All Contacts'}
-        </h2>
-        <span className="text-sm text-gray-500">{contacts.length} contacts</span>
-      </div>
+      {!showRank && (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">All Contacts</h2>
+          <span className="text-sm text-gray-500">{contacts.length} contacts</span>
+        </div>
+      )}
 
       <div className="space-y-2">
         {contacts.map((contact, index) => {
