@@ -232,7 +232,7 @@ export const ResponseTimeAnalytics: React.FC = () => {
                   key={contact.id}
                   className="flex items-center gap-3 p-2 bg-white dark:bg-gray-700 rounded-lg"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gradient-br from-green-500 to-emerald-500 flex items-center justify-center text-white text-xs font-bold">
+                  <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-white text-xs font-bold">
                     {contact.name?.charAt(0).toUpperCase() || contact.email_address.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -270,7 +270,7 @@ export const ResponseTimeAnalytics: React.FC = () => {
                   key={contact.id}
                   className="flex items-center gap-3 p-2 bg-white dark:bg-gray-700 rounded-lg"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gradient-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
+                  <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-white text-xs font-bold">
                     {contact.name?.charAt(0).toUpperCase() || contact.email_address.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
