@@ -5,7 +5,6 @@ import {
   AlertCircle,
   Mail,
   Calendar,
-  User,
   Send,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -28,7 +27,7 @@ export const StaleContacts: React.FC<StaleContactsProps> = ({ onContactClick }) 
   ).sort((a, b) => (b.days_since_contact || 0) - (a.days_since_contact || 0));
 
   const getUrgencyLevel = (days?: number) => {
-    if (!days) return 'none';
+    if (!days) return { level: 'none', color: 'text-gray-600', bg: 'bg-gray-100 dark:bg-gray-900/30' };
     if (days > 90) return { level: 'critical', color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30' };
     if (days > 60) return { level: 'high', color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30' };
     if (days > 30) return { level: 'medium', color: 'text-yellow-600', bg: 'bg-yellow-100 dark:bg-yellow-900/30' };
