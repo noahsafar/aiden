@@ -505,6 +505,9 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                 allSelected ? 'border-purple-400 dark:border-purple-500 ring-2 ring-purple-200 dark:ring-purple-900' :
                 isSelected ? 'border-blue-500 dark:border-blue-400' : 'border-gray-200 dark:border-gray-700'
               }`}
+              onClick={(e) => {
+                console.log('[Thread container onClick] threadId:', threadId, 'allSelected:', allSelected, 'target:', e.target);
+              }}
             >
               {/* Thread header - always visible */}
               <div
