@@ -191,7 +191,7 @@ export const EmailHeatmap: React.FC = () => {
         {/* Heatmap Grid */}
         <div className="flex gap-4">
           {/* Day labels */}
-          <div className="flex flex-col justify-around py-2">
+          <div className="flex flex-col justify-around">
             {days.map(day => (
               <div key={day} className="h-6 text-xs text-gray-500 flex items-center">
                 {day}
