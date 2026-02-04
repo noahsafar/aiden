@@ -126,7 +126,8 @@ export const StaleContacts: React.FC<StaleContactsProps> = ({ onContactClick }) 
             return (
               <div
                 key={contact.id}
-                className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                onClick={() => onContactClick(contact)}
+                className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
               >
                 <div className="flex items-start gap-4">
                   {/* Avatar */}
@@ -191,13 +192,9 @@ export const StaleContacts: React.FC<StaleContactsProps> = ({ onContactClick }) 
                     {/* Actions */}
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => onContactClick(contact)}
-                        className="px-3 py-1.5 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-lg text-sm font-medium hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors flex items-center gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                        className="px-3 py-1.5 bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
                       >
-                        <User className="h-3 w-3" />
-                        View Profile
-                      </button>
-                      <button className="px-3 py-1.5 bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center gap-1">
                         <Send className="h-3 w-3" />
                         Compose Email
                       </button>
