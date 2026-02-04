@@ -238,19 +238,24 @@ export const NetworkGraph: React.FC = () => {
             type="number"
             min="1"
             max="100"
-            value={minEmails}
-            onChange={(e) => setMinEmails(Number(e.target.value))}
+            step="1"
+            value={minEmails === 0 ? '' : minEmails}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === '') {
+                setMinEmails(0);
+              } else {
+                const num = Number(value);
+                if (num >= 1) {
+                  setMinEmails(num);
+                  setInitialized(false);
+                  fetchNetworkData(num, 50);
+                }
+              }
+            }}
+            onFocus={(e) => e.target.select()}
             className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
-          <button
-            onClick={() => {
-              setInitialized(false);
-              fetchNetworkData(minEmails, 50);
-            }}
-            className="px-3 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-lg text-sm font-medium hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
-          >
-            Apply
-          </button>
         </div>
       </div>
 
