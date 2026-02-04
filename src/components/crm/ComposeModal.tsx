@@ -71,24 +71,47 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, con
         const contactName = contact.name || contact.email_address.split('@')[0];
         const daysSinceContact = contact.days_since_contact || 0;
 
-        // Create a mock email context for the AI
-        const mockEmailBody = daysSinceContact > 30
-          ? `[No recent email - ${Math.round(daysSinceContact)} days since last contact]`
-          : '[Recent conversation context]';
+        // Build a comprehensive prompt for new email generation
+        const composePrompt = `Write a new ${formality} email to ${contactName} (${contact.email_address}).
 
-        const request = {
-          sender: contact.email_address,
-          subject: '',  // No original subject - composing new
-          body_text: mockEmailBody,
-          user_answers: [{ question: 'What do you want to say?', answer: prompt }],
-          formality_level: formality,
-          additional_context: `Writing to ${contactName} who is a ${contact.category.toLowerCase()}.` +
-            (daysSinceContact > 30 ? ` We haven't spoken in ${Math.round(daysSinceContact)} days.` : ''),
-        };
+Context:
+- They are a ${contact.category.toLowerCase()}
+- ${daysSinceContact > 30 ? `We haven't spoken in ${Math.round(daysSinceContact)} days` : 'Following up on recent conversations'}
+- Goal: ${prompt}
 
-        const response = await generateReply(request);
-        setSubject(response.subject);
-        setBody(response.reply);
+Requirements:
+- Generate an appropriate subject line (do NOT use "Re:" prefix - this is a new email)
+- Write a ${formality} email body
+- Be concise and natural
+- Return ONLY a JSON object with "subject" and "body" fields
+
+Format:
+{
+  "subject": "Appropriate subject line here",
+  "body": "Email body here..."
+}`;
+
+        // Use editReply with an empty message to generate from scratch
+        const generated = await editReply('', composePrompt);
+
+        // Try to parse JSON from the response
+        let parsedResult;
+        try {
+          // Look for JSON in the response
+          const jsonMatch = generated.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            parsedResult = JSON.parse(jsonMatch[0]);
+            setSubject(parsedResult.subject || '');
+            setBody(parsedResult.body || generated);
+          } else {
+            // Fallback: put everything in body if no JSON found
+            setBody(generated);
+          }
+        } catch {
+          // If JSON parsing fails, put everything in body
+          setBody(generated);
+        }
+
         setShowAiPrompts(false);
       } catch (error) {
         console.error('Failed to generate email:', error);
