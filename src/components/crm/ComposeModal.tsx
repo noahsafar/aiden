@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Send, Sparkles, Loader2, ChevronDown } from 'lucide-react';
 import { Contact } from '@/stores/crmStore';
 import { useEmailStore } from '@/stores/emailStore';
-import { editReply } from '@/api/claude';
+import { generateReply, editReply } from '@/api/claude';
 
 interface ComposeModalProps {
   isOpen: boolean;
@@ -69,17 +69,26 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, con
       setIsGenerating(true);
       try {
         const contactName = contact.name || contact.email_address.split('@')[0];
-        const category = contact.category.toLowerCase();
         const daysSinceContact = contact.days_since_contact || 0;
 
-        const fullPrompt = `Write a ${formality} email to ${contactName} (${category}). ${
-          daysSinceContact > 30
-            ? `We haven't spoken in ${Math.round(daysSinceContact)} days.`
-            : 'Following up on our recent conversation.'
-        } ${prompt}`;
+        // Create a mock email context for the AI
+        const mockEmailBody = daysSinceContact > 30
+          ? `[No recent email - ${Math.round(daysSinceContact)} days since last contact]`
+          : '[Recent conversation context]';
 
-        const generated = await editReply('', fullPrompt);
-        setBody(generated);
+        const request = {
+          sender: contact.email_address,
+          subject: '',  // No original subject - composing new
+          body_text: mockEmailBody,
+          user_answers: [{ question: 'What do you want to say?', answer: prompt }],
+          formality_level: formality,
+          additional_context: `Writing to ${contactName} who is a ${contact.category.toLowerCase()}.` +
+            (daysSinceContact > 30 ? ` We haven't spoken in ${Math.round(daysSinceContact)} days.` : ''),
+        };
+
+        const response = await generateReply(request);
+        setSubject(response.subject);
+        setBody(response.reply);
         setShowAiPrompts(false);
       } catch (error) {
         console.error('Failed to generate email:', error);
