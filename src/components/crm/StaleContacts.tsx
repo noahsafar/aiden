@@ -59,7 +59,7 @@ export const StaleContacts: React.FC<StaleContactsProps> = ({ onContactClick }) 
     return suggestions;
   };
 
-  const categories = ['Colleague', 'Client', 'Vendor', 'Friend', 'Family'] as const;
+  const categories = ['Colleague', 'Client', 'Vendor', 'Friend', 'Family', 'Other'] as const;
 
   return (
     <div className="p-6">
@@ -93,7 +93,7 @@ export const StaleContacts: React.FC<StaleContactsProps> = ({ onContactClick }) 
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-6 gap-4 mb-6">
         {categories.map(category => {
           const categoryStale = filteredStaleContacts.filter(c => c.category === category);
           return (
