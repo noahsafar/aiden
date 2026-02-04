@@ -514,7 +514,10 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                 className={`relative p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
                   hasUnread ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''
                 }`}
-                onClick={() => handleThreadHeaderClick(mostRecent.id, threadId)}
+                onClick={(e) => {
+                  console.log('[Thread header DIV onClick] called');
+                  handleThreadHeaderClick(mostRecent.id, threadId);
+                }}
               >
                 <div className="flex items-start gap-3">
                   {/* Expand/collapse button */}
