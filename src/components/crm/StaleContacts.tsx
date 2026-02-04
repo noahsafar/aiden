@@ -11,9 +11,10 @@ import { formatDistanceToNow } from 'date-fns';
 
 interface StaleContactsProps {
   onContactClick: (contact: Contact) => void;
+  onCompose: (contact: Contact) => void;
 }
 
-export const StaleContacts: React.FC<StaleContactsProps> = ({ onContactClick }) => {
+export const StaleContacts: React.FC<StaleContactsProps> = ({ onContactClick, onCompose }) => {
   const { staleContacts, fetchStaleContacts, contacts } = useCrmStore();
   const [daysThreshold, setDaysThreshold] = useState(30);
 
@@ -191,8 +192,11 @@ export const StaleContacts: React.FC<StaleContactsProps> = ({ onContactClick }) 
                     {/* Actions */}
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={(e) => e.stopPropagation()}
-                        className="px-3 py-1.5 bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCompose(contact);
+                        }}
+                        className="px-3 py-1.5 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-lg text-sm font-medium hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors flex items-center gap-1"
                       >
                         <Send className="h-3 w-3" />
                         Compose Email

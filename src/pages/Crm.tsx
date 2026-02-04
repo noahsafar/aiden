@@ -19,6 +19,7 @@ import { EmailHeatmap } from '@/components/crm/EmailHeatmap';
 import { ResponseTimeAnalytics } from '@/components/crm/ResponseTimeAnalytics';
 import { NetworkGraph } from '@/components/crm/NetworkGraph';
 import { StaleContacts } from '@/components/crm/StaleContacts';
+import { ComposeModal } from '@/components/crm/ComposeModal';
 import { Button } from '@/components/ui/Button';
 
 type CrmView = 'all' | 'top' | 'stale' | 'heatmap' | 'response' | 'network' | 'profile';
@@ -41,6 +42,7 @@ export const Crm: React.FC = () => {
   const [currentView, setCurrentView] = useState<CrmView>('all');
   const [previousView, setPreviousView] = useState<CrmView>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [composeContact, setComposeContact] = useState<Contact | null>(null);
 
   useEffect(() => {
     if (!hasExtractedContacts) {
@@ -62,6 +64,10 @@ export const Crm: React.FC = () => {
 
   const handleBack = () => {
     setCurrentView(previousView);
+  };
+
+  const handleCompose = (contact: Contact) => {
+    setComposeContact(contact);
   };
 
   const filteredContacts = contacts.filter(contact => {
@@ -201,7 +207,10 @@ export const Crm: React.FC = () => {
           )}
 
           {currentView === 'stale' && (
-            <StaleContacts onContactClick={handleContactClick} />
+            <StaleContacts
+              onContactClick={handleContactClick}
+              onCompose={handleCompose}
+            />
           )}
 
           {currentView === 'heatmap' && (
@@ -224,6 +233,15 @@ export const Crm: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Compose Modal */}
+      {composeContact && (
+        <ComposeModal
+          isOpen={!!composeContact}
+          onClose={() => setComposeContact(null)}
+          contact={composeContact}
+        />
+      )}
     </div>
   );
 };
