@@ -130,5 +130,92 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    // Create contacts table for CRM features
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS contacts (
+            id TEXT PRIMARY KEY,
+            email_address TEXT UNIQUE NOT NULL,
+            name TEXT,
+            domain TEXT,
+            first_seen INTEGER NOT NULL,
+            last_contacted INTEGER,
+            total_emails_received INTEGER NOT NULL DEFAULT 0,
+            total_emails_sent INTEGER NOT NULL DEFAULT 0,
+            total_threads INTEGER NOT NULL DEFAULT 0,
+            relationship_score REAL NOT NULL DEFAULT 0,
+            category TEXT NOT NULL DEFAULT 'Other',
+            is_vip BOOLEAN NOT NULL DEFAULT 0,
+            last_score_calculation INTEGER,
+            avg_response_time_minutes REAL,
+            last_response_time INTEGER,
+            notes TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // Create email_interactions table for analytics
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS email_interactions (
+            id TEXT PRIMARY KEY,
+            email_id TEXT NOT NULL,
+            contact_id TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            response_time_minutes INTEGER,
+            thread_depth INTEGER,
+            was_initiator BOOLEAN NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // Create contact_notes table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS contact_notes (
+            id TEXT PRIMARY KEY,
+            contact_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // Create indexes for CRM tables
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts (email_address)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_contacts_score ON contacts (relationship_score)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_contacts_last_contacted ON contacts (last_contacted)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_email_interactions_contact_timestamp ON email_interactions (contact_id, timestamp)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_email_interactions_email_id ON email_interactions (email_id)")
+        .execute(pool)
+        .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_contact_notes_contact_id ON contact_notes (contact_id)")
+        .execute(pool)
+        .await?;
+
     Ok(())
 }

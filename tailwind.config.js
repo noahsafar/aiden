@@ -132,6 +132,11 @@ export default {
         '144': '36rem',
       },
 
+      // Grid columns for heatmap
+      gridTemplateColumns: {
+        '24': 'repeat(24, minmax(0, 1fr))',
+      },
+
       // Border radius (Apple-style)
       borderRadius: {
         'none': '0',

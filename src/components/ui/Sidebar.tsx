@@ -29,6 +29,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'archived', label: 'Archive', icon: ArchiveBoxIcon },
   ] as const;
 
+  const isDashboardActive = currentFilter === 'inbox' || currentFilter === 'triage' || currentFilter === 'saved' || currentFilter === 'sent' || currentFilter === 'archived';
+
   const getFilterCount = (filterId: string) => {
     switch (filterId) {
       case 'inbox':
@@ -59,7 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={filter.id}
                 onClick={() => setCurrentFilter(filter.id as any)}
                 className={`w-full flex items-center justify-between px-2 sm:px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                  isActive
+                  (isActive && isDashboardActive)
                     ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}

@@ -11,6 +11,7 @@ import { OAuthHandler } from '@/components/OAuthHandler';
 import { TestPage } from '@/components/TestPage';
 import { Settings as SettingsPage } from '@/pages/Settings';
 import { Calendar } from '@/pages/Calendar';
+import { Crm } from '@/pages/Crm';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ToastContainer, ToastData } from '@/components/ui/Toast';
@@ -21,6 +22,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Search,
   Mail,
+  Users,
   Sparkles,
   LogOut,
   Settings as SettingsIcon,
@@ -613,6 +615,11 @@ function App() {
                 </div>
 
                 <div className="flex items-center space-x-1 flex-shrink-0">
+                  <Link to="/crm">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Relationship Intelligence">
+                      <Users className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                    </Button>
+                  </Link>
                   <Link to="/calendar">
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="Calendar">
                       <CalendarIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
@@ -1055,6 +1062,18 @@ function App() {
         element={
           isAuthenticated ? (
             <Calendar />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+
+      {/* CRM route - protected */}
+      <Route
+        path="/crm"
+        element={
+          isAuthenticated ? (
+            <Crm />
           ) : (
             <Navigate to="/login" replace />
           )

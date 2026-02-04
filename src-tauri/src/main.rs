@@ -6,7 +6,7 @@ mod models;
 mod services;
 mod utils;
 
-use commands::{auth, gmail, ai, database, settings, fs};
+use commands::{auth, gmail, ai, database, settings, fs, crm};
 use services::storage::TokenStorage;
 
 fn main() {
@@ -50,6 +50,16 @@ fn main() {
             fs::get_downloads_path,
             fs::get_platform,
             fs::open_file,
+            // CRM commands
+            crm::extract_contacts_from_emails,
+            crm::get_contacts,
+            crm::get_contact,
+            crm::update_contact_vip_status,
+            crm::update_contact_notes,
+            crm::get_contact_analytics,
+            crm::get_network_data,
+            crm::get_stale_contacts,
+            crm::get_top_contacts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

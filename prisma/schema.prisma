@@ -98,3 +98,70 @@ enum EmailCategory {
   Newsletter
   Notification
 }
+
+model Contact {
+  id                   String   @id
+  emailAddress         String   @unique
+  name                 String?
+  domain               String?
+  firstSeen            DateTime @default(now())
+  lastContacted        DateTime?
+  totalEmailsReceived  Int      @default(0)
+  totalEmailsSent      Int      @default(0)
+  totalThreads         Int      @default(0)
+  relationshipScore    Float    @default(0)
+  category             ContactCategory @default(Other)
+  isVIP                Boolean  @default(false)
+  lastScoreCalculation DateTime?
+  avgResponseTimeMinutes Float?
+  lastResponseTime     DateTime?
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("contacts")
+  @@index([emailAddress])
+  @@index([relationshipScore])
+  @@index([lastContacted])
+}
+
+model EmailInteraction {
+  id                   String   @id
+  emailId              String
+  contactId            String
+  direction            InteractionDirection
+  timestamp            DateTime
+  responseTimeMinutes  Int?
+  threadDepth          Int?
+  wasInitiator         Boolean  @default(false)
+  createdAt            DateTime @default(now())
+
+  @@map("email_interactions")
+  @@index([contactId, timestamp])
+  @@index([emailId])
+}
+
+model ContactNote {
+  id                   String   @id
+  contactId            String
+  content              String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("contact_notes")
+  @@index([contactId])
+}
+
+enum ContactCategory {
+  Colleague
+  Client
+  Vendor
+  Friend
+  Family
+  Other
+}
+
+enum InteractionDirection {
+  Incoming
+  Outgoing
+}
