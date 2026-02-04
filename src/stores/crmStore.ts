@@ -334,8 +334,19 @@ export const useCrmStore = create<CrmState>((set, get) => ({
 
   fetchNetworkData: async (minEmails = 3, limit = 50) => {
     if (USE_MOCK_DATA) {
-      // Use mock network data
-      set({ networkData: mockNetworkData });
+      // Filter mock network data by minEmails
+      const filteredNodes = mockNetworkData.nodes.filter(n => n.value >= minEmails);
+      const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+      const filteredLinks = mockNetworkData.links.filter(
+        l => filteredNodeIds.has(l.source) && filteredNodeIds.has(l.target)
+      );
+
+      set({
+        networkData: {
+          nodes: filteredNodes.slice(0, limit),
+          links: filteredLinks
+        }
+      });
       return;
     }
 
