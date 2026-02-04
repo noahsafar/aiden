@@ -4,7 +4,6 @@ import {
   Network as NetworkIcon,
   ZoomIn,
   ZoomOut,
-  RefreshCw,
   Maximize2,
 } from 'lucide-react';
 import ReactFlow, {
@@ -71,7 +70,6 @@ export const NetworkGraph: React.FC = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [minEmails, setMinEmails] = useState(3);
-  const [isLoading, setIsLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set(['Colleague', 'Client', 'Vendor', 'Friend', 'Family', 'Other']));
 
@@ -178,13 +176,6 @@ export const NetworkGraph: React.FC = () => {
     }
   }, [selectedNode, initialized, setNodes]);
 
-  const handleRefresh = async () => {
-    setIsLoading(true);
-    setInitialized(false);
-    await fetchNetworkData(minEmails, 50);
-    setIsLoading(false);
-  };
-
   const handleNodeClick = (_: React.MouseEvent, node: Node) => {
     setSelectedNode(node.id === selectedNode ? null : node.id);
   };
@@ -214,20 +205,11 @@ export const NetworkGraph: React.FC = () => {
   return (
     <div className="p-6 h-full flex flex-col">
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Network Visualization</h2>
-          <p className="text-gray-600 dark:text-gray-400 text-sm">
-            Visualize your email network - connections show shared threads between contacts.
-          </p>
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={isLoading}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-        >
-          <RefreshCw className={`h-5 w-5 text-gray-600 ${isLoading ? 'animate-spin' : ''}`} />
-        </button>
+      <div className="mb-4">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Network Visualization</h2>
+        <p className="text-gray-600 dark:text-gray-400 text-sm">
+          Visualize your email network - connections show shared threads between contacts.
+        </p>
       </div>
 
       {/* Controls */}
