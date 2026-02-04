@@ -155,23 +155,26 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
       return;
     }
 
-    if (focusedEmailId === emailId) {
-      // Already focused - select/deselect the entire thread
-      const thread = threadGroups.get(threadId);
-      if (thread) {
-        const allSelected = thread.every((email: any) => isEmailSelected(email.id));
-        if (allSelected) {
-          // Deselect all in thread
-          thread.forEach((email: any) => {
-            if (isEmailSelected(email.id)) {
-              toggleEmailSelection(email.id);
-            }
-          });
-        } else {
-          // Select all in thread
-          const threadIds = thread.map((e: any) => e.id);
-          selectMultipleEmails(threadIds);
-        }
+    const thread = threadGroups.get(threadId);
+    if (!thread) return;
+
+    // Check if any email in this thread is focused
+    const isThreadFocused = thread.some((e: any) => e.id === focusedEmailId);
+
+    if (isThreadFocused) {
+      // This thread (or an email in it) is focused - select/deselect the entire thread
+      const allSelected = thread.every((email: any) => isEmailSelected(email.id));
+      if (allSelected) {
+        // Deselect all in thread
+        thread.forEach((email: any) => {
+          if (isEmailSelected(email.id)) {
+            toggleEmailSelection(email.id);
+          }
+        });
+      } else {
+        // Select all in thread
+        const threadIds = thread.map((e: any) => e.id);
+        selectMultipleEmails(threadIds);
       }
     } else {
       // Not focused yet - just focus it
