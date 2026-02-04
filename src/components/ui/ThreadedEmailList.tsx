@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
 import {
   ChevronDown,
@@ -10,6 +10,7 @@ import {
   Bookmark,
   Archive,
   Mail,
+  ChevronUp,
 } from 'lucide-react';
 
 interface EmailQuestionData {
@@ -85,6 +86,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   sortMode = 'date',
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
+  const [shortcutsCollapsed, setShortcutsCollapsed] = useState(true);
 
   const {
     expandedThreads,
@@ -101,6 +103,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     selectedEmailIds,
     selectAllVisible,
     deselectMultipleEmails,
+    expandAllThreads,
+    collapseAllThreads,
   } = useEmailStore();
 
   // Group emails by thread
@@ -358,14 +362,25 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         return;
       }
 
-      // e to expand/collapse thread
-      if (e.key === 'e' && focusedEmailId) {
+      // e to expand/collapse thread, E to expand/collapse all threads
+      if (e.key === 'e' || e.key === 'E') {
         e.preventDefault();
-        // Find which thread the focused email belongs to
-        for (const [threadId, threadEmails] of threadGroups.entries()) {
-          if (threadEmails.some((e: any) => e.id === focusedEmailId)) {
-            toggleThreadExpanded(threadId);
-            break;
+        if (e.shiftKey) {
+          // Shift+E: expand/collapse all threads
+          if (expandedThreads.size === threadGroups.size) {
+            // All are expanded, collapse all
+            collapseAllThreads();
+          } else {
+            // Not all are expanded, expand all
+            expandAllThreads();
+          }
+        } else if (focusedEmailId) {
+          // e: toggle focused thread
+          for (const [threadId, threadEmails] of threadGroups.entries()) {
+            if (threadEmails.some((email: any) => email.id === focusedEmailId)) {
+              toggleThreadExpanded(threadId);
+              break;
+            }
           }
         }
         return;
@@ -500,24 +515,33 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
       )}
 
       {/* Keyboard shortcuts hint */}
-      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 space-y-1.5">
-        <div className="flex items-center justify-between">
-          <span className="font-medium text-gray-600 dark:text-gray-300">Thread View</span>
+      <div className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
+        <button
+          onClick={() => setShortcutsCollapsed(!shortcutsCollapsed)}
+          className="w-full px-4 py-2 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          <span className="font-medium text-gray-600 dark:text-gray-300">Thread View Shortcuts</span>
           <span className="text-purple-600 dark:text-purple-400">{sortedThreads.length} conversations</span>
-        </div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">k</kbd> <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">j</kbd> navigate</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">e</kbd> expand/collapse</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Space</kbd> select</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Enter</kbd> focused view</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">s</kbd> save email</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">S</kbd> save thread</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">a</kbd> archive email</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> archive thread</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">d</kbd> delete email</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">D</kbd> delete thread</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> select all</span>
-        </div>
+        </button>
+        {!shortcutsCollapsed && (
+          <div className="px-4 pb-3 space-y-1.5">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">k</kbd> <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">j</kbd> navigate</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Enter</kbd> focused view</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Space</kbd> select</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> select all</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">s</kbd> save email</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">S</kbd> save thread</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">a</kbd> archive email</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> archive thread</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">d</kbd> delete email</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">D</kbd> delete thread</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">e</kbd> expand thread</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">E</kbd> expand all</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Esc</kbd> clear selection</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Thread list */}
