@@ -178,16 +178,22 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
   // Handle individual email click in expanded view - selects just that email
   const handleIndividualEmailClick = useCallback((emailId: string) => {
-    if (isSelectMode) {
+    const currentSelection = useEmailStore.getState().selectedEmailIds;
+    const emailIsSelected = currentSelection.has(emailId);
+    const isFocused = focusedEmailId === emailId;
+    const hasExistingSelection = currentSelection.size > 0;
+
+    if (emailIsSelected) {
+      // Email is selected - deselect it
       toggleEmailSelection(emailId);
-    } else if (focusedEmailId === emailId) {
-      // If clicking on already focused email, toggle selection
+    } else if (isFocused || hasExistingSelection) {
+      // Email is focused OR there's existing selection - select it
       toggleEmailSelection(emailId);
-    } else {
-      onEmailSelect(emailId);
-      onFocusEmail(emailId);
     }
-  }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail, focusedEmailId]);
+    // Always focus the clicked email
+    onEmailSelect(emailId);
+    onFocusEmail(emailId);
+  }, [focusedEmailId, onEmailSelect, onFocusEmail, toggleEmailSelection]);
 
   // Handle thread strip click - toggles selection of all emails in the thread
   const handleThreadStripClick = useCallback((threadId: string, threadEmails: any[], e: React.MouseEvent) => {
@@ -477,7 +483,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
           return (
             <div
               key={threadId}
-              className={`bg-surface dark:bg-gray-800 border rounded-lg overflow-hidden transition-all ${
+              className={`bg-surface dark:bg-gray-800 border rounded-lg overflow-hidden transition-all relative ${
                 allSelected ? 'border-purple-400 dark:border-purple-500 ring-2 ring-purple-200 dark:ring-purple-900' :
                 isSelected ? 'border-blue-500 dark:border-blue-400' : 'border-gray-200 dark:border-gray-700'
               }`}
@@ -485,11 +491,15 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                 console.log('[Thread container onClick] threadId:', threadId, 'allSelected:', allSelected, 'target:', e.target);
               }}
             >
+              {/* Full-height selection strip when all emails are selected */}
+              {allSelected && (
+                <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-purple-500 rounded-l-lg" />
+              )}
               {/* Thread header - always visible */}
               <div
-                className={`relative p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-                  hasUnread ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''
-                }`}
+                className={`relative p-3 cursor-pointer transition-colors ${
+                  hasUnread && !allSelected ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''
+                } ${!allSelected ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleThreadHeaderClick(mostRecent.id, threadId, threadEmails);
@@ -566,13 +576,15 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                     </div>
                   </div>
 
-                  {/* Selection strip */}
-                  <div
-                    className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-lg transition-all cursor-pointer ${
-                      isEmailSelected(mostRecent.id) ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
-                    }`}
-                    onClick={(e) => handleThreadStripClick(threadId, threadEmails, e)}
-                  />
+                  {/* Selection strip - hide when all selected (full-height strip covers entire thread) */}
+                  {!allSelected && (
+                    <div
+                      className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-lg transition-all cursor-pointer ${
+                        isEmailSelected(mostRecent.id) ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
+                      }`}
+                      onClick={(e) => handleThreadStripClick(threadId, threadEmails, e)}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -583,17 +595,19 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                     const isLast = index === threadEmails.length - 1;
                     const emailIsSelected = isEmailSelected(email.id);
                     const isFocused = focusedEmailId === email.id;
+                    // Don't show individual purple highlight if all emails are selected (whole card is purple)
+                    const showIndividualHighlight = emailIsSelected && !allSelected;
 
                     return (
                       <div
                         key={email.id}
                         id={`threaded-email-item-${email.id}`}
-                        className={`p-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors border-l-2 ${
+                        className={`p-3 ${allSelected ? '' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'} cursor-pointer transition-colors border-l-2 ${
                           !email.is_read ? 'bg-blue-50/20 dark:bg-blue-900/5' : ''
                         } ${email.id === selectedEmailId ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${
                           isFocused ? 'bg-gray-100 dark:bg-gray-800/50' : ''
                         } ${
-                          emailIsSelected ? 'border-purple-500 bg-purple-50/50 dark:bg-purple-900/20' : 'border-transparent'
+                          showIndividualHighlight ? 'border-purple-500 bg-purple-50/50 dark:bg-purple-900/20' : 'border-transparent'
                         }`}
                         onClick={() => handleIndividualEmailClick(email.id)}
                       >
@@ -638,13 +652,15 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                             )}
                           </div>
 
-                          {/* Selection strip for individual email in thread */}
-                          <div
-                            className={`w-1 rounded transition-all cursor-pointer ${
-                              emailIsSelected ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
-                            }`}
-                            onClick={(e) => handleIndividualStripClick(email.id, e)}
-                          />
+                          {/* Selection strip for individual email in thread - hide when all selected */}
+                          {!allSelected && (
+                            <div
+                              className={`w-1 rounded transition-all cursor-pointer ${
+                                showIndividualHighlight ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
+                              }`}
+                              onClick={(e) => handleIndividualStripClick(email.id, e)}
+                            />
+                          )}
                         </div>
                       </div>
                     );
