@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Send, Sparkles, Loader2, ChevronDown } from 'lucide-react';
 import { Contact } from '@/stores/crmStore';
 import { useEmailStore } from '@/stores/emailStore';
+import { useAuthStore } from '@/stores/authStore';
 import { generateReply, editReply } from '@/api/claude';
 
 interface ComposeModalProps {
@@ -37,6 +38,8 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, con
   const [customPrompt, setCustomPrompt] = useState('');
 
   const { sendEmail } = useEmailStore();
+  const { user } = useAuthStore();
+  const userName = user?.name || 'Your Name';
 
   // Reset form when modal opens with new contact
   useEffect(() => {
@@ -77,12 +80,14 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, con
 Context:
 - They are a ${contact.category.toLowerCase()}
 - ${daysSinceContact > 30 ? `We haven't spoken in ${Math.round(daysSinceContact)} days` : 'Following up on recent conversations'}
+- My name is ${userName} - sign off with "${formality === 'formal' ? 'Best regards' : formality === 'casual' ? 'Best' : 'Best'}, ${userName}"
 - Goal: ${prompt}
 
 Requirements:
 - Generate an appropriate subject line (do NOT use "Re:" prefix - this is a new email)
 - Write a ${formality} email body
 - Be concise and natural
+- Sign off with my actual name "${userName}", not "[Your Name]" or a placeholder
 - Return ONLY a JSON object with "subject" and "body" fields
 
 Format:
