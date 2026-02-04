@@ -151,49 +151,30 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     toggleThreadExpanded(threadId);
   }, [toggleThreadExpanded]);
 
-  // Handle thread header click - focuses email, selects only if already focused
-  const handleThreadHeaderClick = useCallback((emailId: string, threadId: string) => {
-    if (isSelectMode) {
-      toggleEmailSelection(emailId);
-      return;
-    }
-
-    const thread = threadGroups.get(threadId);
-    if (!thread) {
-      console.log('[handleThreadHeaderClick] NO THREAD FOUND for threadId:', threadId);
-      return;
-    }
-
-    console.log('[handleThreadHeaderClick] thread emails:', thread.map((e: any) => e.id));
-
+  // Handle thread header click
+  const handleThreadHeaderClick = useCallback((emailId: string, threadId: string, threadEmails: any[]) => {
     // Check if all emails in this thread are selected
-    const selectionStatus = thread.map((e: any) => ({ id: e.id, selected: isEmailSelected(e.id) }));
-    console.log('[handleThreadHeaderClick] selectionStatus:', selectionStatus);
-    const allSelected = thread.every((email: any) => isEmailSelected(email.id));
-    console.log('[handleThreadHeaderClick] emailId:', emailId, 'threadId:', threadId, 'allSelected:', allSelected, 'thread.length:', thread.length);
-
-    // Check if any email in this thread is focused
-    const isThreadFocused = thread.some((e: any) => e.id === focusedEmailId);
-    console.log('[handleThreadHeaderClick] isThreadFocused:', isThreadFocused, 'focusedEmailId:', focusedEmailId);
+    const currentSelection = useEmailStore.getState().selectedEmailIds;
+    const allSelected = threadEmails.every((email: any) => currentSelection.has(email.id));
+    const isThreadFocused = threadEmails.some((e: any) => e.id === focusedEmailId);
+    const hasExistingSelection = currentSelection.size > 0;
 
     if (allSelected) {
-      // All emails are selected - deselect all regardless of focus
-      const threadIds = thread.map((e: any) => e.id);
-      console.log('[handleThreadHeaderClick] deselecting threadIds:', threadIds);
-      deselectMultipleEmails(threadIds);
-      // Also focus this thread
+      // Thread is selected - deselect all emails in thread
+      deselectMultipleEmails(threadEmails.map((e: any) => e.id));
       onEmailSelect(emailId);
       onFocusEmail(emailId);
-    } else if (isThreadFocused) {
-      // Thread is focused but not all selected - select all
-      const threadIds = thread.map((e: any) => e.id);
-      selectMultipleEmails(threadIds);
+    } else if (isThreadFocused || hasExistingSelection) {
+      // Thread is focused OR there's already a selection - select all emails in thread
+      selectMultipleEmails(threadEmails.map((e: any) => e.id));
+      onEmailSelect(emailId);
+      onFocusEmail(emailId);
     } else {
-      // Not focused yet and not all selected - just focus it
+      // Not focused and no existing selection - just focus it (don't select)
       onEmailSelect(emailId);
       onFocusEmail(emailId);
     }
-  }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail, focusedEmailId, threadGroups, isEmailSelected, selectMultipleEmails, deselectMultipleEmails]);
+  }, [onEmailSelect, onFocusEmail, focusedEmailId, selectMultipleEmails, deselectMultipleEmails]);
 
   // Handle individual email click in expanded view - selects just that email
   const handleIndividualEmailClick = useCallback((emailId: string) => {
@@ -208,29 +189,24 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     }
   }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail, focusedEmailId]);
 
-  // Handle strip click - selects all emails in the thread
-  const handleStripClick = useCallback((emailId: string, threadId: string, e: React.MouseEvent) => {
+  // Handle thread strip click - toggles selection of all emails in the thread
+  const handleThreadStripClick = useCallback((threadId: string, threadEmails: any[], e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log('[handleStripClick] emailId:', emailId, 'threadId:', threadId);
-    // Select all emails in the thread
-    const thread = threadGroups.get(threadId);
-    if (thread) {
-      const selectedCount = Array.from(thread).filter((e: any) => isEmailSelected(e.id)).length;
-      const allSelected = selectedCount === thread.length;
-      console.log('[handleStripClick] selectedCount:', selectedCount, 'thread.length:', thread.length, 'allSelected:', allSelected);
+    const currentSelection = useEmailStore.getState().selectedEmailIds;
+    const allSelected = threadEmails.every((email: any) => currentSelection.has(email.id));
 
-      if (allSelected && selectedCount > 0) {
-        // Deselect all in thread
-        const threadIds = thread.map((e: any) => e.id);
-        console.log('[handleStripClick] deselecting threadIds:', threadIds);
-        deselectMultipleEmails(threadIds);
-      } else {
-        // Select all in thread
-        const threadIds = thread.map((e: any) => e.id);
-        selectMultipleEmails(threadIds);
-      }
+    if (allSelected) {
+      deselectMultipleEmails(threadEmails.map((e: any) => e.id));
+    } else {
+      selectMultipleEmails(threadEmails.map((e: any) => e.id));
     }
-  }, [threadGroups, isEmailSelected, deselectMultipleEmails, selectMultipleEmails]);
+  }, [selectMultipleEmails, deselectMultipleEmails]);
+
+  // Handle individual email strip click - toggles selection of just that email
+  const handleIndividualStripClick = useCallback((emailId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    toggleEmailSelection(emailId);
+  }, [toggleEmailSelection]);
 
   // Bulk action handlers
   const handleBulkAction = useCallback(async (action: string) => {
@@ -515,9 +491,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                   hasUnread ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''
                 }`}
                 onClick={(e) => {
-                  console.log('[Thread header DIV onClick] called, mostRecent.id:', mostRecent.id, 'threadId:', threadId);
-                  handleThreadHeaderClick(mostRecent.id, threadId);
                   e.stopPropagation();
+                  handleThreadHeaderClick(mostRecent.id, threadId, threadEmails);
                 }}
               >
                 <div className="flex items-start gap-3">
@@ -596,7 +571,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                     className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-lg transition-all cursor-pointer ${
                       isEmailSelected(mostRecent.id) ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
                     }`}
-                    onClick={(e) => handleStripClick(mostRecent.id, threadId, e)}
+                    onClick={(e) => handleThreadStripClick(threadId, threadEmails, e)}
                   />
                 </div>
               </div>
@@ -668,7 +643,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                             className={`w-1 rounded transition-all cursor-pointer ${
                               emailIsSelected ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
                             }`}
-                            onClick={(e) => handleStripClick(email.id, threadId, e)}
+                            onClick={(e) => handleIndividualStripClick(email.id, e)}
                           />
                         </div>
                       </div>

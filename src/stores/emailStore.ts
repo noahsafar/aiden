@@ -1407,8 +1407,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   },
 
   selectMultipleEmails: (emailIds: string[]) => {
+    const state = get();
+    const newSelection = new Set(state.selectedEmailIds);
+    emailIds.forEach(id => newSelection.add(id));
     set({
-      selectedEmailIds: new Set(emailIds),
+      selectedEmailIds: newSelection,
       isSelectMode: true,
     });
   },
