@@ -165,8 +165,8 @@ export const StaleContacts: React.FC<StaleContactsProps> = ({ onContactClick }) 
 
                     {/* Message */}
                     {contact.days_since_contact && contact.days_since_contact > 30 && (
-                      <div className="flex items-start gap-2 p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg mb-3">
-                        <AlertCircle className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg mb-3">
+                        <AlertCircle className="h-4 w-4 text-orange-600 flex-shrink-0" />
                         <p className="text-sm text-orange-800 dark:text-orange-300">
                           {getUrgencyMessage(contact.days_since_contact, contact.name)}
                         </p>
