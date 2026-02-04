@@ -91,7 +91,7 @@ export const ContactList: React.FC<ContactListProps> = ({ contacts, onContactCli
                     </span>
                   </div>
                 ) : (
-                  <div className="w-10 h-10 rounded-full bg-gradient-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center text-white font-semibold">
                     {contact.name?.charAt(0).toUpperCase() || contact.email_address.charAt(0).toUpperCase()}
                   </div>
                 )}
