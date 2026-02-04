@@ -77,18 +77,48 @@ export const NetworkGraph: React.FC = () => {
   const convertToReactFlow = useCallback((data: typeof networkData) => {
     if (!data) return { nodes: [], edges: [] };
 
-    const flowNodes: Node[] = data.nodes.map(node => ({
-      id: node.id,
-      type: 'contact',
-      position: {
+    // Calculate positions based on relationship score (radial layout)
+    // High score = closer to center, low score = outer edges
+    const centerX = 500;
+    const centerY = 350;
+    const baseRadius = 100;
+    const maxRadius = 350;
+
+    // Sort nodes by score (highest first for center positioning)
+    const sortedNodes = [...data.nodes].sort((a, b) => b.score - a.score);
+
+    const nodePositions = new Map<string, { x: number; y: number }>();
+
+    sortedNodes.forEach((node, index) => {
+      // Calculate radius based on score (higher score = closer to center)
+      const scoreRatio = node.score / 100; // 0 to 1
+      const radius = baseRadius + (maxRadius - baseRadius) * (1 - scoreRatio);
+
+      // Calculate angle - distribute evenly around the circle
+      const angle = (index / sortedNodes.length) * 2 * Math.PI;
+
+      nodePositions.set(node.id, {
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle),
+      });
+    });
+
+    const flowNodes: Node[] = data.nodes.map(node => {
+      const position = nodePositions.get(node.id) || {
         x: Math.random() * 800,
         y: Math.random() * 600,
-      },
-      data: {
-        ...node,
-        selected: selectedNode === node.id,
-      },
-    }));
+      };
+
+      return {
+        id: node.id,
+        type: 'contact',
+        position,
+        data: {
+          ...node,
+          selected: selectedNode === node.id,
+        },
+      };
+    });
 
     const flowEdges: Edge[] = data.links.map(link => ({
       id: `${link.source}-${link.target}`,
