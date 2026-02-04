@@ -33,8 +33,33 @@ export const EmailHeatmap: React.FC = () => {
   );
 
   const selectedHeatmapData = heatmapData.find(d => d.contactId === selectedContact?.id);
-  const displayData = selectedHeatmapData || heatmapData[0];
-  const currentContact = contacts.find(c => c.id === displayData?.contactId);
+  const currentContact = contacts.find(c => c.id === selectedContact?.id);
+
+  // When "All Contacts" is selected, aggregate data from all contacts
+  const getDisplayData = () => {
+    if (selectedContact) {
+      return selectedHeatmapData?.data || [];
+    }
+    // Aggregate all contacts
+    const aggregatedData: { day: string; hour: number; count: number }[] = [];
+    for (let d = 0; d < 7; d++) {
+      for (let h = 0; h < 24; h++) {
+        let total = 0;
+        heatmapData.forEach(contact => {
+          const dataPoint = contact.data.find(
+            data => data.day === days[d] && data.hour === h
+          );
+          total += dataPoint?.count || 0;
+        });
+        if (total > 0) {
+          aggregatedData.push({ day: days[d], hour: h, count: total });
+        }
+      }
+    }
+    return aggregatedData;
+  };
+
+  const displayData = getDisplayData();
 
   // Create a 7x24 matrix for the heatmap
   const createHeatmapMatrix = () => {
@@ -42,7 +67,7 @@ export const EmailHeatmap: React.FC = () => {
     for (let d = 0; d < 7; d++) {
       const row: { day: string; hour: number; count: number }[] = [];
       for (let h = 0; h < 24; h++) {
-        const dataPoint = displayData?.data.find(
+        const dataPoint = displayData.find(
           data => data.day === days[d] && data.hour === h
         );
         row.push({
@@ -58,23 +83,39 @@ export const EmailHeatmap: React.FC = () => {
 
   const heatmapMatrix = createHeatmapMatrix();
 
-  // Calculate hourly distribution
+  // Calculate hourly distribution based on selected view
   const hourlyDistribution = hours.map(hour => {
     let total = 0;
-    heatmapData.forEach(contact => {
-      const dataPoint = contact.data.find(d => d.hour === hour);
-      total += dataPoint?.count || 0;
-    });
+    if (selectedContact && selectedHeatmapData) {
+      // Single contact
+      selectedHeatmapData.data.forEach(d => {
+        if (d.hour === hour) total += d.count;
+      });
+    } else {
+      // All contacts
+      heatmapData.forEach(contact => {
+        const dataPoint = contact.data.find(d => d.hour === hour);
+        total += dataPoint?.count || 0;
+      });
+    }
     return { hour, total };
   });
 
-  // Calculate daily distribution
+  // Calculate daily distribution based on selected view
   const dailyDistribution = days.map(day => {
     let total = 0;
-    heatmapData.forEach(contact => {
-      const dataPoint = contact.data.find(d => d.day === day);
-      total += dataPoint?.count || 0;
-    });
+    if (selectedContact && selectedHeatmapData) {
+      // Single contact
+      selectedHeatmapData.data.forEach(d => {
+        if (d.day === day) total += d.count;
+      });
+    } else {
+      // All contacts
+      heatmapData.forEach(contact => {
+        const dataPoint = contact.data.find(d => d.day === day);
+        total += dataPoint?.count || 0;
+      });
+    }
     return { day, total };
   });
 
