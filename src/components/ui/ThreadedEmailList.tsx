@@ -383,17 +383,54 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         return;
       }
 
-      if (e.key === 'a') {
-        e.preventDefault();
-        if (focusedEmailId) onEmailAction(focusedEmailId, 'archive');
-      } else if (e.key === 's') {
-        e.preventDefault();
-        if (focusedEmailId) onEmailAction(focusedEmailId, 'save');
-      } else if (e.key === 'd') {
+      if (e.key === 'a' || e.key === 'A') {
         e.preventDefault();
         if (focusedEmailId) {
-          onEmailAction(focusedEmailId, 'delete');
-          navigateEmail('next');
+          if (e.shiftKey) {
+            // Archive entire thread
+            for (const [threadId, threadEmails] of threadGroups.entries()) {
+              if (threadEmails.some((email: any) => email.id === focusedEmailId)) {
+                threadEmails.forEach((email: any) => onEmailAction(email.id, 'archive'));
+                break;
+              }
+            }
+          } else {
+            // Archive just focused email
+            onEmailAction(focusedEmailId, 'archive');
+          }
+        }
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        if (focusedEmailId) {
+          if (e.shiftKey) {
+            // Save entire thread
+            for (const [threadId, threadEmails] of threadGroups.entries()) {
+              if (threadEmails.some((email: any) => email.id === focusedEmailId)) {
+                threadEmails.forEach((email: any) => onEmailAction(email.id, 'save'));
+                break;
+              }
+            }
+          } else {
+            // Save just focused email
+            onEmailAction(focusedEmailId, 'save');
+          }
+        }
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        if (focusedEmailId) {
+          if (e.shiftKey) {
+            // Delete entire thread
+            for (const [threadId, threadEmails] of threadGroups.entries()) {
+              if (threadEmails.some((email: any) => email.id === focusedEmailId)) {
+                threadEmails.forEach((email: any) => onEmailAction(email.id, 'delete'));
+                break;
+              }
+            }
+          } else {
+            // Delete just focused email
+            onEmailAction(focusedEmailId, 'delete');
+            navigateEmail('next');
+          }
         }
       }
     };
@@ -470,10 +507,16 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">k</kbd> <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">j</kbd> navigate</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">e</kbd> expand</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Space</kbd> select thread</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">e</kbd> expand/collapse</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Space</kbd> select</span>
           <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Enter</kbd> focused view</span>
-          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> all visible</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">s</kbd> save email</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">S</kbd> save thread</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">a</kbd> archive email</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> archive thread</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">d</kbd> delete email</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">D</kbd> delete thread</span>
+          <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> select all</span>
         </div>
       </div>
 
