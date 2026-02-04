@@ -148,35 +148,37 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     toggleThreadExpanded(threadId);
   }, [toggleThreadExpanded]);
 
-  // Handle thread header click - always selects/deselects entire thread
+  // Handle thread header click - focuses email, selects only if already focused
   const handleThreadHeaderClick = useCallback((emailId: string, threadId: string) => {
     if (isSelectMode) {
       toggleEmailSelection(emailId);
       return;
     }
 
-    // Focus the email first
-    onEmailSelect(emailId);
-    onFocusEmail(emailId);
-
-    // Then select/deselect the entire thread
-    const thread = threadGroups.get(threadId);
-    if (thread) {
-      const allSelected = thread.every((email: any) => isEmailSelected(email.id));
-      if (allSelected) {
-        // Deselect all in thread
-        thread.forEach((email: any) => {
-          if (isEmailSelected(email.id)) {
-            toggleEmailSelection(email.id);
-          }
-        });
-      } else {
-        // Select all in thread
-        const threadIds = thread.map((e: any) => e.id);
-        selectMultipleEmails(threadIds);
+    if (focusedEmailId === emailId) {
+      // Already focused - select/deselect the entire thread
+      const thread = threadGroups.get(threadId);
+      if (thread) {
+        const allSelected = thread.every((email: any) => isEmailSelected(email.id));
+        if (allSelected) {
+          // Deselect all in thread
+          thread.forEach((email: any) => {
+            if (isEmailSelected(email.id)) {
+              toggleEmailSelection(email.id);
+            }
+          });
+        } else {
+          // Select all in thread
+          const threadIds = thread.map((e: any) => e.id);
+          selectMultipleEmails(threadIds);
+        }
       }
+    } else {
+      // Not focused yet - just focus it
+      onEmailSelect(emailId);
+      onFocusEmail(emailId);
     }
-  }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail, threadGroups, isEmailSelected, selectMultipleEmails]);
+  }, [isSelectMode, toggleEmailSelection, onEmailSelect, onFocusEmail, focusedEmailId, threadGroups, isEmailSelected, selectMultipleEmails]);
 
   // Handle individual email click in expanded view - selects just that email
   const handleIndividualEmailClick = useCallback((emailId: string) => {
@@ -461,11 +463,14 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
           const threadCount = threadEmails.length;
           const hasUnread = threadEmails.some((e: any) => !e.is_read);
           const isSelected = selectedEmailId === mostRecent.id || threadEmails.some((e: any) => e.id === selectedEmailId);
+          const allSelected = threadEmails.every((e: any) => isEmailSelected(e.id));
+          const anySelected = threadEmails.some((e: any) => isEmailSelected(e.id));
 
           return (
             <div
               key={threadId}
               className={`bg-surface dark:bg-gray-800 border rounded-lg overflow-hidden transition-all ${
+                allSelected ? 'border-purple-400 dark:border-purple-500 ring-2 ring-purple-200 dark:ring-purple-900' :
                 isSelected ? 'border-blue-500 dark:border-blue-400' : 'border-gray-200 dark:border-gray-700'
               }`}
             >
@@ -569,10 +574,12 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                       <div
                         key={email.id}
                         id={`threaded-email-item-${email.id}`}
-                        className={`p-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors ${
+                        className={`p-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors border-l-2 ${
                           !email.is_read ? 'bg-blue-50/20 dark:bg-blue-900/5' : ''
                         } ${email.id === selectedEmailId ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${
                           isFocused ? 'bg-gray-100 dark:bg-gray-800/50' : ''
+                        } ${
+                          emailIsSelected ? 'border-purple-500 bg-purple-50/50 dark:bg-purple-900/20' : 'border-transparent'
                         }`}
                         onClick={() => handleIndividualEmailClick(email.id)}
                       >
