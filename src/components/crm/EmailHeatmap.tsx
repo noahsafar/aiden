@@ -187,9 +187,6 @@ export const EmailHeatmap: React.FC = () => {
 
       {/* Heatmap */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-6">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
-          {currentContact ? `${currentContact.name}'s ` : 'Combined '}Email Activity by Day and Hour
-        </h3>
 
         {/* Heatmap Grid */}
         <div className="flex gap-4">
