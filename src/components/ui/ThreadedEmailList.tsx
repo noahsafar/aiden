@@ -321,7 +321,25 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
       if (e.key === ' ' && focusedEmailId) {
         e.preventDefault();
-        toggleEmailSelection(focusedEmailId);
+        // Find which thread the focused email belongs to and toggle entire thread
+        for (const [threadId, threadEmails] of threadGroups.entries()) {
+          if (threadEmails.some((e: any) => e.id === focusedEmailId)) {
+            const allSelected = threadEmails.every((email: any) => isEmailSelected(email.id));
+            if (allSelected) {
+              // Deselect all in thread
+              threadEmails.forEach((email: any) => {
+                if (isEmailSelected(email.id)) {
+                  toggleEmailSelection(email.id);
+                }
+              });
+            } else {
+              // Select all in thread
+              const threadIds = threadEmails.map((e: any) => e.id);
+              selectMultipleEmails(threadIds);
+            }
+            break;
+          }
+        }
         return;
       }
 
@@ -379,7 +397,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView]);
+  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView, isEmailSelected, selectMultipleEmails]);
 
   // Helper to format date
   const formatDate = (dateString: string) => {
