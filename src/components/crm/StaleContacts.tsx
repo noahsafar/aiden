@@ -130,7 +130,7 @@ export const StaleContacts: React.FC<StaleContactsProps> = ({ onContactClick }) 
               >
                 <div className="flex items-start gap-4">
                   {/* Avatar */}
-                  <div className="w-12 h-12 rounded-full bg-gray-600 flex items-center justify-center text-white font-bold flex-shrink-0">
+                  <div className="w-12 h-12 rounded-full bg-gray-400 flex items-center justify-center text-white font-bold flex-shrink-0">
                     {contact.name?.charAt(0).toUpperCase() || contact.email_address.charAt(0).toUpperCase()}
                   </div>
 
