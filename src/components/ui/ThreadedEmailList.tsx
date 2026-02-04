@@ -515,8 +515,9 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                   hasUnread ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''
                 }`}
                 onClick={(e) => {
-                  console.log('[Thread header DIV onClick] called');
+                  console.log('[Thread header DIV onClick] called, mostRecent.id:', mostRecent.id, 'threadId:', threadId);
                   handleThreadHeaderClick(mostRecent.id, threadId);
+                  e.stopPropagation();
                 }}
               >
                 <div className="flex items-start gap-3">
