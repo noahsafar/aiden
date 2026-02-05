@@ -18,6 +18,7 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
   Position,
+  Handle,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -52,6 +53,18 @@ const ContactNode = ({ data }: { data: NetworkNode & { selected: boolean; isConn
         minWidth: '120px',
       }}
     >
+      {/* Handles for edge connections */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!bg-purple-500 !border-2 !border-white !w-3 !h-3"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!bg-purple-500 !border-2 !border-white !w-3 !h-3"
+      />
+
       <div className="font-semibold text-gray-900 text-sm truncate">{data.label}</div>
       <div className="flex items-center justify-between mt-1">
         <span className="text-xs text-gray-500">{data.value} emails</span>
@@ -157,6 +170,7 @@ export const NetworkGraph: React.FC = () => {
           isFirstConnection: false,
           isSecondConnection: false,
         },
+        zIndex: 1,
       };
     });
 
@@ -168,17 +182,36 @@ export const NetworkGraph: React.FC = () => {
       source: link.source,
       target: link.target,
       label: `${link.value} threads`,
+      labelStyle: {
+        fontSize: '10px',
+        fontWeight: 600,
+        fill: '#6b7280',
+        backgroundColor: 'white',
+        padding: '2px 4px',
+      },
+      labelShowBg: true,
+      labelBgStyle: {
+        fill: 'white',
+        fillOpacity: 0.8,
+        rx: 4,
+        ry: 4,
+      },
       style: {
         stroke: '#8b5cf6',
-        strokeWidth: Math.max(2, Math.min(link.strength, 6)),
+        strokeWidth: Math.max(3, Math.min(link.strength, 8)),
         strokeLinecap: 'round' as const,
         strokeLinejoin: 'round' as const,
+        opacity: 1,
       },
+      zIndex: 0,
       animated: true,
       type: 'default' as const,
     }));
 
     console.log('[NetworkGraph] Generated', flowNodes.length, 'nodes and', flowEdges.length, 'edges');
+    console.log('[NetworkGraph] First edge:', flowEdges[0]);
+    console.log('[NetworkGraph] Node IDs:', flowNodes.map(n => n.id));
+    console.log('[NetworkGraph] Edge source/targets:', flowEdges.map(e => ({ source: e.source, target: e.target })));
 
     return { nodes: flowNodes, edges: flowEdges };
   }, [selectedCategories]);
@@ -222,6 +255,20 @@ export const NetworkGraph: React.FC = () => {
       );
     }
   }, [selectedNode, isConnectionMode, firstConnectionNode, networkDataLoaded, setNodes]);
+
+  // Update edge visibility based on selected node
+  useEffect(() => {
+    if (networkDataLoaded) {
+      setEdges((currentEdges) =>
+        currentEdges.map((edge) => ({
+          ...edge,
+          hidden: selectedNode !== null
+            ? edge.source !== selectedNode && edge.target !== selectedNode
+            : false,
+        }))
+      );
+    }
+  }, [selectedNode, networkDataLoaded, setEdges]);
 
   // Update positions ref when nodes are moved manually
   const handleNodesChange = useCallback((changes: any) => {
