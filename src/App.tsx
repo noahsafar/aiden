@@ -91,7 +91,7 @@ function App() {
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
   const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
-  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode } = useEmailStore();
+  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode, searchQuery, setSearchQuery, getFilteredEmails } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
 
   // Animation state for focused view
@@ -190,7 +190,7 @@ function App() {
 
   // Filter emails based on current filter - use useMemo to avoid recalculating on every render
   const filteredEmails = React.useMemo(() => {
-    const result = currentFilter === 'sent'
+    let result = currentFilter === 'sent'
       ? sentEmails.map(convertSentEmailToUI)
       : emails
           .filter(email => {
@@ -237,6 +237,18 @@ function App() {
           })
           .map(convertToUIEmail);
 
+    // Apply search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(email =>
+        email.subject?.toLowerCase().includes(query) ||
+        email.from?.name?.toLowerCase().includes(query) ||
+        email.from?.email?.toLowerCase().includes(query) ||
+        email.preview?.toLowerCase().includes(query) ||
+        email.content?.toLowerCase().includes(query)
+      );
+    }
+
     // Sort by selected mode
     if (sortMode === 'importance') {
       // Sort by category priority: Urgent > Important > Normal > Low
@@ -250,13 +262,13 @@ function App() {
           return aOrder - bOrder;
         }
         // Within same category, sort by date (newest first)
-        return new Date(b.date).getTime() - new Date(a.date).getTime();
+        return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
       });
     } else {
       // Sort by date (newest first)
-      return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      return result.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
     }
-  }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI, sortMode, isFocusMode]
+  }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI, sortMode, isFocusMode, searchQuery]
   );
 
   // Calculate actual inbox count (emails not archived/saved/deleted)
@@ -610,9 +622,19 @@ function App() {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
                       type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Search emails..."
                       className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200"
                     />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                   <Button
                     variant="primary"
