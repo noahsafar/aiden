@@ -273,12 +273,16 @@ function App() {
 
   // Calculate actual inbox count (emails not archived/saved/deleted)
   // Use useMemo to avoid recalculating on every render
-  const inboxCount = React.useMemo(() =>
-    emails.filter(email => {
+  const inboxCount = React.useMemo(() => {
+    // When in inbox view, use the filtered emails count (respects focus mode)
+    if (currentFilter === 'inbox') {
+      return filteredEmails.length;
+    }
+    // Otherwise, count all non-archived/non-saved emails
+    return emails.filter(email => {
       return email.status !== 'Archived' && email.status !== 'Saved' && email.status !== 'Deleted';
-    }).length,
-    [emails]
-  );
+    }).length;
+  }, [emails, filteredEmails, currentFilter]);
 
   useEffect(() => {
     // Initialize authentication state on app load
