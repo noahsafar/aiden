@@ -640,7 +640,7 @@ function App() {
                     variant="outline"
                     size="sm"
                     onClick={handleCompose}
-                    className="flex-shrink-0 hover:bg-gray-50 dark:hover:bg-gray-900"
+                    className="flex-shrink-0 hover:bg-white/50 dark:hover:bg-white/5"
                   >
                     <PenSquare className="h-4 w-4 mr-1.5" />
                     Compose
