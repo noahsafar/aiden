@@ -670,17 +670,24 @@ const mockNetworkData: NetworkData = {
     { id: 'mock_8', label: 'David Kim', value: 100, category: 'Colleague', score: 85 },
   ],
   links: [
+    // Sarah Chen connections
     { source: 'mock_1', target: 'mock_4', value: 12, strength: 10.8 },
     { source: 'mock_1', target: 'mock_8', value: 8, strength: 9.0 },
-    { source: 'mock_4', target: 'mock_8', value: 15, strength: 11.8 },
-    { source: 'mock_2', target: 'mock_5', value: 5, strength: 7.0 },
     { source: 'mock_1', target: 'mock_2', value: 3, strength: 4.8 },
-    { source: 'mock_6', target: 'mock_4', value: 6, strength: 7.8 },
-    // Additional mock connections for demonstration
+    { source: 'mock_1', target: 'mock_6', value: 5, strength: 6.2 },
     { source: 'mock_1', target: 'mock_3', value: 4, strength: 5.5 },
-    { source: 'mock_2', target: 'mock_3', value: 2, strength: 3.2 },
+    // John Doe connections
+    { source: 'mock_4', target: 'mock_8', value: 15, strength: 11.8 },
+    { source: 'mock_4', target: 'mock_6', value: 6, strength: 7.8 },
     { source: 'mock_4', target: 'mock_5', value: 7, strength: 6.8 },
-    { source: 'mock_6', target: 'mock_1', value: 3, strength: 4.5 },
+    { source: 'mock_4', target: 'mock_2', value: 4, strength: 5.2 },
+    // David Kim connections
     { source: 'mock_8', target: 'mock_3', value: 5, strength: 6.0 },
+    { source: 'mock_8', target: 'mock_2', value: 3, strength: 4.5 },
+    // Mike Johnson connections
+    { source: 'mock_2', target: 'mock_5', value: 5, strength: 7.0 },
+    { source: 'mock_2', target: 'mock_3', value: 2, strength: 3.2 },
+    // Emma Watson connections
+    { source: 'mock_6', target: 'mock_1', value: 3, strength: 4.5 },
   ]
 };

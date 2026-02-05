@@ -83,8 +83,9 @@ export const NetworkGraph: React.FC = () => {
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set(['Colleague', 'Client', 'Vendor', 'Friend', 'Family', 'Other']));
   const [isConnectionMode, setIsConnectionMode] = useState(false);
   const [firstConnectionNode, setFirstConnectionNode] = useState<string | null>(null);
+  const [networkDataLoaded, setNetworkDataLoaded] = useState(false);
 
-  const convertToReactFlow = useCallback((data: typeof networkData) => {
+  const convertToReactFlow = useCallback((data: typeof networkData, existingNodes?: Node[]) => {
     if (!data) return { nodes: [], edges: [] };
 
     // Filter nodes by selected categories
@@ -97,6 +98,14 @@ export const NetworkGraph: React.FC = () => {
     const filteredLinks = data.links.filter(
       link => filteredNodeIds.has(link.source) && filteredNodeIds.has(link.target)
     );
+
+    // Create a map of existing node positions to preserve manual movements
+    const existingPositions = new Map<string, { x: number; y: number }>();
+    if (existingNodes) {
+      existingNodes.forEach(node => {
+        existingPositions.set(node.id, { x: node.position.x, y: node.position.y });
+      });
+    }
 
     // Calculate positions based on relationship score (radial layout)
     // High score = closer to center, low score = outer edges
@@ -111,6 +120,12 @@ export const NetworkGraph: React.FC = () => {
     const nodePositions = new Map<string, { x: number; y: number }>();
 
     sortedNodes.forEach((node, index) => {
+      // Use existing position if available (preserves manual movements)
+      if (existingPositions.has(node.id)) {
+        nodePositions.set(node.id, existingPositions.get(node.id)!);
+        return;
+      }
+
       // Calculate radius based on score (higher score = closer to center)
       const scoreRatio = node.score / 100; // 0 to 1
       const radius = baseRadius + (maxRadius - baseRadius) * (1 - scoreRatio);
@@ -137,8 +152,8 @@ export const NetworkGraph: React.FC = () => {
         data: {
           ...node,
           selected: selectedNode === node.id,
-          isConnecting: isConnectionMode,
-          isFirstConnection: firstConnectionNode === node.id,
+          isConnecting: false,
+          isFirstConnection: false,
           isSecondConnection: false,
         },
       };
@@ -150,14 +165,21 @@ export const NetworkGraph: React.FC = () => {
       target: link.target,
       label: `${link.value} threads`,
       style: {
-        stroke: '#a78bfa',
-        strokeWidth: Math.min(link.strength, 4),
+        stroke: '#8b5cf6',
+        strokeWidth: Math.max(2, Math.min(link.strength, 6)),
+        strokeLinecap: 'round' as const,
+        strokeLinejoin: 'round' as const,
       },
       animated: true,
+      type: 'smoothstep',
     }));
 
+    console.log('[NetworkGraph] Generated edges:', flowEdges);
+    console.log('[NetworkGraph] Filtered nodes:', filteredNodes.map(n => n.id));
+    console.log('[NetworkGraph] Filtered links:', filteredLinks);
+
     return { nodes: flowNodes, edges: flowEdges };
-  }, [selectedNode, selectedCategories, isConnectionMode, firstConnectionNode]);
+  }, [selectedCategories]);
 
   useEffect(() => {
     if (!networkData) {
@@ -167,28 +189,39 @@ export const NetworkGraph: React.FC = () => {
 
   // Initialize nodes/edges when network data first loads or categories change
   useEffect(() => {
-    if (networkData) {
+    if (networkData && !networkDataLoaded) {
       const { nodes: flowNodes, edges: flowEdges } = convertToReactFlow(networkData);
       setNodes(flowNodes);
       setEdges(flowEdges);
-      setInitialized(true);
+      setNetworkDataLoaded(true);
     }
-  }, [networkData, convertToReactFlow, setNodes, setEdges]);
+  }, [networkData, networkDataLoaded, convertToReactFlow, setNodes, setEdges]);
 
-  // Update only the selected state without changing positions
+  // Update nodes when categories change (preserving positions)
   useEffect(() => {
-    if (initialized) {
+    if (networkDataLoaded && networkData) {
+      const { nodes: flowNodes, edges: flowEdges } = convertToReactFlow(networkData, nodes);
+      setNodes(flowNodes);
+      setEdges(flowEdges);
+    }
+  }, [selectedCategories, networkData, networkDataLoaded, nodes, convertToReactFlow, setNodes, setEdges]);
+
+  // Update only the selected/connection state without changing positions
+  useEffect(() => {
+    if (networkDataLoaded) {
       setNodes((currentNodes) =>
         currentNodes.map((node) => ({
           ...node,
           data: {
             ...node.data,
             selected: node.id === selectedNode,
+            isConnecting: isConnectionMode,
+            isFirstConnection: firstConnectionNode === node.id,
           },
         }))
       );
     }
-  }, [selectedNode, initialized, setNodes]);
+  }, [selectedNode, isConnectionMode, firstConnectionNode, networkDataLoaded, setNodes]);
 
   const handleNodeClick = (_: React.MouseEvent, node: Node) => {
     if (isConnectionMode) {
@@ -203,6 +236,9 @@ export const NetworkGraph: React.FC = () => {
         addManualConnection(firstConnectionNode, node.id, 5);
         setFirstConnectionNode(null);
         setIsConnectionMode(false);
+        // Trigger a refresh to update edges from the store
+        setNetworkDataLoaded(false);
+        setTimeout(() => setNetworkDataLoaded(true), 50);
       }
     } else {
       setSelectedNode(node.id === selectedNode ? null : node.id);
