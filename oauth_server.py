@@ -1556,7 +1556,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
                 }
                 print(f"RULE-BASED: Detected meeting request with proposed_times: {proposed_times[:5] if proposed_times else []}")
 
-            prompt = f"""You are analyzing an email to extract questions that need user input and detect meeting requests. Be VERY thorough.
+            prompt = f"""You are analyzing an email to identify ONLY the essential questions the AI cannot answer on its own.
 
 Email from: {sender}
 Subject: {subject}
@@ -1565,128 +1565,60 @@ Email body:
 {body_text[:1500]}
 {past_context}
 
-CRITICAL - Find ANY question that requires the recipient to respond:
-1. Questions ending with "?" - ALL of them are questions requiring input
-2. "X or Y" patterns - ALWAYS extract both X and Y as options
-3. "Do you want/like/prefer X or Y?" - choice question
-4. "Can you/will you/are you X?" - yes/no question
-5. "What/When/Where/How/Who/Why" questions - text input (unless they give options)
+**IMPORTANT**: Your job is to find ONLY questions that REQUIRE human input. The AI should NEVER guess or make assumptions.
 
-MEETING REQUEST DETECTION:
-Check if this email is requesting a meeting, call, or scheduling. Look for:
-- "meet", "meeting", "call", "schedule", "available", "free"
-- "are you free", "can we meet", "let's schedule"
-- "tomorrow", "next week", specific day names, times like "2pm", "3:00"
-- Questions about availability or timing
+**DO NOT extract questions about:**
+- Meeting scheduling (handled by calendar integration)
+- Timing availability (handled separately)
+- Facts the AI could reasonably infer from context
+- Information that's optional or "nice to have"
 
-For meeting requests, extract:
-- proposed_times: any specific times mentioned (e.g., ["tomorrow 2pm", "Wednesday afternoon"])
-- duration_minutes: default to 60 if not specified, or look for "30 min", "1 hour", etc.
-- attendees: extract email addresses mentioned
+**ONLY extract questions that MUST be answered:**
+- Specific choices the user must make (lunch option, yes/no commitments)
+- Personal preferences the AI cannot know (opinions, tastes, decisions)
+- Information unique to the user that isn't mentioned in the email
+- Confirmations/decisions that only the user can make
 
-Return JSON with:
-- "questions": array of questions. Each has:
-  - type: "choice" if options are provided OR if yes/no question, "text" for open-ended
-  - question: the exact question being asked
-  - options: array of choices (ONLY if the email provides specific options)
-- "requires_reply": true if the email needs a response, false if it's just informational/FYI
-- "reply_reasoning": brief explanation (max 15 words) of why a reply is or isn't needed
-- "meeting_request": object with:
-  - "is_meeting": true if this is a meeting/scheduling request, false otherwise
-  - "proposed_times": array of time strings mentioned (e.g., ["Tuesday 2pm", "Wednesday afternoon"])
-  - "duration_minutes": meeting duration in minutes (default 60)
-  - "subject": meeting subject/title
+**Question types:**
+- "choice" - for questions with 2-6 specific options provided in the email, or yes/no questions
+- "text" - for open-ended questions requiring specific user input (not opinions unless critical)
 
-DETAILED EXAMPLES (learn from these):
+**Examples of QUESTIONS TO EXTRACT:**
+- "Pizza or burgers for lunch?" → choice: ["Pizza", "Burgers"]
+- "Can you attend the meeting?" → choice: ["Yes", "No"]
+- "Should I use Python or JavaScript?" → choice: ["Python", "JavaScript"]
+- "What's your zip code?" → text (specific info AI can't know)
+- "Which address should we ship to?" → choice (if options given) or text
 
-Choice questions (with 2+ options):
-- "We're ordering pizza or burgers?" -> {{"type": "choice", "question": "What do you want for lunch?", "options": ["Pizza", "Burgers"]}}
-- "Can you make it Monday or Tuesday?" -> {{"type": "choice", "question": "Which day works better?", "options": ["Monday", "Tuesday"]}}
-- "Are you coming?" -> {{"type": "choice", "question": "Are you coming?", "options": ["Yes", "No"]}}
+**Examples of questions to SKIP (AI can handle or not required):**
+- "When are you free for a meeting?" → SKIP (calendar handles this)
+- "Are you available next week?" → SKIP (meeting detection handles this)
+- "What time works for you?" → SKIP (calendar integration)
+- "How was your weekend?" → SKIP (optional, AI can give generic response)
+- "Any updates on the project?" → SKIP (AI can describe what it knows, ask for clarification if needed)
+- "Do you have any questions?" → SKIP (AI can determine this itself)
+- General "How are you?" → SKIP (AI can give generic friendly response)
 
-Text input questions (no specific options given):
-- "When are you free?" -> {{"type": "text", "question": "When are you free?", "options": []}}
-- "What time works for you?" -> {{"type": "text", "question": "What time works for you?", "options": []}}
+**Return JSON format:**
+{{
+  "questions": [
+    {{"type": "choice", "question": "What would you like for lunch?", "options": ["Pizza", "Burgers", "Salad"]}},
+    {{"type": "text", "question": "What's your preferred meeting method?", "options": []}}
+  ],
+  "requires_reply": true/false,
+  "reply_reasoning": "brief explanation of why reply is/isn't needed (max 15 words)",
+  "suggested_formality_score": 0-100 number,
+  "meeting_request": {{"is_meeting": false}} // ALWAYS false - meeting detection handled separately
+}}
 
-Meeting request examples:
-- "Can we meet tomorrow at 2pm?" -> {{"is_meeting": true, "proposed_times": ["tomorrow at 2pm"], "duration_minutes": 60}}
-- "Are you free next week to discuss?" -> {{"is_meeting": true, "proposed_times": ["next week"], "duration_minutes": 60}}
-- "Let's schedule a call for Tuesday afternoon" -> {{"is_meeting": true, "proposed_times": ["Tuesday afternoon"], "duration_minutes": 60}}
-- "Are you available Wednesday or Thursday at 3pm?" -> {{"is_meeting": true, "proposed_times": ["Wednesday at 3pm", "Thursday at 3pm"], "duration_minutes": 60}}
+**Formality scoring (0-100):**
+- CASUAL (0-30): slang, emojis, all lowercase, "hey", "hi", abbreviations
+- NEUTRAL (31-70): standard business communication
+- FORMAL (71-100): "Dear", "Sincerely", proper salutations, "would you kindly"
 
-Non-meeting examples:
-- "Here's the report you asked for" -> {{"is_meeting": false}}
-- "Meeting notes from yesterday" -> {{"is_meeting": false}} (past meeting, not a request)
+If NO essential questions require user input, return: {{"questions": [], "requires_reply": false, "reply_reasoning": "No user input needed", "suggested_formality_score": 50, "meeting_request": {{"is_meeting": false}}}}
 
-IMPORTANT DISTINCTIONS:
-- If email says "X or Y" -> it's a CHOICE question with those options
-- If email asks "Can you X?" without options -> it's a CHOICE with Yes/No
-- If email asks "When/Where/What/How" without specific options -> it's TEXT input
-- "Do you want X or Y?" -> CHOICE with X and Y as options
-- "Are you available?" -> CHOICE with Yes/No, AND is a meeting request
-
-**REPLY REQUIRED DETERMINATION:**
-
-FIRST CHECK - Sender patterns (set requires_reply = false):
-- Newsletter indicators in sender: "newsletter@", "news@", "digest@", "updates@", "notifications@"
-- Newsletter indicators in subject: "[Newsletter]", "Digest", "Weekly Update", "Daily Briefing"
-- Mailing list patterns: "googlegroups.com", "yahoogroups.com", "groups.google.com", "+owner@"
-- No-reply addresses: "noreply@", "no-reply@", "donotreply@", "noreply@"
-- Automated services: "support@", "bot@", "automation@", "notification@"
-- Common newsletters: "Substack", "Medium Daily", "Hacker Newsletter", "The Information"
-
-SECOND CHECK - Explicit "no reply needed" phrases (set requires_reply = false):
-- "No need to respond", "No need to reply", "No reply needed"
-- "Don't worry about replying", "No need to get back to me"
-- "Just keeping you in the loop", "For your information", "FYI only"
-- "Just wanted to say hi", "Just saying hi", "Just wanted to share"
-- "Nothing to reply to", "No action required"
-- "For your records", "Just a heads up", "You're receiving this because"
-
-THIRD CHECK - Subject line patterns (set requires_reply = false):
-- "Invitation to", "Calendar notification", "Booking confirmation"
-- "Your order", "Receipt", "Purchase confirmation", "Payment received"
-- "Shipping confirmation", "Delivery update", "Your package"
-- "Password reset", "Verification code", "Your security code"
-- "Welcome to", "Getting started", "Your account is ready"
-- "[Automated]", "[Auto-reply]", "Out of Office", "OOO"
-
-FOURTH CHECK - Content patterns (set requires_reply = false):
-- Unsubscribe links at bottom ("unsubscribe", "manage preferences")
-- "View in browser", "View this email in your browser"
-- "You're receiving this email because you subscribed"
-- "This email was sent to", "Sent on behalf of"
-- Lots of HTML/links with minimal personal content
-- Generic greetings with no personal questions ("Hi everyone", "Dear subscriber")
-
-FIFTH CHECK - NOW set requires_reply = true if:
-- Contains direct questions to recipient (What, When, Where, How, Can you, Will you)
-- Requests a meeting/call with the recipient specifically
-- Asks for confirmation, approval, or decision from recipient
-- Asks for information, documents, or files from recipient
-- "Looking forward to hearing from you", "Please let me know", "Keep me posted"
-- Invites you specifically to something
-- Personally addressed with specific action needed
-
-Set requires_reply = false if:
-- Pure informational updates with no questions asked
-- Auto-generated confirmations, receipts, notifications
-- Marketing emails, newsletters, digests
-- "For your records" emails
-
-Also detect formality as a score from 0 (very casual) to 100 (very formal):
-Consider these indicators:
-CASUAL (0-30): "hey", "hi", "haha", "lol", "omg", emojis like 😂👍, exclamation points!!!, short sentences, missing punctuation, all lowercase, slang like "gonna", "wanna", "kinda", abbreviations like "u", "ur", "thx"
-NEUTRAL (31-70): normal punctuation, standard greetings, complete sentences but not overly formal, standard business language
-FORMAL (71-100): "Dear", "Sincerely", "Regards", "Best regards", proper salutations, full proper sentences, indentations, numbered lists, "would you kindly", "I am writing to", "please note that"
-
-ALSO consider past emails sent to this person - if you typically use a certain tone with them, recommend staying consistent. Match their energy!
-
-Return "suggested_formality_score" as a number from 0 to 100.
-
-If there are genuinely NO questions requiring a response (pure informational email), return {{"questions": [], "requires_reply": false, "reply_reasoning": "Informational - no action needed", "suggested_formality_score": 50}}.
-
-Return ONLY valid JSON, no other text or explanation."""
+Return ONLY valid JSON."""
 
             messages = [{"role": "user", "content": prompt}]
             result, error = call_anthropic_with_retry(messages, max_tokens=500, temperature=0.3, timeout=10)
