@@ -637,7 +637,7 @@ function App() {
                     )}
                   </div>
                   <Button
-                    variant="primary"
+                    variant="outline"
                     size="sm"
                     onClick={handleCompose}
                     className="flex-shrink-0"
