@@ -620,13 +620,13 @@ export function CalendarPicker({
 
       {/* Pending Selection Display */}
       {pendingSelectionInfo && !dragState.isDragging && (
-        <div className={`${isModal ? 'px-6 py-4' : 'px-3 py-2'} bg-yellow-50 dark:bg-yellow-900/20 border-t border-yellow-200 dark:border-yellow-800`}>
+        <div className={`${isModal ? 'px-6 py-4' : 'px-3 py-2'} bg-blue-50 dark:bg-blue-900/20 border-t border-blue-200 dark:border-blue-800`}>
           <div className="flex items-center justify-between">
             <div>
-              <p className={`${isModal ? 'text-sm' : 'text-xs'} font-medium text-yellow-900 dark:text-yellow-100`}>
+              <p className={`${isModal ? 'text-sm' : 'text-xs'} font-medium text-blue-900 dark:text-blue-100`}>
                 {pendingSelectionInfo.duration} minutes
               </p>
-              <p className={`${isModal ? 'text-xs' : 'text-[10px]'} text-yellow-700 dark:text-yellow-300`}>
+              <p className={`${isModal ? 'text-xs' : 'text-[10px]'} text-blue-700 dark:text-blue-300`}>
                 {pendingSelectionInfo.start.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
                 {' '}
                 {pendingSelectionInfo.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
@@ -649,7 +649,7 @@ export function CalendarPicker({
               <button
                 onClick={handleConfirmPending}
                 disabled={pendingSelectionInfo.hasConflict}
-                className={`${isModal ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'} bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors`}
+                className={`${isModal ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'} bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors`}
               >
                 Confirm
               </button>
