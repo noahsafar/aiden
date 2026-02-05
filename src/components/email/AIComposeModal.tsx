@@ -8,6 +8,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { Button } from '@/components/ui/Button';
 import { useEmailStore } from '@/stores/emailStore';
+import { editReply } from '@/api/claude';
 
 interface AIComposeModalProps {
   isOpen: boolean;
@@ -104,59 +105,49 @@ export function AIComposeModal({ isOpen, onClose }: AIComposeModalProps) {
     try {
       // Build the full prompt for AI
       const toneInstruction = TONE_OPTIONS.find(t => t.id === selectedTone)?.description || 'professional';
-      const fullPrompt = `${selectedTemplate ? EMAIL_TEMPLATES.find(t => t.id === selectedTemplate)?.prompt : ''} ${aiPrompt}
+      const templatePrompt = selectedTemplate ? EMAIL_TEMPLATES.find(t => t.id === selectedTemplate)?.prompt : '';
+
+      const fullPrompt = `Write a new email with the following details:
+
+${templatePrompt}
+${aiPrompt}
 
 Tone: ${toneInstruction}
 Recipient: ${to || 'not specified'}
 
-Please write a complete email with an appropriate subject line. Format your response as:
-Subject: [your subject line]
+Please write a complete email with an appropriate subject line. Format your response as JSON:
+{
+  "subject": "your subject line here",
+  "body": "email body here..."
+}`;
 
-[email body]`;
+      const generated = await editReply('', fullPrompt);
 
-      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        throw new Error('API key not configured');
+      // Try to parse JSON from the response
+      try {
+        const jsonMatch = generated.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsedResult = JSON.parse(jsonMatch[0]);
+          if (parsedResult.subject) setSubject(parsedResult.subject);
+          if (parsedResult.body) {
+            setBody(parsedResult.body);
+          } else {
+            setBody(generated);
+          }
+        } else {
+          // Fallback: try to parse subject/body from text
+          const subjectMatch = generated.match(/Subject:\s*(.+?)(?:\n|$)/i);
+          const extractedSubject = subjectMatch ? subjectMatch[1].trim() : '';
+          const extractedBody = generated.replace(/Subject:\s*.+?\n+/i, '').trim();
+
+          if (extractedSubject) setSubject(extractedSubject);
+          setBody(extractedBody || generated);
+        }
+      } catch {
+        // If parsing fails, use the whole response as body
+        setBody(generated);
       }
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022',
-          max_tokens: 2000,
-          messages: [
-            {
-              role: 'user',
-              content: fullPrompt,
-            },
-          ],
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error:', errorText);
-        throw new Error(`Failed to generate email: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const generatedText = data.content[0].text;
-
-      // Parse subject and body
-      const subjectMatch = generatedText.match(/Subject:\s*(.+?)(?:\n|$)/i);
-      const extractedSubject = subjectMatch ? subjectMatch[1].trim() : '';
-      const extractedBody = generatedText.replace(/Subject:\s*.+?\n+/i, '').trim();
-
-      if (extractedSubject) {
-        setSubject(extractedSubject);
-      }
-      setBody(extractedBody);
       setShowAIPanel(false);
     } catch (error) {
       console.error('Failed to generate email:', error);
@@ -173,39 +164,8 @@ Subject: [your subject line]
       const toneInstruction = TONE_OPTIONS.find(t => t.id === selectedTone)?.description || 'professional';
       const fullPrompt = `Please rewrite this email with a ${toneInstruction} tone:\n\n${body}`;
 
-      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        throw new Error('API key not configured');
-      }
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022',
-          max_tokens: 2000,
-          messages: [
-            {
-              role: 'user',
-              content: fullPrompt,
-            },
-          ],
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error:', errorText);
-        throw new Error(`Failed to regenerate email: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setBody(data.content[0].text);
+      const edited = await editReply(body, fullPrompt);
+      setBody(edited);
     } catch (error) {
       console.error('Failed to regenerate email:', error);
     } finally {
