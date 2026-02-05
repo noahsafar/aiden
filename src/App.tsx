@@ -12,6 +12,7 @@ import { TestPage } from '@/components/TestPage';
 import { Settings as SettingsPage } from '@/pages/Settings';
 import { Calendar } from '@/pages/Calendar';
 import { Crm } from '@/pages/Crm';
+import { AIComposeModal } from '@/components/email/AIComposeModal';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ToastContainer, ToastData } from '@/components/ui/Toast';
@@ -41,6 +42,7 @@ import {
   Signal,
   MessageSquare,
   Target,
+  PenSquare,
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -87,6 +89,7 @@ interface Email {
 function App() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
+  const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
   const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
@@ -459,8 +462,7 @@ function App() {
   };
 
   const handleCompose = () => {
-    console.log('Open compose modal');
-    // Open compose modal
+    setIsComposeModalOpen(true);
   };
 
   const handleAICompose = () => {
@@ -603,8 +605,8 @@ function App() {
                   </span>
                 </div>
 
-                <div className="flex-1 max-w-xl mx-4 hidden md:block">
-                  <div className="relative">
+                <div className="flex-1 max-w-xl mx-4 hidden md:flex items-center gap-3">
+                  <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
                       type="text"
@@ -612,6 +614,15 @@ function App() {
                       className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200"
                     />
                   </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleCompose}
+                    className="flex-shrink-0"
+                  >
+                    <PenSquare className="h-4 w-4 mr-1.5" />
+                    Compose
+                  </Button>
                 </div>
 
                 <div className="flex items-center space-x-1 flex-shrink-0">
@@ -1089,6 +1100,10 @@ function App() {
       />
       </Routes>
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <AIComposeModal
+        isOpen={isComposeModalOpen}
+        onClose={() => setIsComposeModalOpen(false)}
+      />
     </OAuthHandler>
   );
 }
