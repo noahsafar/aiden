@@ -291,8 +291,7 @@ Subject: [your subject line]
                           : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600'
                       }`}
                     >
-                      <div className="font-medium">{template.name}</div>
-                      <div className="text-xs opacity-70">{template.description}</div>
+                      {template.name}
                     </button>
                   ))}
                 </div>
@@ -314,8 +313,7 @@ Subject: [your subject line]
                           : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600'
                       }`}
                     >
-                      <div className="font-medium">{tone.name}</div>
-                      <div className="text-xs opacity-70">{tone.description}</div>
+                      {tone.name}
                     </button>
                   ))}
                 </div>
