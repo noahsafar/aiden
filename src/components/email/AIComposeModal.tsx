@@ -283,7 +283,7 @@ Subject: [your subject line]
                       key={template.id}
                       onClick={() => {
                         setSelectedTemplate(template.id);
-                        setAiPrompt(prev => prev + template.prompt + ' ');
+                        setAiPrompt(template.prompt + ' ');
                       }}
                       className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                         selectedTemplate === template.id
