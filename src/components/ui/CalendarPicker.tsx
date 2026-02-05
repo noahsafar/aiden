@@ -229,8 +229,8 @@ export function CalendarPicker({
 
   // Handle mouse up to end dragging
   const handleMouseUp = () => {
-    if (dragState.isDragging && selectionInfo && !selectionInfo.hasConflict) {
-      // Set pending selection instead of immediately confirming
+    if (dragState.isDragging && selectionInfo) {
+      // Set pending selection even if there are conflicts
       setPendingSelection({
         startDate: dragState.startDate!,
         startSlotIndex: dragState.startSlotIndex!,
@@ -535,16 +535,16 @@ export function CalendarPicker({
                                   key={slotIndex}
                                   onMouseDown={() => handleCellMouseDown(date, slotIndex)}
                                   onMouseEnter={() => handleCellMouseEnter(date, slotIndex)}
-                                  className={`flex-1 transition-colors cursor-pointer
+                                  className={`flex-1 transition-colors
                                     ${past
                                       ? 'bg-gray-50 dark:bg-gray-900 opacity-30 cursor-not-allowed'
                                       : hasConflict
-                                        ? 'bg-gray-200 dark:bg-gray-700 cursor-not-allowed'
+                                        ? 'bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 cursor-pointer'
                                         : selected || existingSelected
                                           ? 'bg-green-500 dark:bg-green-600'
                                           : hovered
                                             ? 'bg-green-200 dark:bg-green-900/50'
-                                            : 'bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20'
+                                            : 'bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 cursor-pointer'
                                     }
                                   `}
                                 />
@@ -648,8 +648,7 @@ export function CalendarPicker({
               </button>
               <button
                 onClick={handleConfirmPending}
-                disabled={pendingSelectionInfo.hasConflict}
-                className={`${isModal ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'} bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors`}
+                className={`${isModal ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'} bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors`}
               >
                 Confirm
               </button>
