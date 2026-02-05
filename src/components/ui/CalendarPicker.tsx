@@ -206,9 +206,6 @@ export function CalendarPicker({
 
     if (cellDate < now) return;
 
-    // Clear any pending selection when starting a new drag
-    setPendingSelection(null);
-
     setDragState({
       isDragging: true,
       startDate: date,
@@ -239,6 +236,8 @@ export function CalendarPicker({
         startSlotIndex: dragState.startSlotIndex!,
         endSlotIndex: dragState.currentSlotIndex!,
       });
+      // Clear the old selected slot from parent when creating a new pending selection
+      onTimeSelect(null as any);
     }
 
     setDragState({
@@ -531,8 +530,7 @@ export function CalendarPicker({
                               const selected = isCellSelected(date, slotIndex);
                               const hovered = isCellHovered(date, slotIndex);
                               const past = isPast(date, slotIndex);
-                              // Don't show existing selected slot if we're dragging or have pending selection
-                              const existingSelected = !dragState.isDragging && !pendingSelection && isSelectedSlot(date, slotIndex);
+                              const existingSelected = isSelectedSlot(date, slotIndex);
 
                               return (
                                 <div
