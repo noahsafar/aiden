@@ -494,6 +494,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
     questionsLoaded: boolean;
     summaryComplete: boolean;
     meetingRequest: any;
+    isEditing: boolean;
+    editedReply: string;
+    hasEdited: boolean;
   }
 
   // Per-email state map to preserve state when switching between emails
@@ -557,6 +560,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
         questionsLoaded: false,
         summaryComplete: false,
         meetingRequest: { is_meeting: false },
+        isEditing: false,
+        editedReply: '',
+        hasEdited: false,
       });
     }
     return emailStateMap.current.get(emailId)!;
@@ -573,6 +579,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
       state.questionsLoaded = questionsLoaded;
       state.summaryComplete = summaryComplete;
       state.meetingRequest = meetingRequest;
+      state.isEditing = isEditing;
+      state.editedReply = editedReply;
+      state.hasEdited = hasEdited;
     }
   };
 
@@ -587,6 +596,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setQuestionsLoaded(state.questionsLoaded);
       setSummaryComplete(state.summaryComplete);
       setMeetingRequest(state.meetingRequest || { is_meeting: false });
+      setIsEditing(state.isEditing || false);
+      setEditedReply(state.editedReply || '');
+      setHasEdited(state.hasEdited || false);
       return true;
     }
     // Also check for background-generated questions in window global
@@ -604,6 +616,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setQuestionsLoaded(true);
         setSummaryComplete(true);
         setMeetingRequest(globalQuestionData.meetingRequest || { is_meeting: false });
+        setIsEditing(false);
+        setHasEdited(false);
         return true;
       }
     }
@@ -680,6 +694,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
         prevState.questionsLoaded = questionsLoaded;
         prevState.summaryComplete = summaryComplete;
         prevState.meetingRequest = meetingRequest;
+        prevState.isEditing = isEditing;
+        prevState.editedReply = editedReply;
+        prevState.hasEdited = hasEdited;
       }
       // Clear local reply when switching emails
       setLocalAiReply(null);
@@ -716,10 +733,13 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setSummaryComplete(false);
         setQuestionsLoaded(false);
         setMeetingRequest({ is_meeting: false });
+        setIsEditing(false);
+        setHasEdited(false);
       }
 
       // Set edited reply from new email's AI reply (from store, not local state)
-      if (aiReply) {
+      // Only if not already loaded from state
+      if (!loaded && aiReply) {
         setEditedReply(aiReply);
         setHasEdited(false);
       }
