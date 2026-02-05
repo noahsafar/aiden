@@ -531,7 +531,8 @@ export function CalendarPicker({
                               const selected = isCellSelected(date, slotIndex);
                               const hovered = isCellHovered(date, slotIndex);
                               const past = isPast(date, slotIndex);
-                              const existingSelected = isSelectedSlot(date, slotIndex);
+                              // Don't show existing selected slot if we're dragging or have pending selection
+                              const existingSelected = !dragState.isDragging && !pendingSelection && isSelectedSlot(date, slotIndex);
 
                               return (
                                 <div
