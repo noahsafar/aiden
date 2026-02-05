@@ -63,20 +63,23 @@ export function CalendarPicker({
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to 8 AM when calendar loads
+  // Scroll to 6 AM when calendar loads (after loading is complete)
   useEffect(() => {
-    // Use setTimeout to ensure the DOM is fully rendered first
-    setTimeout(() => {
-      if (scrollContainerRef.current) {
-        // We want 8 AM to be the first visible hour row below the sticky header
-        // 0-7 AM are the first 8 hour rows, we want to scroll past them completely
-        // Each hour row is h-8 (32px modal) or h-6 (24px compact)
-        const hourHeight = isModal ? 32 : 24;
-        const scrollPosition = 8 * hourHeight + 8; // Add a small buffer
-        scrollContainerRef.current.scrollTop = scrollPosition;
-      }
-    }, 100);
-  }, [isModal]);
+    if (!loading && scrollContainerRef.current) {
+      const scrollTimer = setTimeout(() => {
+        if (scrollContainerRef.current) {
+          // We want 6 AM to be at the top of the visible area (below sticky header)
+          const hourHeight = isModal ? 32 : 24;
+          // Add a small offset to account for the sticky header
+          const stickyHeaderHeight = isModal ? 29 : 25;
+          const scrollPosition = (6 * hourHeight) + stickyHeaderHeight;
+          scrollContainerRef.current.scrollTop = scrollPosition;
+        }
+      }, 50);
+
+      return () => clearTimeout(scrollTimer);
+    }
+  }, [loading, isModal]);
 
   // Load calendar events for the visible date range
   useEffect(() => {
@@ -531,7 +534,7 @@ export function CalendarPicker({
             <div className="flex">
               {/* Time labels */}
               <div className={`flex flex-col ${isModal ? 'w-10' : 'w-9'} flex-shrink-0`}>
-                {HOURS.map(hour => (
+                {HOURS.map((hour) => (
                   <div
                     key={hour}
                     className={`${isModal ? 'h-8' : 'h-6'} text-[8px] text-gray-400 dark:text-gray-500 text-right pr-1 flex items-start justify-end`}
@@ -548,43 +551,39 @@ export function CalendarPicker({
 
                   return (
                     <div key={dateStr} className="flex flex-col bg-white dark:bg-gray-800">
-                      {/* 15-minute slots - 4 per hour */}
-                      <div className="flex-1 flex flex-col">
-                        {Array.from({ length: 24 }).map((_, hourIdx) => (
-                          <div key={hourIdx} className={`${isModal ? 'h-8' : 'h-6'} flex flex-col border-b border-gray-100 dark:border-gray-800`}>
-                            {Array.from({ length: 4 }).map((_, quarterIdx) => {
-                              const slotIndex = hourIdx * 4 + quarterIdx;
-                              const minutes = slotIndex * SLOT_MINUTES;
-                              const hasConflict = hasConflictAt(date, slotIndex);
-                              const selected = isCellSelected(date, slotIndex);
-                              const hovered = isCellHovered(date, slotIndex);
-                              const past = isPast(date, slotIndex);
-                              // Don't show old confirmed slot if we have a pending selection waiting to be confirmed
-                              const existingSelected = !pendingSelection && isSelectedSlot(date, slotIndex);
+                      {HOURS.map((hour) => (
+                        <div key={hour} className={`${isModal ? 'h-8' : 'h-6'} flex flex-col border-b border-gray-100 dark:border-gray-800`}>
+                          {Array.from({ length: 4 }).map((_, quarterIdx) => {
+                            const slotIndex = hour * 4 + quarterIdx;
+                            const hasConflict = hasConflictAt(date, slotIndex);
+                            const selected = isCellSelected(date, slotIndex);
+                            const hovered = isCellHovered(date, slotIndex);
+                            const past = isPast(date, slotIndex);
+                            // Don't show old confirmed slot if we have a pending selection waiting to be confirmed
+                            const existingSelected = !pendingSelection && isSelectedSlot(date, slotIndex);
 
-                              return (
-                                <div
-                                  key={slotIndex}
-                                  onMouseDown={() => handleCellMouseDown(date, slotIndex)}
-                                  onMouseEnter={() => handleCellMouseEnter(date, slotIndex)}
-                                  className={`flex-1 transition-colors
-                                    ${past
-                                      ? 'bg-gray-50 dark:bg-gray-900 opacity-30 cursor-not-allowed'
-                                      : hasConflict
-                                        ? 'bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 cursor-pointer'
-                                        : selected || existingSelected
-                                          ? 'bg-green-500 dark:bg-green-600'
-                                          : hovered
-                                            ? 'bg-green-200 dark:bg-green-900/50'
-                                            : 'bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 cursor-pointer'
-                                    }
-                                  `}
-                                />
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
+                            return (
+                              <div
+                                key={slotIndex}
+                                onMouseDown={() => handleCellMouseDown(date, slotIndex)}
+                                onMouseEnter={() => handleCellMouseEnter(date, slotIndex)}
+                                className={`flex-1 transition-colors
+                                  ${past
+                                    ? 'bg-gray-50 dark:bg-gray-900 opacity-30 cursor-not-allowed'
+                                    : hasConflict
+                                      ? 'bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 cursor-pointer'
+                                      : selected || existingSelected
+                                        ? 'bg-green-500 dark:bg-green-600'
+                                        : hovered
+                                          ? 'bg-green-200 dark:bg-green-900/50'
+                                          : 'bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 cursor-pointer'
+                                  }
+                                `}
+                              />
+                            );
+                          })}
+                        </div>
+                      ))}
                     </div>
                   );
                 })}
