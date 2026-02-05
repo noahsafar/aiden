@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Clock, Check, Loader, AlertCircle, ChevronDown, Calendar as CalendarIcon, X } from 'lucide-react';
 import { serverURL } from '@/api/emails';
 import { CalendarPicker } from './CalendarPicker';
@@ -453,16 +454,20 @@ export function MeetingSuggestions({ meetingRequest, emailSubject, senderEmail, 
       </div>
 
     {/* Calendar Picker Modal */}
-    {showCalendarPicker && (
-      <div className="absolute inset-0 bg-white dark:bg-gray-800 z-10 rounded-xl overflow-hidden flex flex-col">
-        <CalendarPicker
-          durationMinutes={meetingRequest.duration_minutes || 60}
-          timezone={timezone}
-          onTimeSelect={handleTimeSelect}
-          onClose={handleCloseCalendarPicker}
-          selectedSlot={selectedTime}
-        />
-      </div>
+    {showCalendarPicker && createPortal(
+      <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+          <CalendarPicker
+            durationMinutes={meetingRequest.duration_minutes || 60}
+            timezone={timezone}
+            onTimeSelect={handleTimeSelect}
+            onClose={handleCloseCalendarPicker}
+            selectedSlot={selectedTime}
+            isModal={true}
+          />
+        </div>
+      </div>,
+      document.body
     )}
     </div>
   );

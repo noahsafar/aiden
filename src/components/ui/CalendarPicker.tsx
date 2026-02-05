@@ -19,6 +19,7 @@ interface CalendarPickerProps {
   onTimeSelect: (slot: TimeSlot) => void;
   onClose: () => void;
   selectedSlot?: TimeSlot | null;
+  isModal?: boolean;
 }
 
 export function CalendarPicker({
@@ -26,7 +27,8 @@ export function CalendarPicker({
   timezone = 'America/New_York',
   onTimeSelect,
   onClose,
-  selectedSlot
+  selectedSlot,
+  isModal = false
 }: CalendarPickerProps) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -182,75 +184,79 @@ export function CalendarPicker({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Compact Header with Nav */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 gap-2">
+      <div className={`flex items-center justify-between border-b border-gray-200 dark:border-gray-700 gap-2 ${isModal ? 'px-6 py-4' : 'px-3 py-2'}`}>
         <button
           onClick={() => navigateWeek('prev')}
-          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 flex-shrink-0"
+          className={`rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 flex-shrink-0 ${isModal ? 'p-2' : 'p-1'}`}
         >
-          <ChevronLeft className="w-4 h-4" />
+          <ChevronLeft className={`${isModal ? 'w-5 h-5' : 'w-4 h-4'}`} />
         </button>
-        <span className="text-xs font-medium text-gray-700 dark:text-gray-300 text-center flex-1 truncate">{getDateRangeText()}</span>
+        <span className={`font-medium text-gray-700 dark:text-gray-300 text-center flex-1 truncate ${isModal ? 'text-sm' : 'text-xs'}`}>{getDateRangeText()}</span>
         <button
           onClick={() => navigateWeek('next')}
-          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 flex-shrink-0"
+          className={`rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 flex-shrink-0 ${isModal ? 'p-2' : 'p-1'}`}
         >
-          <ChevronRight className="w-4 h-4" />
+          <ChevronRight className={`${isModal ? 'w-5 h-5' : 'w-4 h-4'}`} />
         </button>
         <button
           onClick={onClose}
-          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0"
+          className={`rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0 ${isModal ? 'p-2' : 'p-1'}`}
         >
-          <X className="w-4 h-4" />
+          <X className={`${isModal ? 'w-5 h-5' : 'w-4 h-4'}`} />
         </button>
       </div>
 
       {/* Compact Legend */}
-      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 text-[10px]">
-        <div className="flex items-center gap-1">
-          <div className="w-2 h-2 rounded bg-green-500" />
+      <div className={`flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 ${isModal ? 'px-6 py-3 text-xs' : 'px-3 py-1.5 text-[10px]'}`}>
+        <div className="flex items-center gap-1.5">
+          <div className={`${isModal ? 'w-3 h-3' : 'w-2 h-2'} rounded bg-blue-500`} />
           <span className="text-gray-500 dark:text-gray-400">Avail</span>
         </div>
-        <div className="flex items-center gap-1">
-          <div className="w-2 h-2 rounded bg-blue-500" />
+        <div className="flex items-center gap-1.5">
+          <div className={`${isModal ? 'w-3 h-3' : 'w-2 h-2'} rounded bg-green-500`} />
           <span className="text-gray-500 dark:text-gray-400">Best</span>
         </div>
-        <div className="flex items-center gap-1">
-          <div className="w-2 h-2 rounded bg-gray-300 dark:bg-gray-600" />
+        <div className="flex items-center gap-1.5">
+          <div className={`${isModal ? 'w-3 h-3' : 'w-2 h-2'} rounded bg-gray-300 dark:bg-gray-600`} />
           <span className="text-gray-500 dark:text-gray-400">Busy</span>
         </div>
       </div>
 
       {/* Time Slots Grid */}
-      <div className="flex-1 overflow-y-auto p-3 min-h-0">
+      <div className={`flex-1 overflow-y-auto min-h-0 ${isModal ? 'p-6' : 'p-3'}`}>
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <Loader className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
+            <Loader className={`${isModal ? 'w-6 h-6' : 'w-5 h-5'} text-blue-600 dark:text-blue-400 animate-spin`} />
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className={`space-y-${isModal ? '4' : '3'}`}>
             {Object.entries(slotsByDay).map(([key, slots]) => {
               const dayName = key.split('|')[1];
               return (
                 <div key={key}>
-                  <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1.5">
+                  <p className={`${isModal ? 'text-sm font-semibold' : 'text-[10px] font-semibold'} text-gray-400 dark:text-gray-500 uppercase tracking-wide ${isModal ? 'mb-2' : 'mb-1.5'}`}>
                     {dayName}
                   </p>
-                  <div className="grid grid-cols-5 gap-1.5">
+                  <div className={`grid gap-${isModal ? '2' : '1.5'} ${isModal ? 'grid-cols-4' : 'grid-cols-5'}`}>
                   {slots.map((slot, idx) => (
                     <button
                       key={idx}
                       onClick={() => handleSlotClick(slot)}
                       disabled={slot.hasConflict}
                       className={`
-                        relative px-1.5 py-1.5 rounded text-[10px] font-medium transition-all
+                        relative rounded font-medium transition-all
+                        ${isModal
+                          ? 'px-3 py-3 text-sm'
+                          : 'px-1.5 py-1.5 text-[10px]'
+                        }
                         ${slot.hasConflict
                           ? 'bg-gray-100 dark:bg-gray-800 text-gray-350 dark:text-gray-600 cursor-not-allowed opacity-50'
                           : slot.isRecommended
-                            ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700'
-                            : 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60 border border-green-300 dark:border-green-700'
+                            ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60 border border-green-300 dark:border-green-700'
+                            : 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700'
                         }
                         ${selectedSlot?.start === slot.start
-                          ? 'ring-1.5 ring-blue-500'
+                          ? 'ring-1.5 ring-green-500'
                           : ''
                         }
                       `}
@@ -259,8 +265,8 @@ export function CalendarPicker({
                         <span>{slot.time}</span>
                       </div>
                       {selectedSlot?.start === slot.start && (
-                        <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
-                          <Check className="w-2 h-2 text-white" />
+                        <div className={`absolute bg-green-500 rounded-full flex items-center justify-center ${isModal ? '-top-1 -right-1 w-4 h-4' : '-top-0.5 -right-0.5 w-3 h-3'}`}>
+                          <Check className={`${isModal ? 'w-2.5 h-2.5' : 'w-2 h-2'} text-white`} />
                         </div>
                       )}
                     </button>
@@ -275,16 +281,16 @@ export function CalendarPicker({
 
       {/* Compact Selected Time Display */}
       {selectedSlot && (
-        <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border-t border-blue-200 dark:border-blue-800">
+        <div className={`${isModal ? 'px-6 py-4' : 'px-3 py-2'} bg-blue-50 dark:bg-blue-900/20 border-t border-blue-200 dark:border-blue-800`}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
+              <p className={`${isModal ? 'text-sm' : 'text-xs'} font-medium text-blue-900 dark:text-blue-100`}>
                 {selectedSlot.dayName} at {selectedSlot.time}
               </p>
             </div>
             <button
               onClick={() => onTimeSelect(selectedSlot)}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors"
+              className={`${isModal ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'} bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors`}
             >
               Confirm
             </button>
