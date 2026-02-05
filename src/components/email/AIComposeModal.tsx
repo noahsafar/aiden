@@ -8,6 +8,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { Button } from '@/components/ui/Button';
 import { useEmailStore } from '@/stores/emailStore';
+import { useAuthStore } from '@/stores/authStore';
 import { editReply } from '@/api/claude';
 
 interface AIComposeModalProps {
@@ -78,9 +79,12 @@ export function AIComposeModal({ isOpen, onClose }: AIComposeModalProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(true);
+  const [regenerateInstruction, setRegenerateInstruction] = useState('');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { sendEmail } = useEmailStore();
+  const { user } = useAuthStore();
+  const userName = user?.name || 'Your Name';
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -94,6 +98,7 @@ export function AIComposeModal({ isOpen, onClose }: AIComposeModalProps) {
         setSelectedTemplate(null);
         setSelectedTone('professional');
         setShowAIPanel(true);
+        setRegenerateInstruction('');
       }, 200);
     }
   }, [isOpen]);
@@ -114,6 +119,7 @@ ${aiPrompt}
 
 Tone: ${toneInstruction}
 Recipient: ${to || 'not specified'}
+My name is ${userName} - sign off with "${userName}", not "[Your Name]" or a placeholder
 
 Please write a complete email with an appropriate subject line. Format your response as JSON:
 {
@@ -161,10 +167,10 @@ Please write a complete email with an appropriate subject line. Format your resp
 
     setIsGenerating(true);
     try {
-      const toneInstruction = TONE_OPTIONS.find(t => t.id === selectedTone)?.description || 'professional';
-      const fullPrompt = `Please rewrite this email with a ${toneInstruction} tone:\n\n${body}`;
+      const instruction = regenerateInstruction.trim() ||
+        `Please rewrite this email with a ${TONE_OPTIONS.find(t => t.id === selectedTone)?.description || 'professional'} tone. Use my actual name "${userName}" for the sign-off, not a placeholder.`;
 
-      const edited = await editReply(body, fullPrompt);
+      const edited = await editReply(body, instruction);
       setBody(edited);
     } catch (error) {
       console.error('Failed to regenerate email:', error);
@@ -404,7 +410,20 @@ Please write a complete email with an appropriate subject line. Format your resp
 
               {/* AI Quick Actions (shown when body exists) */}
               {body && !showAIPanel && (
-                <div className="flex flex-wrap gap-2 pt-2">
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <input
+                    type="text"
+                    value={regenerateInstruction}
+                    onChange={(e) => setRegenerateInstruction(e.target.value)}
+                    placeholder="Instructions for regeneration (e.g., 'make it shorter', 'add more details')..."
+                    className="flex-1 min-w-0 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && regenerateInstruction.trim()) {
+                        e.preventDefault();
+                        handleRegenerate();
+                      }
+                    }}
+                  />
                   <Button
                     variant="outline"
                     size="sm"
@@ -415,7 +434,7 @@ Please write a complete email with an appropriate subject line. Format your resp
                     Regenerate
                   </Button>
                   <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center">
-                    Press Cmd+Enter to send
+                    Cmd+Enter to send
                   </span>
                 </div>
               )}
