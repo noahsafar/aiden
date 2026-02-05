@@ -66,15 +66,14 @@ export function CalendarPicker({
   // Scroll to 8 AM when calendar loads
   useEffect(() => {
     if (scrollContainerRef.current) {
-      // 8 AM means we want the 8th hour row to be visible at the top
+      // We want 8 AM to be the first visible hour row below the sticky header
+      // 0-7 AM are the first 8 hour rows, so we scroll past them
       // Each hour row is h-8 (32px modal) or h-6 (24px compact)
-      // The header (weekday row) takes up h-6 (24px modal) or h-5 (20px compact)
       const hourHeight = isModal ? 32 : 24;
-      const headerHeight = isModal ? 24 : 20;
-      const scrollPosition = (8 * hourHeight) - headerHeight;
+      const scrollPosition = 8 * hourHeight;
       scrollContainerRef.current.scrollTop = scrollPosition;
     }
-  }, []); // Only run once on mount
+  }, [isModal]);
 
   // Load calendar events for the visible date range
   useEffect(() => {
