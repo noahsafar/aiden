@@ -26,6 +26,12 @@ interface DragState {
   currentSlotIndex: number | null;
 }
 
+interface PendingSelection {
+  startDate: Date;
+  startSlotIndex: number;
+  endSlotIndex: number;
+}
+
 const SLOT_MINUTES = 15; // 15-minute intervals
 const SLOTS_PER_HOUR = 60 / SLOT_MINUTES; // 4 slots per hour
 const TOTAL_SLOTS = 24 * SLOTS_PER_HOUR; // 96 slots per day
@@ -53,6 +59,7 @@ export function CalendarPicker({
   });
   const [hoverDate, setHoverDate] = useState<Date | null>(null);
   const [hoverSlotIndex, setHoverSlotIndex] = useState<number | null>(null);
+  const [pendingSelection, setPendingSelection] = useState<PendingSelection | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Load calendar events for the visible date range
@@ -223,21 +230,12 @@ export function CalendarPicker({
   // Handle mouse up to end dragging
   const handleMouseUp = () => {
     if (dragState.isDragging && selectionInfo && !selectionInfo.hasConflict) {
-      const { start, end } = selectionInfo;
-
-      const slot: TimeSlot = {
-        date: start.toISOString().split('T')[0],
-        time: start.toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true
-        }),
-        start: start.toISOString(),
-        end: end.toISOString(),
-        dayName: getDayName(start),
-      };
-
-      onTimeSelect(slot);
+      // Set pending selection instead of immediately confirming
+      setPendingSelection({
+        startDate: dragState.startDate!,
+        startSlotIndex: dragState.startSlotIndex!,
+        endSlotIndex: dragState.currentSlotIndex!,
+      });
     }
 
     setDragState({
@@ -247,6 +245,81 @@ export function CalendarPicker({
       currentSlotIndex: null,
     });
   };
+
+  // Confirm the pending selection
+  const handleConfirmPending = () => {
+    if (!pendingSelection) return;
+
+    const { startDate, startSlotIndex, endSlotIndex } = pendingSelection;
+    const startIdx = Math.min(startSlotIndex, endSlotIndex);
+    const endIdx = Math.max(startSlotIndex, endSlotIndex);
+
+    const start = new Date(startDate);
+    const startMinutes = startIdx * SLOT_MINUTES;
+    start.setHours(
+      Math.floor(startMinutes / 60),
+      startMinutes % 60,
+      0, 0
+    );
+
+    const end = new Date(startDate);
+    const endMinutes = (endIdx + 1) * SLOT_MINUTES;
+    end.setHours(
+      Math.floor(endMinutes / 60),
+      endMinutes % 60,
+      0, 0
+    );
+
+    const slot: TimeSlot = {
+      date: start.toISOString().split('T')[0],
+      time: start.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      }),
+      start: start.toISOString(),
+      end: end.toISOString(),
+      dayName: getDayName(start),
+    };
+
+    onTimeSelect(slot);
+    setPendingSelection(null);
+  };
+
+  // Cancel pending selection
+  const handleCancelPending = () => {
+    setPendingSelection(null);
+  };
+
+  // Get pending selection info for display
+  const pendingSelectionInfo = useMemo(() => {
+    if (!pendingSelection) return null;
+
+    const { startDate, startSlotIndex, endSlotIndex } = pendingSelection;
+    const startIdx = Math.min(startSlotIndex, endSlotIndex);
+    const endIdx = Math.max(startSlotIndex, endSlotIndex);
+
+    const start = new Date(startDate);
+    const startMinutes = startIdx * SLOT_MINUTES;
+    start.setHours(
+      Math.floor(startMinutes / 60),
+      startMinutes % 60,
+      0, 0
+    );
+
+    const end = new Date(startDate);
+    const endMinutes = (endIdx + 1) * SLOT_MINUTES;
+    end.setHours(
+      Math.floor(endMinutes / 60),
+      endMinutes % 60,
+      0, 0
+    );
+
+    const duration = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
+    const hasConflict = hasRangeConflict(start, end);
+
+    return { start, end, duration, hasConflict };
+  }, [pendingSelection, hasRangeConflict]);
 
   // Add global mouse up listener
   useEffect(() => {
@@ -274,17 +347,29 @@ export function CalendarPicker({
     return date.toLocaleDateString('en-US', { weekday: 'long' });
   };
 
-  // Check if a cell is selected
+  // Check if a cell is selected (during drag or pending)
   const isCellSelected = (date: Date, slotIndex: number): boolean => {
-    if (!dragState.startDate || dragState.startSlotIndex === null) return false;
+    // Check during active dragging
+    if (dragState.isDragging && dragState.startDate && dragState.startSlotIndex !== null) {
+      const sameDay = date.toDateString() === dragState.startDate.toDateString();
+      if (sameDay) {
+        const startIdx = Math.min(dragState.startSlotIndex, dragState.currentSlotIndex ?? dragState.startSlotIndex);
+        const endIdx = Math.max(dragState.startSlotIndex, dragState.currentSlotIndex ?? dragState.startSlotIndex);
+        return slotIndex >= startIdx && slotIndex <= endIdx;
+      }
+    }
 
-    const sameDay = date.toDateString() === dragState.startDate.toDateString();
-    if (!sameDay) return false;
+    // Check pending selection
+    if (pendingSelection) {
+      const sameDay = date.toDateString() === pendingSelection.startDate.toDateString();
+      if (sameDay) {
+        const startIdx = Math.min(pendingSelection.startSlotIndex, pendingSelection.endSlotIndex);
+        const endIdx = Math.max(pendingSelection.startSlotIndex, pendingSelection.endSlotIndex);
+        return slotIndex >= startIdx && slotIndex <= endIdx;
+      }
+    }
 
-    const startIdx = Math.min(dragState.startSlotIndex, dragState.currentSlotIndex ?? dragState.startSlotIndex);
-    const endIdx = Math.max(dragState.startSlotIndex, dragState.currentSlotIndex ?? dragState.startSlotIndex);
-
-    return slotIndex >= startIdx && slotIndex <= endIdx;
+    return false;
   };
 
   // Check if a cell is hovered
@@ -505,7 +590,7 @@ export function CalendarPicker({
         )}
       </div>
 
-      {/* Selection Info */}
+      {/* Selection Info (during drag) */}
       {selectionInfo && dragState.isDragging && (
         <div className={`${isModal ? 'px-6 py-4' : 'px-3 py-2'} bg-green-50 dark:bg-green-900/20 border-t border-green-200 dark:border-green-800`}>
           <div className="flex items-center justify-between">
@@ -533,8 +618,48 @@ export function CalendarPicker({
         </div>
       )}
 
-      {/* Selected Time Display (non-dragging) */}
-      {selectedSlot && !dragState.isDragging && (
+      {/* Pending Selection Display */}
+      {pendingSelectionInfo && !dragState.isDragging && (
+        <div className={`${isModal ? 'px-6 py-4' : 'px-3 py-2'} bg-yellow-50 dark:bg-yellow-900/20 border-t border-yellow-200 dark:border-yellow-800`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={`${isModal ? 'text-sm' : 'text-xs'} font-medium text-yellow-900 dark:text-yellow-100`}>
+                {pendingSelectionInfo.duration} minutes
+              </p>
+              <p className={`${isModal ? 'text-xs' : 'text-[10px]'} text-yellow-700 dark:text-yellow-300`}>
+                {pendingSelectionInfo.start.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                {' '}
+                {pendingSelectionInfo.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                {' - '}
+                {pendingSelectionInfo.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+              </p>
+              {pendingSelectionInfo.hasConflict && (
+                <p className={`${isModal ? 'text-xs' : 'text-[10px]'} text-red-600 dark:text-red-400 mt-1`}>
+                  ⚠️ Conflicts with existing events
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCancelPending}
+                className={`${isModal ? 'px-3 py-1.5 text-xs' : 'px-2 py-1 text-[10px]'} bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 font-medium rounded-lg transition-colors`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmPending}
+                disabled={pendingSelectionInfo.hasConflict}
+                className={`${isModal ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'} bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors`}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Selected Time Display (already confirmed) */}
+      {selectedSlot && !dragState.isDragging && !pendingSelection && (
         <div className={`${isModal ? 'px-6 py-4' : 'px-3 py-2'} bg-blue-50 dark:bg-blue-900/20 border-t border-blue-200 dark:border-blue-800`}>
           <div className="flex items-center justify-between">
             <div>
