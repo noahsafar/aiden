@@ -405,7 +405,7 @@ export function CalendarPicker({
                 {HOURS.map(hour => (
                   <div
                     key={hour}
-                    className={`${isModal ? 'h-16' : 'h-12'} text-[8px] text-gray-400 dark:text-gray-500 text-right pr-1 flex items-start justify-end`}
+                    className={`${isModal ? 'h-8' : 'h-6'} text-[8px] text-gray-400 dark:text-gray-500 text-right pr-1 flex items-start justify-end`}
                   >
                     {hour === 0 ? '12a' : hour < 12 ? `${hour}a` : hour === 12 ? '12p' : `${hour - 12}p`}
                   </div>
@@ -435,7 +435,7 @@ export function CalendarPicker({
                       {/* 15-minute slots - 4 per hour */}
                       <div className="flex-1 flex flex-col">
                         {Array.from({ length: 24 }).map((_, hourIdx) => (
-                          <div key={hourIdx} className="flex-1 flex flex-col border-b border-gray-100 dark:border-gray-800">
+                          <div key={hourIdx} className={`${isModal ? 'h-8' : 'h-6'} flex flex-col border-b border-gray-100 dark:border-gray-800`}>
                             {Array.from({ length: 4 }).map((_, quarterIdx) => {
                               const slotIndex = hourIdx * 4 + quarterIdx;
                               const minutes = slotIndex * SLOT_MINUTES;
