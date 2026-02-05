@@ -249,32 +249,32 @@ Subject: [your subject line]
         {showAIPanel && (
           <div className="w-80 border-r border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50 dark:bg-gray-900">
             {/* Header */}
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">AI Assistant</h3>
+                <h3 className="font-semibold text-gray-900 dark:text-white text-sm">AI Assistant</h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Describe your email</p>
               </div>
             </div>
 
             {/* Scrollable Content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
               {/* Prompt Input */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   What do you want to say?
                 </label>
                 <textarea
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
                   placeholder="Describe your email..."
-                  rows={4}
+                  rows={3}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none text-sm"
                 />
               </div>
 
               {/* Templates */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Quick Templates
                 </label>
                 <div className="space-y-1">
@@ -285,13 +285,13 @@ Subject: [your subject line]
                         setSelectedTemplate(template.id);
                         setAiPrompt(template.prompt + ' ');
                       }}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                      className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${
                         selectedTemplate === template.id
                           ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700'
                           : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600'
                       }`}
                     >
-                      <div className="font-medium">{template.name}</div>
+                      <div className="font-medium text-xs">{template.name}</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">{template.description.split(' ').slice(0, 3).join(' ')}</div>
                     </button>
                   ))}
@@ -300,7 +300,7 @@ Subject: [your subject line]
 
               {/* Tone Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Tone
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -308,13 +308,13 @@ Subject: [your subject line]
                     <button
                       key={tone.id}
                       onClick={() => setSelectedTone(tone.id)}
-                      className={`px-3 py-2 rounded-lg text-sm transition-colors text-left ${
+                      className={`px-3 py-1.5 rounded-lg text-sm transition-colors text-left ${
                         selectedTone === tone.id
                           ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700'
                           : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600'
                       }`}
                     >
-                      <div className="font-medium">{tone.name}</div>
+                      <div className="font-medium text-xs">{tone.name}</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">{tone.description.split(' ')[0]}</div>
                     </button>
                   ))}
