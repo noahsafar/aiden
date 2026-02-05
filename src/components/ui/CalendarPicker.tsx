@@ -65,14 +65,17 @@ export function CalendarPicker({
 
   // Scroll to 8 AM when calendar loads
   useEffect(() => {
-    if (scrollContainerRef.current) {
-      // We want 8 AM to be the first visible hour row below the sticky header
-      // 0-7 AM are the first 8 hour rows, so we scroll past them
-      // Each hour row is h-8 (32px modal) or h-6 (24px compact)
-      const hourHeight = isModal ? 32 : 24;
-      const scrollPosition = 8 * hourHeight;
-      scrollContainerRef.current.scrollTop = scrollPosition;
-    }
+    // Use setTimeout to ensure the DOM is fully rendered first
+    setTimeout(() => {
+      if (scrollContainerRef.current) {
+        // We want 8 AM to be the first visible hour row below the sticky header
+        // 0-7 AM are the first 8 hour rows, we want to scroll past them completely
+        // Each hour row is h-8 (32px modal) or h-6 (24px compact)
+        const hourHeight = isModal ? 32 : 24;
+        const scrollPosition = 8 * hourHeight + 8; // Add a small buffer
+        scrollContainerRef.current.scrollTop = scrollPosition;
+      }
+    }, 100);
   }, [isModal]);
 
   // Load calendar events for the visible date range
