@@ -266,7 +266,7 @@ Subject: [your subject line]
                 <textarea
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="E.g., 'Ask my manager for next Friday off to go to the dentist' or 'Follow up on the project proposal I sent last week'"
+                  placeholder="Describe your email..."
                   rows={4}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none text-sm"
                 />
