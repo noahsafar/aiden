@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { useEmailStore } from '@/stores/emailStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useCrmStore, Contact } from '@/stores/crmStore';
 import { editReply } from '@/api/claude';
 
 interface AIComposeModalProps {
@@ -80,11 +81,41 @@ export function AIComposeModal({ isOpen, onClose }: AIComposeModalProps) {
   const [isSending, setIsSending] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(true);
   const [regenerateInstruction, setRegenerateInstruction] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
   const { sendEmail } = useEmailStore();
   const { user } = useAuthStore();
   const userName = user?.name || 'Your Name';
+  const { contacts } = useCrmStore();
+
+  // Compute suggested recipients: top contacts by total_emails_sent
+  const suggestedRecipients = contacts
+    .filter(c => c.total_emails_sent > 0)
+    .sort((a, b) => b.total_emails_sent - a.total_emails_sent)
+    .slice(0, 5);
+
+  // Filter contacts based on input
+  const filteredContacts = contacts.filter(contact => {
+    const search = to.toLowerCase();
+    return (
+      contact.email_address.toLowerCase().includes(search) ||
+      contact.name?.toLowerCase().includes(search)
+    );
+  }).slice(0, 8);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -99,9 +130,44 @@ export function AIComposeModal({ isOpen, onClose }: AIComposeModalProps) {
         setSelectedTone('professional');
         setShowAIPanel(true);
         setRegenerateInstruction('');
+        setShowSuggestions(false);
+        setHighlightedIndex(-1);
       }, 200);
     }
   }, [isOpen]);
+
+  const handleSelectContact = (contact: Contact) => {
+    setTo(contact.email_address);
+    setShowSuggestions(false);
+    setHighlightedIndex(-1);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onClose();
+    }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      // Cmd/Ctrl + Enter to send
+      handleSend();
+    }
+  };
+
+  const handleToKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex(prev =>
+        prev < filteredContacts.length - 1 ? prev + 1 : prev
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex(prev => (prev > 0 ? prev - 1 : -1));
+    } else if (e.key === 'Enter' && highlightedIndex >= 0) {
+      e.preventDefault();
+      handleSelectContact(filteredContacts[highlightedIndex]);
+    }
+  };
 
   const handleGenerateEmail = async () => {
     if (!aiPrompt.trim()) return;
@@ -196,16 +262,6 @@ Please write a complete email with an appropriate subject line. Format your resp
       console.error('Failed to send email:', error);
     } finally {
       setIsSending(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    }
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      // Cmd/Ctrl + Enter to send
-      handleSend();
     }
   };
 
@@ -363,7 +419,7 @@ Please write a complete email with an appropriate subject line. Format your resp
           <div className="flex-1 overflow-y-auto p-4">
             <div className="space-y-4">
               {/* To Field */}
-              <div>
+              <div className="relative">
                 <label htmlFor="to" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   To
                 </label>
@@ -371,10 +427,96 @@ Please write a complete email with an appropriate subject line. Format your resp
                   id="to"
                   type="email"
                   value={to}
-                  onChange={(e) => setTo(e.target.value)}
+                  onChange={(e) => {
+                    setTo(e.target.value);
+                    setShowSuggestions(true);
+                    setHighlightedIndex(-1);
+                  }}
+                  onFocus={() => {
+                    if (to || suggestedRecipients.length > 0) {
+                      setShowSuggestions(true);
+                    }
+                  }}
+                  onKeyDown={handleToKeyDown}
                   placeholder="recipient@example.com"
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  autoComplete="off"
                 />
+
+                {/* Suggestions Dropdown */}
+                {showSuggestions && (filteredContacts.length > 0 || suggestedRecipients.length > 0) && (
+                  <div
+                    ref={suggestionsRef}
+                    className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+                  >
+                    {to === '' && suggestedRecipients.length > 0 && (
+                      <>
+                        <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50">
+                          Suggested
+                        </div>
+                        {suggestedRecipients.map((contact, idx) => (
+                          <button
+                            key={contact.id}
+                            type="button"
+                            onClick={() => handleSelectContact(contact)}
+                            className={`w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                              idx === highlightedIndex ? 'bg-gray-100 dark:bg-gray-700' : ''
+                            }`}
+                          >
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold text-xs flex-shrink-0">
+                              {contact.name?.charAt(0).toUpperCase() || contact.email_address.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm text-gray-900 dark:text-white truncate">
+                                {contact.name || contact.email_address.split('@')[0]}
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                {contact.email_address}
+                              </div>
+                            </div>
+                            <div className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                              {contact.total_emails_sent} sent
+                            </div>
+                          </button>
+                        ))}
+                      </>
+                    )}
+
+                    {to !== '' && filteredContacts.length > 0 && (
+                      filteredContacts.map((contact, idx) => (
+                        <button
+                          key={contact.id}
+                          type="button"
+                          onClick={() => handleSelectContact(contact)}
+                          className={`w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                            idx === highlightedIndex ? 'bg-gray-100 dark:bg-gray-700' : ''
+                          }`}
+                        >
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold text-xs flex-shrink-0">
+                            {contact.name?.charAt(0).toUpperCase() || contact.email_address.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-sm text-gray-900 dark:text-white truncate">
+                              {contact.name || contact.email_address.split('@')[0]}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              {contact.email_address}
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                            {contact.category}
+                          </div>
+                        </button>
+                      ))
+                    )}
+
+                    {to !== '' && filteredContacts.length === 0 && (
+                      <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+                        No contacts found
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Subject Field */}
