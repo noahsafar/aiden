@@ -22,13 +22,32 @@ interface CalendarPickerProps {
 interface DragState {
   isDragging: boolean;
   startDate: Date | null;
-  startHour: number | null;
-  currentHour: number | null;
+  startSlotIndex: number | null;
+  currentSlotIndex: number | null;
 }
 
-const HOURS = [
-  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23
-];
+const SLOT_MINUTES = 15; // 15-minute intervals
+const SLOTS_PER_HOUR = 60 / SLOT_MINUTES; // 4 slots per hour
+const TOTAL_SLOTS = 24 * SLOTS_PER_HOUR; // 96 slots per day
+
+// Generate time slots for a day (in minutes from midnight)
+const generateTimeSlots = () => {
+  const slots: number[] = [];
+  for (let i = 0; i < TOTAL_SLOTS; i++) {
+    slots.push(i * SLOT_MINUTES);
+  }
+  return slots;
+};
+
+const TIME_SLOTS = generateTimeSlots();
+
+// Convert slot index to readable time label
+const getSlotLabel = (minutes: number): string => {
+  const hour = Math.floor(minutes / 60);
+  const min = minutes % 60;
+  const period = hour === 0 ? '12a' : hour < 12 ? `${hour}a` : hour === 12 ? '12p' : `${hour - 12}p`;
+  return min === 0 ? period : `${period}:${min.toString().padStart(2, '0')}`;
+};
 
 export function CalendarPicker({
   durationMinutes = 60,
@@ -47,11 +66,11 @@ export function CalendarPicker({
   const [dragState, setDragState] = useState<DragState>({
     isDragging: false,
     startDate: null,
-    startHour: null,
-    currentHour: null,
+    startSlotIndex: null,
+    currentSlotIndex: null,
   });
   const [hoverDate, setHoverDate] = useState<Date | null>(null);
-  const [hoverHour, setHoverHour] = useState<number | null>(null);
+  const [hoverSlotIndex, setHoverSlotIndex] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Load calendar events for the visible date range
@@ -99,16 +118,21 @@ export function CalendarPicker({
     return days;
   }, [viewStartDate]);
 
-  // Check if a time slot has conflicts
-  const hasConflictAt = useCallback((date: Date, hour: number): boolean => {
+  // Check if a specific 15-minute slot has conflicts
+  const hasConflictAt = useCallback((date: Date, slotIndex: number): boolean => {
     const dateStr = date.toISOString().split('T')[0];
     const dayEvents = events.filter(e => e.date === dateStr);
 
+    const slotStartMinutes = slotIndex * SLOT_MINUTES;
     const slotStart = new Date(date);
-    slotStart.setHours(hour, 0, 0, 0);
+    slotStart.setHours(
+      Math.floor(slotStartMinutes / 60),
+      slotStartMinutes % 60,
+      0, 0
+    );
 
     const slotEnd = new Date(slotStart);
-    slotEnd.setHours(hour + 1, 0, 0, 0);
+    slotEnd.setMinutes(slotEnd.getMinutes() + SLOT_MINUTES);
 
     for (const event of dayEvents) {
       const eventStart = new Date(event.start);
@@ -123,9 +147,6 @@ export function CalendarPicker({
 
   // Check if a specific time range has conflicts
   const hasRangeConflict = useCallback((start: Date, end: Date): boolean => {
-    const startDateStr = start.toISOString().split('T')[0];
-    const endDateStr = end.toISOString().split('T')[0];
-
     for (const event of events) {
       const eventStart = new Date(event.start);
       const eventEnd = new Date(event.end);
@@ -139,19 +160,29 @@ export function CalendarPicker({
 
   // Get current selection info
   const selectionInfo = useMemo(() => {
-    if (!dragState.startDate || dragState.startHour === null) return null;
+    if (!dragState.startDate || dragState.startSlotIndex === null) return null;
 
     const start = new Date(dragState.startDate);
-    start.setHours(dragState.startHour, 0, 0, 0);
+    const startMinutes = dragState.startSlotIndex * SLOT_MINUTES;
+    start.setHours(
+      Math.floor(startMinutes / 60),
+      startMinutes % 60,
+      0, 0
+    );
 
     let end: Date;
-    if (dragState.isDragging && dragState.currentHour !== null) {
+    if (dragState.isDragging && dragState.currentSlotIndex !== null) {
       end = new Date(dragState.startDate);
-      const endHour = dragState.currentHour > dragState.startHour ? dragState.currentHour + 1 : dragState.startHour + 1;
-      end.setHours(endHour, 0, 0, 0);
+      const endSlotIndex = Math.max(dragState.currentSlotIndex, dragState.startSlotIndex) + 1;
+      const endMinutes = endSlotIndex * SLOT_MINUTES;
+      end.setHours(
+        Math.floor(endMinutes / 60),
+        endMinutes % 60,
+        0, 0
+      );
     } else {
       end = new Date(start);
-      end.setHours(dragState.startHour + 1, 0, 0, 0);
+      end.setMinutes(end.getMinutes() + SLOT_MINUTES);
     }
 
     const duration = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
@@ -174,30 +205,35 @@ export function CalendarPicker({
   };
 
   // Handle mouse down on a cell
-  const handleCellMouseDown = (date: Date, hour: number) => {
+  const handleCellMouseDown = (date: Date, slotIndex: number) => {
     const now = new Date();
     const cellDate = new Date(date);
-    cellDate.setHours(hour, 0, 0, 0);
+    const cellMinutes = slotIndex * SLOT_MINUTES;
+    cellDate.setHours(
+      Math.floor(cellMinutes / 60),
+      cellMinutes % 60,
+      0, 0
+    );
 
     if (cellDate < now) return;
 
     setDragState({
       isDragging: true,
       startDate: date,
-      startHour: hour,
-      currentHour: hour,
+      startSlotIndex: slotIndex,
+      currentSlotIndex: slotIndex,
     });
   };
 
   // Handle mouse enter on a cell while dragging
-  const handleCellMouseEnter = (date: Date, hour: number) => {
+  const handleCellMouseEnter = (date: Date, slotIndex: number) => {
     setHoverDate(date);
-    setHoverHour(hour);
+    setHoverSlotIndex(slotIndex);
 
     if (dragState.isDragging && dragState.startDate) {
       // Only allow dragging on the same day for now
       if (date.toDateString() === dragState.startDate.toDateString()) {
-        setDragState(prev => ({ ...prev, currentHour: hour }));
+        setDragState(prev => ({ ...prev, currentSlotIndex: slotIndex }));
       }
     }
   };
@@ -225,8 +261,8 @@ export function CalendarPicker({
     setDragState({
       isDragging: false,
       startDate: null,
-      startHour: null,
-      currentHour: null,
+      startSlotIndex: null,
+      currentSlotIndex: null,
     });
   };
 
@@ -257,52 +293,62 @@ export function CalendarPicker({
   };
 
   // Check if a cell is selected
-  const isCellSelected = (date: Date, hour: number): boolean => {
-    if (!dragState.startDate || dragState.startHour === null) return false;
+  const isCellSelected = (date: Date, slotIndex: number): boolean => {
+    if (!dragState.startDate || dragState.startSlotIndex === null) return false;
 
     const sameDay = date.toDateString() === dragState.startDate.toDateString();
     if (!sameDay) return false;
 
-    const startH = Math.min(dragState.startHour, dragState.currentHour ?? dragState.startHour);
-    const endH = Math.max(dragState.startHour, dragState.currentHour ?? dragState.startHour);
+    const startIdx = Math.min(dragState.startSlotIndex, dragState.currentSlotIndex ?? dragState.startSlotIndex);
+    const endIdx = Math.max(dragState.startSlotIndex, dragState.currentSlotIndex ?? dragState.startSlotIndex);
 
-    return hour >= startH && hour <= endH;
+    return slotIndex >= startIdx && slotIndex <= endIdx;
   };
 
   // Check if a cell is hovered
-  const isCellHovered = (date: Date, hour: number): boolean => {
-    if (!hoverDate || hoverHour === null || !dragState.isDragging) return false;
-    if (!dragState.startDate || dragState.startHour === null) return false;
+  const isCellHovered = (date: Date, slotIndex: number): boolean => {
+    if (!hoverDate || hoverSlotIndex === null || !dragState.isDragging) return false;
+    if (!dragState.startDate || dragState.startSlotIndex === null) return false;
 
     const sameDay = date.toDateString() === dragState.startDate.toDateString();
     if (!sameDay || date.toDateString() !== hoverDate.toDateString()) return false;
 
-    const startH = Math.min(dragState.startHour, hoverHour);
-    const endH = Math.max(dragState.startHour, hoverHour);
+    const startIdx = Math.min(dragState.startSlotIndex, hoverSlotIndex);
+    const endIdx = Math.max(dragState.startSlotIndex, hoverSlotIndex);
 
-    return hour >= startH && hour <= endH;
+    return slotIndex >= startIdx && slotIndex <= endIdx;
   };
 
   // Check if cell is in past
-  const isPast = (date: Date, hour: number): boolean => {
+  const isPast = (date: Date, slotIndex: number): boolean => {
     const now = new Date();
     const cellTime = new Date(date);
-    cellTime.setHours(hour, 0, 0, 0);
+    const cellMinutes = slotIndex * SLOT_MINUTES;
+    cellTime.setHours(
+      Math.floor(cellMinutes / 60),
+      cellMinutes % 60,
+      0, 0
+    );
     return cellTime < now;
   };
 
   // Check if selected slot matches a cell
-  const isSelectedSlot = (date: Date, hour: number): boolean => {
+  const isSelectedSlot = (date: Date, slotIndex: number): boolean => {
     if (!selectedSlot) return false;
 
     const selectedStart = new Date(selectedSlot.start);
     const selectedEnd = new Date(selectedSlot.end);
 
     const cellStart = new Date(date);
-    cellStart.setHours(hour, 0, 0, 0);
+    const cellMinutes = slotIndex * SLOT_MINUTES;
+    cellStart.setHours(
+      Math.floor(cellMinutes / 60),
+      cellMinutes % 60,
+      0, 0
+    );
 
     const cellEnd = new Date(cellStart);
-    cellEnd.setHours(hour + 1, 0, 0, 0);
+    cellEnd.setMinutes(cellEnd.getMinutes() + SLOT_MINUTES);
 
     return cellStart < selectedEnd && cellEnd > selectedStart;
   };
@@ -351,7 +397,7 @@ export function CalendarPicker({
 
       {/* Instructions */}
       <div className={`text-center ${isModal ? 'py-2 px-6 text-xs' : 'py-1 px-3 text-[10px]'} text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700`}>
-        Click and drag to select a time range
+        Click and drag to select a time range (15-minute intervals)
       </div>
 
       {/* Calendar Grid */}
@@ -360,7 +406,7 @@ export function CalendarPicker({
         className={`flex-1 overflow-y-auto min-h-0 ${isModal ? 'p-6' : 'p-3'}`}
         onMouseLeave={() => {
           setHoverDate(null);
-          setHoverHour(null);
+          setHoverSlotIndex(null);
         }}
       >
         {loading ? (
@@ -372,20 +418,27 @@ export function CalendarPicker({
             {/* Time labels column + day columns */}
             <div className="flex">
               {/* Time labels */}
-              <div className={`flex flex-col ${isModal ? 'w-12' : 'w-10'} flex-shrink-0`}>
-                <div className={`${isModal ? 'h-8' : 'h-6'}`} />
-                {HOURS.map(hour => (
-                  <div
-                    key={hour}
-                    className={`${isModal ? 'h-7 text-[10px]' : 'h-5 text-[9px]'} text-gray-400 dark:text-gray-500 text-right pr-1.5 flex items-center justify-end`}
-                  >
-                    {hour === 0 ? '12a' : hour < 12 ? `${hour}a` : hour === 12 ? '12p' : `${hour - 12}p`}
-                  </div>
-                ))}
+              <div className={`flex flex-col ${isModal ? 'w-10' : 'w-9'} flex-shrink-0`}>
+                <div className={`${isModal ? 'h-6' : 'h-5'}`} />
+                {TIME_SLOTS.map((minutes, idx) => {
+                  // Only show label for the top slot of each hour or every 4th slot
+                  const showLabel = minutes % 60 === 0;
+                  if (!showLabel) return null;
+
+                  return (
+                    <div
+                      key={idx}
+                      className={`${isModal ? 'h-4' : 'h-3'} text-[8px] text-gray-400 dark:text-gray-500 text-right pr-1 flex items-start justify-end`}
+                      style={{ gridRow: `${Math.floor(idx / 4) + 1}` }}
+                    >
+                      {getSlotLabel(minutes)}
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Day columns */}
-              <div className="flex-1 grid grid-cols-7 gap-1">
+              <div className="flex-1 grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700">
                 {weekDays.map((date) => {
                   const dateStr = date.toISOString().split('T')[0];
                   const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
@@ -393,46 +446,50 @@ export function CalendarPicker({
                   const isToday = date.toDateString() === new Date().toDateString();
 
                   return (
-                    <div key={dateStr} className="flex flex-col">
+                    <div key={dateStr} className="flex flex-col bg-white dark:bg-gray-800">
                       {/* Day header */}
-                      <div className={`${isModal ? 'h-8' : 'h-6'} flex flex-col items-center justify-center ${isToday ? 'bg-blue-50 dark:bg-blue-900/30 rounded-t-lg' : ''}`}>
-                        <span className={`${isModal ? 'text-[10px]' : 'text-[9px]'} font-medium text-gray-600 dark:text-gray-400`}>
+                      <div className={`${isModal ? 'h-6' : 'h-5'} flex flex-col items-center justify-center ${isToday ? 'bg-blue-50 dark:bg-blue-900/30' : ''} border-b border-gray-200 dark:border-gray-700`}>
+                        <span className={`${isModal ? 'text-[9px]' : 'text-[8px]'} font-medium text-gray-600 dark:text-gray-400`}>
                           {dayName}
                         </span>
-                        <span className={`${isModal ? 'text-xs font-bold' : 'text-[10px] font-bold'} ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-800 dark:text-gray-200'}`}>
+                        <span className={`${isModal ? 'text-[10px] font-bold' : 'text-[9px] font-bold'} ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-800 dark:text-gray-200'}`}>
                           {dayNum}
                         </span>
                       </div>
 
-                      {/* Hour cells */}
-                      {HOURS.map(hour => {
-                        const hasConflict = hasConflictAt(date, hour);
-                        const selected = isCellSelected(date, hour);
-                        const hovered = isCellHovered(date, hour);
-                        const past = isPast(date, hour);
-                        const existingSelected = isSelectedSlot(date, hour);
+                      {/* 15-minute slots */}
+                      <div className="flex-1 grid grid-rows-96">
+                        {TIME_SLOTS.map((minutes, idx) => {
+                          const hasConflict = hasConflictAt(date, idx);
+                          const selected = isCellSelected(date, idx);
+                          const hovered = isCellHovered(date, idx);
+                          const past = isPast(date, idx);
+                          const existingSelected = isSelectedSlot(date, idx);
+                          const isHourMark = minutes % 60 === 0;
 
-                        return (
-                          <div
-                            key={hour}
-                            onMouseDown={() => handleCellMouseDown(date, hour)}
-                            onMouseEnter={() => handleCellMouseEnter(date, hour)}
-                            className={`
-                              ${isModal ? 'h-7' : 'h-5'} rounded border transition-colors cursor-pointer
-                              ${past
-                                ? 'bg-gray-50 dark:bg-gray-900 border-transparent opacity-30 cursor-not-allowed'
-                                : hasConflict
-                                  ? 'bg-gray-200 dark:bg-gray-700 border-gray-300 dark:border-gray-600 cursor-not-allowed'
-                                  : selected || existingSelected
-                                    ? 'bg-green-500 dark:bg-green-600 border-green-600 dark:border-green-700'
-                                    : hovered
-                                      ? 'bg-green-200 dark:bg-green-900/50 border-green-300 dark:border-green-700'
-                                      : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-green-400 dark:hover:border-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'
-                              }
-                            `}
-                          />
-                        );
-                      })}
+                          return (
+                            <div
+                              key={idx}
+                              onMouseDown={() => handleCellMouseDown(date, idx)}
+                              onMouseEnter={() => handleCellMouseEnter(date, idx)}
+                              className={`
+                                ${isModal ? 'min-h-3' : 'min-h-2'} transition-colors cursor-pointer
+                                ${isHourMark ? 'border-t border-gray-100 dark:border-gray-700' : ''}
+                                ${past
+                                  ? 'bg-gray-50 dark:bg-gray-900 opacity-30 cursor-not-allowed'
+                                  : hasConflict
+                                    ? 'bg-gray-200 dark:bg-gray-700 cursor-not-allowed'
+                                    : selected || existingSelected
+                                      ? 'bg-green-500 dark:bg-green-600'
+                                      : hovered
+                                        ? 'bg-green-200 dark:bg-green-900/50'
+                                        : 'bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20'
+                                }
+                              `}
+                            />
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })}
