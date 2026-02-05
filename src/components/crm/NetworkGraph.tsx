@@ -5,6 +5,9 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Link2,
+  Link,
+  X,
 } from 'lucide-react';
 import ReactFlow, {
   Node,
@@ -19,7 +22,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 
 // Custom node component
-const ContactNode = ({ data }: { data: NetworkNode & { selected: boolean } }) => {
+const ContactNode = ({ data }: { data: NetworkNode & { selected: boolean; isConnecting?: boolean; isFirstConnection?: boolean; isSecondConnection?: boolean } }) => {
   const categoryColors: Record<string, string> = {
     Colleague: '#3b82f6',
     Client: '#22c55e',
@@ -36,6 +39,12 @@ const ContactNode = ({ data }: { data: NetworkNode & { selected: boolean } }) =>
     <div
       className={`px-3 py-2 rounded-lg shadow-lg transition-all cursor-pointer ${
         data.selected ? 'ring-2 ring-purple-500 ring-offset-2' : ''
+      } ${
+        data.isFirstConnection ? 'ring-2 ring-green-500 ring-offset-2 bg-green-50' : ''
+      } ${
+        data.isSecondConnection ? 'ring-2 ring-blue-500 ring-offset-2 bg-blue-50' : ''
+      } ${
+        data.isConnecting ? 'hover:ring-2 hover:ring-orange-300 hover:ring-offset-1' : ''
       }`}
       style={{
         backgroundColor: 'white',
@@ -65,13 +74,15 @@ const nodeTypes = {
 };
 
 export const NetworkGraph: React.FC = () => {
-  const { networkData, fetchNetworkData } = useCrmStore();
+  const { networkData, fetchNetworkData, addManualConnection, removeManualConnection } = useCrmStore();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [minEmails, setMinEmails] = useState(3);
   const [initialized, setInitialized] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set(['Colleague', 'Client', 'Vendor', 'Friend', 'Family', 'Other']));
+  const [isConnectionMode, setIsConnectionMode] = useState(false);
+  const [firstConnectionNode, setFirstConnectionNode] = useState<string | null>(null);
 
   const convertToReactFlow = useCallback((data: typeof networkData) => {
     if (!data) return { nodes: [], edges: [] };
@@ -126,6 +137,9 @@ export const NetworkGraph: React.FC = () => {
         data: {
           ...node,
           selected: selectedNode === node.id,
+          isConnecting: isConnectionMode,
+          isFirstConnection: firstConnectionNode === node.id,
+          isSecondConnection: false,
         },
       };
     });
@@ -143,7 +157,7 @@ export const NetworkGraph: React.FC = () => {
     }));
 
     return { nodes: flowNodes, edges: flowEdges };
-  }, [selectedNode, selectedCategories]);
+  }, [selectedNode, selectedCategories, isConnectionMode, firstConnectionNode]);
 
   useEffect(() => {
     if (!networkData) {
@@ -177,7 +191,33 @@ export const NetworkGraph: React.FC = () => {
   }, [selectedNode, initialized, setNodes]);
 
   const handleNodeClick = (_: React.MouseEvent, node: Node) => {
-    setSelectedNode(node.id === selectedNode ? null : node.id);
+    if (isConnectionMode) {
+      if (firstConnectionNode === null) {
+        // First node selected
+        setFirstConnectionNode(node.id);
+      } else if (firstConnectionNode === node.id) {
+        // Clicked same node, deselect
+        setFirstConnectionNode(null);
+      } else {
+        // Second node selected, create connection
+        addManualConnection(firstConnectionNode, node.id, 5);
+        setFirstConnectionNode(null);
+        setIsConnectionMode(false);
+      }
+    } else {
+      setSelectedNode(node.id === selectedNode ? null : node.id);
+    }
+  };
+
+  const handleToggleConnectionMode = () => {
+    setIsConnectionMode(!isConnectionMode);
+    setFirstConnectionNode(null);
+    setSelectedNode(null);
+  };
+
+  const handleCancelConnectionMode = () => {
+    setIsConnectionMode(false);
+    setFirstConnectionNode(null);
   };
 
   const handleCategoryToggle = (category: string) => {
@@ -213,33 +253,80 @@ export const NetworkGraph: React.FC = () => {
       </div>
 
       {/* Controls */}
-      <div className="mb-4 flex items-center gap-6">
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600 dark:text-gray-400">Min Emails:</label>
-          <input
-            type="number"
-            min="1"
-            max="100"
-            step="1"
-            value={minEmails === 0 ? '' : minEmails}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (value === '') {
-                setMinEmails(0);
-              } else {
-                const num = Number(value);
-                if (num >= 1) {
-                  setMinEmails(num);
-                  setInitialized(false);
-                  fetchNetworkData(num, 50);
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600 dark:text-gray-400">Min Emails:</label>
+            <input
+              type="number"
+              min="1"
+              max="100"
+              step="1"
+              value={minEmails === 0 ? '' : minEmails}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === '') {
+                  setMinEmails(0);
+                } else {
+                  const num = Number(value);
+                  if (num >= 1) {
+                    setMinEmails(num);
+                    setInitialized(false);
+                    fetchNetworkData(num, 50);
+                  }
                 }
-              }
-            }}
-            onFocus={(e) => e.target.select()}
-            className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-          />
+              }}
+              onFocus={(e) => e.target.select()}
+              className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+          </div>
         </div>
+
+        {/* Connection Mode Toggle */}
+        <button
+          onClick={handleToggleConnectionMode}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            isConnectionMode
+              ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+          }`}
+        >
+          {isConnectionMode ? (
+            <>
+              <Link className="w-4 h-4" />
+              <span>Connecting...</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleCancelConnectionMode(); }}
+                className="ml-1 p-0.5 rounded hover:bg-purple-200 dark:hover:bg-purple-800"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </>
+          ) : (
+            <>
+              <Link2 className="w-4 h-4" />
+              <span>Add Connection</span>
+            </>
+          )}
+        </button>
       </div>
+
+      {/* Connection Mode Instructions */}
+      {isConnectionMode && (
+        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+          <p className="text-sm text-blue-800 dark:text-blue-200">
+            {firstConnectionNode ? (
+              <>
+                <span className="font-medium">First person selected</span> - Now click another person to create a connection, or click the same person to cancel.
+              </>
+            ) : (
+              <>
+                <strong>Connection Mode Active:</strong> Click on the first person you want to connect.
+              </>
+            )}
+          </p>
+        </div>
+      )}
 
       {/* Legend with clickable categories */}
       <div className="mb-4 flex items-center gap-4 text-sm flex-wrap">

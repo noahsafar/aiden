@@ -109,6 +109,8 @@ export interface CrmState {
   fetchTopContacts: (limit?: number) => Promise<void>;
   generateHeatmapData: () => Promise<void>;
   refreshAll: () => Promise<void>;
+  addManualConnection: (sourceId: string, targetId: string, strength?: number) => void;
+  removeManualConnection: (sourceId: string, targetId: string) => void;
 }
 
 export const useCrmStore = create<CrmState>((set, get) => ({
@@ -448,6 +450,53 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     await fetchTopContacts(10);
     await fetchStaleContacts(30);
   },
+
+  addManualConnection: (sourceId: string, targetId: string, strength: number = 5) => {
+    const { networkData } = get();
+    if (!networkData) return;
+
+    // Check if both nodes exist
+    const sourceExists = networkData.nodes.find(n => n.id === sourceId);
+    const targetExists = networkData.nodes.find(n => n.id === targetId);
+    if (!sourceExists || !targetExists) return;
+
+    // Check if connection already exists
+    const existingLinkIndex = networkData.links.findIndex(
+      l => (l.source === sourceId && l.target === targetId) || (l.source === targetId && l.target === sourceId)
+    );
+
+    if (existingLinkIndex >= 0) {
+      // Update existing connection
+      const existingLink = networkData.links[existingLinkIndex];
+      const updatedLinks = [...networkData.links];
+      updatedLinks[existingLinkIndex] = {
+        ...existingLink,
+        value: existingLink.value + 1,
+        strength: Math.min(existingLink.strength + strength, 12) // Cap at 12
+      };
+      set({ networkData: { ...networkData, links: updatedLinks } });
+    } else {
+      // Add new connection
+      const newLink: NetworkLink = {
+        source: sourceId,
+        target: targetId,
+        value: 1,
+        strength: strength
+      };
+      set({ networkData: { ...networkData, links: [...networkData.links, newLink] } });
+    }
+  },
+
+  removeManualConnection: (sourceId: string, targetId: string) => {
+    const { networkData } = get();
+    if (!networkData) return;
+
+    const filteredLinks = networkData.links.filter(
+      l => !((l.source === sourceId && l.target === targetId) || (l.source === targetId && l.target === sourceId))
+    );
+
+    set({ networkData: { ...networkData, links: filteredLinks } });
+  },
 }));
 
 // Mock data for development
@@ -627,5 +676,11 @@ const mockNetworkData: NetworkData = {
     { source: 'mock_2', target: 'mock_5', value: 5, strength: 7.0 },
     { source: 'mock_1', target: 'mock_2', value: 3, strength: 4.8 },
     { source: 'mock_6', target: 'mock_4', value: 6, strength: 7.8 },
+    // Additional mock connections for demonstration
+    { source: 'mock_1', target: 'mock_3', value: 4, strength: 5.5 },
+    { source: 'mock_2', target: 'mock_3', value: 2, strength: 3.2 },
+    { source: 'mock_4', target: 'mock_5', value: 7, strength: 6.8 },
+    { source: 'mock_6', target: 'mock_1', value: 3, strength: 4.5 },
+    { source: 'mock_8', target: 'mock_3', value: 5, strength: 6.0 },
   ]
 };
