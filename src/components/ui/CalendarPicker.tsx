@@ -573,12 +573,14 @@ export function CalendarPicker({
                                 className={`flex-1 transition-colors
                                   ${past
                                     ? 'bg-gray-50 dark:bg-gray-900 opacity-30 cursor-not-allowed'
-                                    : hasConflict
-                                      ? 'bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 cursor-pointer'
+                                    : hovered
+                                      ? hasConflict
+                                        ? 'bg-orange-500 dark:bg-orange-600' // Dragging over conflict = orange
+                                        : 'bg-green-200 dark:bg-green-900/50' // Dragging over free slot = green
                                       : selected || existingSelected
                                         ? 'bg-green-500 dark:bg-green-600'
-                                        : hovered
-                                          ? 'bg-green-200 dark:bg-green-900/50'
+                                        : hasConflict
+                                          ? 'bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 cursor-pointer'
                                           : 'bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 cursor-pointer'
                                   }
                                 `}
