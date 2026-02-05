@@ -61,6 +61,18 @@ export function CalendarPicker({
   const [hoverSlotIndex, setHoverSlotIndex] = useState<number | null>(null);
   const [pendingSelection, setPendingSelection] = useState<PendingSelection | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to 8 AM when calendar loads
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      // 8 AM is at slot index 32 (8 hours * 4 slots per hour)
+      // Each hour is h-8 (modal) or h-6 (compact), so 8 AM is at 8 * height
+      const hourHeight = isModal ? 32 : 24; // h-8 = 32px, h-6 = 24px
+      const scrollPosition = 8 * hourHeight;
+      scrollContainerRef.current.scrollTop = scrollPosition;
+    }
+  }, [isModal]);
 
   // Load calendar events for the visible date range
   useEffect(() => {
@@ -469,7 +481,7 @@ export function CalendarPicker({
 
       {/* Calendar Grid */}
       <div
-        ref={containerRef}
+        ref={scrollContainerRef}
         className={`flex-1 overflow-y-auto min-h-0 ${isModal ? 'p-6' : 'p-3'}`}
         onMouseLeave={() => {
           setHoverDate(null);
@@ -482,11 +494,39 @@ export function CalendarPicker({
           </div>
         ) : (
           <div className="flex flex-col gap-1">
+            {/* Sticky Header Row */}
+            <div className="flex sticky top-0 z-10 bg-white dark:bg-gray-800">
+              {/* Empty corner for time labels */}
+              <div className={`flex flex-col ${isModal ? 'w-10' : 'w-9'} flex-shrink-0`}>
+                <div className={`${isModal ? 'h-6' : 'h-5'}`} />
+              </div>
+
+              {/* Day headers */}
+              <div className="flex-1 grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700">
+                {weekDays.map((date) => {
+                  const dateStr = date.toISOString().split('T')[0];
+                  const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+                  const dayNum = date.getDate();
+                  const isToday = date.toDateString() === new Date().toDateString();
+
+                  return (
+                    <div key={dateStr} className={`${isModal ? 'h-6' : 'h-5'} flex flex-col items-center justify-center ${isToday ? 'bg-blue-50 dark:bg-blue-900/30' : 'bg-white dark:bg-gray-800'} border-b border-gray-200 dark:border-gray-700`}>
+                      <span className={`${isModal ? 'text-[9px]' : 'text-[8px]'} font-medium text-gray-600 dark:text-gray-400`}>
+                        {dayName}
+                      </span>
+                      <span className={`${isModal ? 'text-[10px] font-bold' : 'text-[9px] font-bold'} ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-800 dark:text-gray-200'}`}>
+                        {dayNum}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Time labels column + day columns */}
             <div className="flex">
               {/* Time labels */}
               <div className={`flex flex-col ${isModal ? 'w-10' : 'w-9'} flex-shrink-0`}>
-                <div className={`${isModal ? 'h-6' : 'h-5'}`} />
                 {HOURS.map(hour => (
                   <div
                     key={hour}
@@ -497,26 +537,13 @@ export function CalendarPicker({
                 ))}
               </div>
 
-              {/* Day columns */}
+              {/* Day columns with time slots */}
               <div className="flex-1 grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700">
                 {weekDays.map((date) => {
                   const dateStr = date.toISOString().split('T')[0];
-                  const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-                  const dayNum = date.getDate();
-                  const isToday = date.toDateString() === new Date().toDateString();
 
                   return (
                     <div key={dateStr} className="flex flex-col bg-white dark:bg-gray-800">
-                      {/* Day header */}
-                      <div className={`${isModal ? 'h-6' : 'h-5'} flex flex-col items-center justify-center ${isToday ? 'bg-blue-50 dark:bg-blue-900/30' : ''} border-b border-gray-200 dark:border-gray-700`}>
-                        <span className={`${isModal ? 'text-[9px]' : 'text-[8px]'} font-medium text-gray-600 dark:text-gray-400`}>
-                          {dayName}
-                        </span>
-                        <span className={`${isModal ? 'text-[10px] font-bold' : 'text-[9px] font-bold'} ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-800 dark:text-gray-200'}`}>
-                          {dayNum}
-                        </span>
-                      </div>
-
                       {/* 15-minute slots - 4 per hour */}
                       <div className="flex-1 flex flex-col">
                         {Array.from({ length: 24 }).map((_, hourIdx) => (
