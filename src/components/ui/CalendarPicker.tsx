@@ -68,11 +68,9 @@ export function CalendarPicker({
     if (!loading && scrollContainerRef.current) {
       const scrollTimer = setTimeout(() => {
         if (scrollContainerRef.current) {
-          // We want 6 AM to be at the top of the visible area (below sticky header)
+          // We want 6 AM to be at the top of the visible area
           const hourHeight = isModal ? 32 : 24;
-          // Add a small offset to account for the sticky header
-          const stickyHeaderHeight = isModal ? 29 : 25;
-          const scrollPosition = (6 * hourHeight) + stickyHeaderHeight;
+          const scrollPosition = 6 * hourHeight;
           scrollContainerRef.current.scrollTop = scrollPosition;
         }
       }, 50);
@@ -486,30 +484,30 @@ export function CalendarPicker({
         Click and drag to select a time range (15-minute intervals)
       </div>
 
-      {/* Calendar Grid */}
-      <div
-        ref={scrollContainerRef}
-        className={`flex-1 overflow-y-auto min-h-0 ${isModal ? 'p-6' : 'p-3'}`}
-        onMouseLeave={() => {
-          setHoverDate(null);
-          setHoverSlotIndex(null);
-        }}
-      >
+      {/* Calendar Grid - includes header and scrollable grid */}
+      <div className={`flex-1 flex flex-col overflow-hidden ${isModal ? 'px-6' : 'px-3'}`}>
+        {/* Scrollable Grid */}
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 pb-6"
+          onMouseLeave={() => {
+            setHoverDate(null);
+            setHoverSlotIndex(null);
+          }}
+        >
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader className={`${isModal ? 'w-6 h-6' : 'w-5 h-5'} text-blue-600 dark:text-blue-400 animate-spin`} />
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
-            {/* Sticky Header Row */}
-            <div className="flex sticky top-0 z-10 bg-white dark:bg-gray-800">
+          <>
+            {/* Weekday Header Row - STICKY at top when scrolling */}
+            <div className="flex items-center border-b border-gray-200 dark:border-gray-700 py-2 sticky top-0 bg-white dark:bg-gray-800 z-10">
               {/* Empty corner for time labels */}
-              <div className={`flex flex-col ${isModal ? 'w-10' : 'w-9'} flex-shrink-0`}>
-                <div className={`${isModal ? 'h-6' : 'h-5'}`} />
-              </div>
+              <div className={`flex flex-col ${isModal ? 'w-10' : 'w-9'} flex-shrink-0`} />
 
               {/* Day headers */}
-              <div className="flex-1 grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700">
+              <div className="flex-1 w-0 grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700">
                 {weekDays.map((date) => {
                   const dateStr = date.toISOString().split('T')[0];
                   const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
@@ -545,7 +543,7 @@ export function CalendarPicker({
               </div>
 
               {/* Day columns with time slots */}
-              <div className="flex-1 grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700">
+              <div className="flex-1 w-0 grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700 overflow-hidden shrink-0">
                 {weekDays.map((date) => {
                   const dateStr = date.toISOString().split('T')[0];
 
@@ -617,8 +615,9 @@ export function CalendarPicker({
                 </div>
               </div>
             )}
-          </div>
+          </>
         )}
+      </div>
       </div>
 
       {/* Selection Info (during drag) */}
