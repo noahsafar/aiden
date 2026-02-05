@@ -29,25 +29,7 @@ interface DragState {
 const SLOT_MINUTES = 15; // 15-minute intervals
 const SLOTS_PER_HOUR = 60 / SLOT_MINUTES; // 4 slots per hour
 const TOTAL_SLOTS = 24 * SLOTS_PER_HOUR; // 96 slots per day
-
-// Generate time slots for a day (in minutes from midnight)
-const generateTimeSlots = () => {
-  const slots: number[] = [];
-  for (let i = 0; i < TOTAL_SLOTS; i++) {
-    slots.push(i * SLOT_MINUTES);
-  }
-  return slots;
-};
-
-const TIME_SLOTS = generateTimeSlots();
-
-// Convert slot index to readable time label
-const getSlotLabel = (minutes: number): string => {
-  const hour = Math.floor(minutes / 60);
-  const min = minutes % 60;
-  const period = hour === 0 ? '12a' : hour < 12 ? `${hour}a` : hour === 12 ? '12p' : `${hour - 12}p`;
-  return min === 0 ? period : `${period}:${min.toString().padStart(2, '0')}`;
-};
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 export function CalendarPicker({
   durationMinutes = 60,
@@ -420,21 +402,14 @@ export function CalendarPicker({
               {/* Time labels */}
               <div className={`flex flex-col ${isModal ? 'w-10' : 'w-9'} flex-shrink-0`}>
                 <div className={`${isModal ? 'h-6' : 'h-5'}`} />
-                {TIME_SLOTS.map((minutes, idx) => {
-                  // Only show label for the top slot of each hour or every 4th slot
-                  const showLabel = minutes % 60 === 0;
-                  if (!showLabel) return null;
-
-                  return (
-                    <div
-                      key={idx}
-                      className={`${isModal ? 'h-4' : 'h-3'} text-[8px] text-gray-400 dark:text-gray-500 text-right pr-1 flex items-start justify-end`}
-                      style={{ gridRow: `${Math.floor(idx / 4) + 1}` }}
-                    >
-                      {getSlotLabel(minutes)}
-                    </div>
-                  );
-                })}
+                {HOURS.map(hour => (
+                  <div
+                    key={hour}
+                    className={`${isModal ? 'h-16' : 'h-12'} text-[8px] text-gray-400 dark:text-gray-500 text-right pr-1 flex items-start justify-end`}
+                  >
+                    {hour === 0 ? '12a' : hour < 12 ? `${hour}a` : hour === 12 ? '12p' : `${hour - 12}p`}
+                  </div>
+                ))}
               </div>
 
               {/* Day columns */}
@@ -457,38 +432,41 @@ export function CalendarPicker({
                         </span>
                       </div>
 
-                      {/* 15-minute slots */}
-                      <div className="flex-1 grid grid-rows-96">
-                        {TIME_SLOTS.map((minutes, idx) => {
-                          const hasConflict = hasConflictAt(date, idx);
-                          const selected = isCellSelected(date, idx);
-                          const hovered = isCellHovered(date, idx);
-                          const past = isPast(date, idx);
-                          const existingSelected = isSelectedSlot(date, idx);
-                          const isHourMark = minutes % 60 === 0;
+                      {/* 15-minute slots - 4 per hour */}
+                      <div className="flex-1 flex flex-col">
+                        {Array.from({ length: 24 }).map((_, hourIdx) => (
+                          <div key={hourIdx} className="flex-1 flex flex-col border-b border-gray-100 dark:border-gray-800">
+                            {Array.from({ length: 4 }).map((_, quarterIdx) => {
+                              const slotIndex = hourIdx * 4 + quarterIdx;
+                              const minutes = slotIndex * SLOT_MINUTES;
+                              const hasConflict = hasConflictAt(date, slotIndex);
+                              const selected = isCellSelected(date, slotIndex);
+                              const hovered = isCellHovered(date, slotIndex);
+                              const past = isPast(date, slotIndex);
+                              const existingSelected = isSelectedSlot(date, slotIndex);
 
-                          return (
-                            <div
-                              key={idx}
-                              onMouseDown={() => handleCellMouseDown(date, idx)}
-                              onMouseEnter={() => handleCellMouseEnter(date, idx)}
-                              className={`
-                                ${isModal ? 'min-h-3' : 'min-h-2'} transition-colors cursor-pointer
-                                ${isHourMark ? 'border-t border-gray-100 dark:border-gray-700' : ''}
-                                ${past
-                                  ? 'bg-gray-50 dark:bg-gray-900 opacity-30 cursor-not-allowed'
-                                  : hasConflict
-                                    ? 'bg-gray-200 dark:bg-gray-700 cursor-not-allowed'
-                                    : selected || existingSelected
-                                      ? 'bg-green-500 dark:bg-green-600'
-                                      : hovered
-                                        ? 'bg-green-200 dark:bg-green-900/50'
-                                        : 'bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20'
-                                }
-                              `}
-                            />
-                          );
-                        })}
+                              return (
+                                <div
+                                  key={slotIndex}
+                                  onMouseDown={() => handleCellMouseDown(date, slotIndex)}
+                                  onMouseEnter={() => handleCellMouseEnter(date, slotIndex)}
+                                  className={`flex-1 transition-colors cursor-pointer
+                                    ${past
+                                      ? 'bg-gray-50 dark:bg-gray-900 opacity-30 cursor-not-allowed'
+                                      : hasConflict
+                                        ? 'bg-gray-200 dark:bg-gray-700 cursor-not-allowed'
+                                        : selected || existingSelected
+                                          ? 'bg-green-500 dark:bg-green-600'
+                                          : hovered
+                                            ? 'bg-green-200 dark:bg-green-900/50'
+                                            : 'bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20'
+                                    }
+                                  `}
+                                />
+                              );
+                            })}
+                          </div>
+                        ))}
                       </div>
                     </div>
                   );
