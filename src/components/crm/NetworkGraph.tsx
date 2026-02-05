@@ -183,14 +183,21 @@ export const NetworkGraph: React.FC = () => {
 
   useEffect(() => {
     if (!networkData) {
+      console.log('[NetworkGraph] Fetching network data...');
       fetchNetworkData(minEmails, 50);
     }
   }, []);
 
-  // Initialize nodes/edges when network data first loads or categories change
+  // Initialize nodes/edges when network data first loads
   useEffect(() => {
+    console.log('[NetworkGraph] networkData changed:', networkData);
+    console.log('[NetworkGraph] networkDataLoaded:', networkDataLoaded);
+
     if (networkData && !networkDataLoaded) {
+      console.log('[NetworkGraph] Converting to ReactFlow...');
       const { nodes: flowNodes, edges: flowEdges } = convertToReactFlow(networkData);
+      console.log('[NetworkGraph] Setting nodes:', flowNodes);
+      console.log('[NetworkGraph] Setting edges:', flowEdges);
       setNodes(flowNodes);
       setEdges(flowEdges);
       setNetworkDataLoaded(true);
@@ -287,6 +294,13 @@ export const NetworkGraph: React.FC = () => {
           Visualize your email network - connections show shared threads between contacts.
         </p>
       </div>
+
+      {/* Debug Info */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mb-2 text-xs text-gray-400">
+          Nodes: {nodes.length}, Edges: {edges.length}, Loaded: {networkDataLoaded ? 'yes' : 'no'}
+        </div>
+      )}
 
       {/* Controls */}
       <div className="mb-4 flex items-center justify-between">
@@ -387,30 +401,48 @@ export const NetworkGraph: React.FC = () => {
       </div>
 
       {/* Network Graph */}
-      <div className="flex-1 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-800">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeClick={handleNodeClick}
-          nodeTypes={nodeTypes}
-          fitView
-          minZoom={0.2}
-          maxZoom={2}
-        >
-          <Background color="#aaa" gap={16} />
-          <Controls
-            className="bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600"
-          />
-          <MiniMap
-            nodeColor={(node) => {
-              const data = node.data as NetworkNode;
-              return categoryColors[data.category] || '#6b7280';
-            }}
-            className="bg-gray-100 dark:bg-gray-700"
-          />
-        </ReactFlow>
+      <div className="flex-1 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-800 relative">
+        {nodes.length === 0 ? (
+          <div className="absolute inset-0 flex items-center justify-center text-gray-500">
+            <div className="text-center">
+              <p>No nodes to display</p>
+              <p className="text-sm mt-1">Try lowering the "Min Emails" filter</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="absolute top-2 right-2 text-xs text-gray-400 z-10">
+              {nodes.length} nodes, {edges.length} edges
+            </div>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeClick={handleNodeClick}
+              nodeTypes={nodeTypes}
+              fitView
+              minZoom={0.2}
+              maxZoom={2}
+              nodesDraggable
+              nodesConnectable={false}
+              elementsSelectable
+              selectNodesOnDrag={false}
+            >
+              <Background color="#aaa" gap={16} />
+              <Controls
+                className="bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+              />
+              <MiniMap
+                nodeColor={(node) => {
+                  const data = node.data as NetworkNode;
+                  return categoryColors[data.category] || '#6b7280';
+                }}
+                className="bg-gray-100 dark:bg-gray-700"
+              />
+            </ReactFlow>
+          </>
+        )}
       </div>
 
       {/* Selected Node Info */}
