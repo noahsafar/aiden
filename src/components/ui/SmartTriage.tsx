@@ -260,7 +260,8 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
     const groups = new Map<EmailGroup, typeof emails>();
 
     emails.forEach(email => {
-      if (email.status === 'Archived' || email.status === 'Deleted') return;
+      // Exclude archived, deleted, and saved emails from smart triage
+      if (email.status === 'Archived' || email.status === 'Deleted' || email.status === 'Saved') return;
 
       const category = categorizeEmail(email);
       if (!groups.has(category)) {
