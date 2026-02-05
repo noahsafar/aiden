@@ -55,10 +55,21 @@ export function Calendar() {
       if (response.success) {
         setEvents(response.events);
       } else {
-        setError(response.error || 'Failed to load events');
+        const errorMsg = response.error || 'Failed to load events';
+        // Check for common connection errors
+        if (errorMsg.includes('Load failed') || errorMsg.includes('network') || errorMsg.includes('fetch')) {
+          setError('OAuth server not running. Please start the OAuth server first: python3 oauth_server.py');
+        } else {
+          setError(errorMsg);
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load events');
+      const errMsg = err instanceof Error ? err.message : 'Failed to load events';
+      if (errMsg.includes('Load failed') || errMsg.includes('network') || errMsg.includes('fetch')) {
+        setError('OAuth server not running. Please start the OAuth server first: python3 oauth_server.py');
+      } else {
+        setError(errMsg);
+      }
     } finally {
       setLoading(false);
     }
