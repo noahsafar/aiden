@@ -24,7 +24,8 @@ type EmailGroup =
   | 'notifications'
   | 'finance'
   | 'social'
-  | 'work';
+  | 'work'
+  | 'other';
 
 interface EmailGroupInfo {
   id: EmailGroup;
@@ -102,6 +103,15 @@ const EMAIL_GROUPS: EmailGroupInfo[] = [
     keywords: ['question', 'api', 'integration', 'project', 'deadline', 'review', 'feedback', 'proposal', 'report', 'request', 'urgent', 'important', 'asap', 'help', 'issue', 'bug', 'fix', 'deploy', 'release'],
     suggestedAction: 'none',
   },
+  {
+    id: 'other',
+    label: 'Other',
+    icon: Mail,
+    description: 'Emails that don\'t fit into other categories',
+    color: 'gray',
+    keywords: [], // No keywords - this catches everything else
+    suggestedAction: 'none',
+  },
 ];
 
 const getColorClasses = (color: string, isBg: boolean = false) => {
@@ -120,16 +130,19 @@ const getColorClasses = (color: string, isBg: boolean = false) => {
 };
 
 // Categorize an email based on subject and sender
-function categorizeEmail(email: { subject: string; sender: string; snippet?: string }): EmailGroup | null {
+function categorizeEmail(email: { subject: string; sender: string; snippet?: string }): EmailGroup {
   const text = `${email.subject} ${email.sender} ${email.snippet || ''}`.toLowerCase();
 
   for (const group of EMAIL_GROUPS) {
+    // Skip 'other' group for keyword matching
+    if (group.id === 'other') continue;
     if (group.keywords.some(keyword => text.includes(keyword))) {
       return group.id;
     }
   }
 
-  return null;
+  // Default to 'other' if no match found
+  return 'other';
 }
 
 interface SmartTriageProps {
@@ -250,12 +263,10 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
       if (email.status === 'Archived' || email.status === 'Deleted') return;
 
       const category = categorizeEmail(email);
-      if (category) {
-        if (!groups.has(category)) {
-          groups.set(category, []);
-        }
-        groups.get(category)!.push(email);
+      if (!groups.has(category)) {
+        groups.set(category, []);
       }
+      groups.get(category)!.push(email);
     });
 
     return groups;
