@@ -206,6 +206,9 @@ export function CalendarPicker({
 
     if (cellDate < now) return;
 
+    // Clear any pending selection when starting a new drag
+    setPendingSelection(null);
+
     setDragState({
       isDragging: true,
       startDate: date,
