@@ -607,6 +607,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       if (globalQuestionData && globalQuestionData.loaded) {
         console.log('[loadEmailState] Found pre-generated questions in global:', globalQuestionData.questions);
         setPendingQuestions(globalQuestionData.questions);
+        setUserAnswers({}); // Clear answers when loading new questions
         // Convert old categorical format to score if needed
         const suggestedScore = typeof globalQuestionData.suggestedFormality === 'number'
           ? globalQuestionData.suggestedFormality
@@ -618,6 +619,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setMeetingRequest(globalQuestionData.meetingRequest || { is_meeting: false });
         setIsEditing(false);
         setHasEdited(false);
+        setEditedReply('');
         return true;
       }
     }
@@ -759,7 +761,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
         const dataSource = globalQuestionData?.loaded ? globalQuestionData : state;
         console.log('[useEffect] Loading saved/pre-generated questions:', dataSource.pendingQuestions);
         setPendingQuestions(dataSource.pendingQuestions || []);
-        setUserAnswers(dataSource.userAnswers || {});
+        // Clear answers when loading from global (new email), use saved answers when loading from state
+        setUserAnswers(globalQuestionData?.loaded ? {} : (dataSource.userAnswers || {}));
         setSuggestedFormalityScore(dataSource.suggestedFormalityScore || 50);
         setFormalityScore(dataSource.formalityScore || 50);
         setMeetingRequest(dataSource.meetingRequest || { is_meeting: false });
@@ -773,6 +776,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
           state.questionsLoaded = true;
           state.summaryComplete = true;
           state.meetingRequest = globalQuestionData.meetingRequest || { is_meeting: false };
+          state.userAnswers = {}; // Clear answers for new email from global
         }
       } else {
         // No pre-generated questions, trigger analysis
