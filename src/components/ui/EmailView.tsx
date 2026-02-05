@@ -499,6 +499,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   // Per-email state map to preserve state when switching between emails
   const emailStateMap = React.useRef(new Map<string, EmailState>());
 
+  const [currentEmailId, setCurrentEmailId] = React.useState<string | null>(null); // Track current email for local reply
   const [isEditing, setIsEditing] = React.useState(false);
   const [editedReply, setEditedReply] = React.useState('');
   const [aiEditPrompt, setAiEditPrompt] = React.useState('');
@@ -629,21 +630,14 @@ export const EmailView: React.FC<EmailViewProps> = ({
   // Get AI reply from store
   const aiReply = fullEmail?.ai_generated_reply || null;
 
-  // Use local AI reply if set, otherwise fall back to store
-  const displayAiReply = localAiReply || aiReply;
+  // Use local AI reply ONLY if it's from the current email, otherwise use store
+  const displayAiReply = (currentEmailId === email?.id ? localAiReply : null) || aiReply;
 
   // Check if summary is being generated
   const isSummaryGenerating = email?.id ? isGeneratingSummary(email.id) : false;
 
   // Check if we've already sent a reply to this email
   const hasSent = email?.id ? hasSentReply(email.id) : false;
-
-  // Initialize edited reply when AI reply becomes available (only if not already edited)
-  React.useEffect(() => {
-    if (displayAiReply && !isEditing && !hasEdited) {
-      setEditedReply(displayAiReply);
-    }
-  }, [displayAiReply, isEditing, hasEdited]);
 
   // Cleanup timers on unmount
   React.useEffect(() => {
@@ -658,24 +652,24 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const hasMarkedAsReadRef = React.useRef<Set<string>>(new Set());
 
   React.useEffect(() => {
-    const currentEmailId = email?.id || null;
+    const newEmailId = email?.id || null;
 
     // Mark email as read when viewed (if setting enabled and not already read)
-    if (currentEmailId && !isSentEmail && fullEmail && !fullEmail.is_read) {
+    if (newEmailId && !isSentEmail && fullEmail && !fullEmail.is_read) {
       invoke('get_settings').then((settings: any) => {
-        if (settings.mark_as_read_on_view !== false && !hasMarkedAsReadRef.current.has(currentEmailId)) {
-          markAsRead(currentEmailId);
-          hasMarkedAsReadRef.current.add(currentEmailId);
+        if (settings.mark_as_read_on_view !== false && !hasMarkedAsReadRef.current.has(newEmailId)) {
+          markAsRead(newEmailId);
+          hasMarkedAsReadRef.current.add(newEmailId);
         }
       }).catch(() => {
         // Default to marking as read if settings fail to load
-        markAsRead(currentEmailId);
-        hasMarkedAsReadRef.current.add(currentEmailId);
+        markAsRead(newEmailId);
+        hasMarkedAsReadRef.current.add(newEmailId);
       });
     }
 
     // Save previous email's state before switching
-    if (prevEmailIdRef.current && prevEmailIdRef.current !== currentEmailId) {
+    if (prevEmailIdRef.current && prevEmailIdRef.current !== newEmailId) {
       // Save previous email state
       const prevState = emailStateMap.current.get(prevEmailIdRef.current);
       if (prevState) {
@@ -687,15 +681,19 @@ export const EmailView: React.FC<EmailViewProps> = ({
         prevState.summaryComplete = summaryComplete;
         prevState.meetingRequest = meetingRequest;
       }
+      // Clear local reply when switching emails
+      setLocalAiReply(null);
+      setCurrentEmailId(null);
     }
 
     // Reset for null/no email
-    if (!currentEmailId || isSentEmail) {
+    if (!newEmailId || isSentEmail) {
       setEditedReply('');
       setIsEditing(false);
       setAiEditPrompt('');
       setHasEdited(false);
       setLocalAiReply(null);
+      setCurrentEmailId(null);
       setLastError('');
       setPendingQuestions([]);
       setUserAnswers({});
@@ -704,9 +702,10 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setSummaryComplete(false);
       setQuestionsLoaded(false);
       setMeetingRequest({ is_meeting: false });
-    } else if (prevEmailIdRef.current !== currentEmailId) {
+    } else if (prevEmailIdRef.current !== newEmailId) {
       // New email - try to load saved state
       const loaded = loadEmailState();
+      setCurrentEmailId(newEmailId);
 
       // Only initialize defaults if no saved state
       if (!loaded) {
@@ -719,15 +718,15 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setMeetingRequest({ is_meeting: false });
       }
 
-      // Set edited reply from new email's AI reply
-      if (displayAiReply) {
-        setEditedReply(displayAiReply);
+      // Set edited reply from new email's AI reply (from store, not local state)
+      if (aiReply) {
+        setEditedReply(aiReply);
         setHasEdited(false);
       }
     }
 
-    prevEmailIdRef.current = currentEmailId;
-  }, [email?.id, isSentEmail, displayAiReply]);
+    prevEmailIdRef.current = newEmailId;
+  }, [email?.id, isSentEmail, aiReply]);
 
   // When summary completes and we have no aiReply, load or generate questions
   useEffect(() => {
@@ -1046,7 +1045,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       }
 
       console.log('[generateReply] Reply generated successfully:', replyText);
-      // Set local state immediately for display
+      // Set local state immediately for display - track which email this reply belongs to
+      setCurrentEmailId(email.id);
       setLocalAiReply(replyText);
       setEditedReply(replyText);
       setHasEdited(false);

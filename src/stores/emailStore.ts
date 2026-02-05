@@ -1968,6 +1968,131 @@ if (typeof window !== 'undefined') {
         action_items: [],
         requires_reply: false,
       },
+
+      // Thread 9: Test email for improved question generation - choices without meeting
+      {
+        id: `sample-17`,
+        gmail_id: `sample-17`,
+        thread_id: `${baseThreadId}9`,
+        subject: 'Team lunch this Friday - pick your spot!',
+        sender: 'Jamie <jamie@company.com>',
+        recipients: 'me@company.com, team@company.com',
+        date: new Date(baseTime - 1000 * 60 * 0.5).toISOString(), // 30 seconds ago
+        body_text: `Hey team! We're doing team lunch this Friday to celebrate the launch.
+
+We're deciding between:
+- Pizza from Joe's (classic choice)
+- Burgers from Shake Shack
+- Tacos from the new place downtown
+- Salads from Sweetgreen
+
+Can you make it? And what's your preference? Let me know by end of day!
+
+Also, are you cool with splitting the check evenly?`,
+        snippet: 'Hey team! Team lunch this Friday - choosing between pizza, burgers...',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Important',
+        summary: 'Jamie is organizing a team lunch for Friday and needs your preference',
+        key_points: ['Team lunch Friday to celebrate launch', 'Choosing restaurant: pizza, burgers, tacos, or salads', 'RSVP and food preference needed by EOD'],
+        action_items: ['Confirm attendance', 'Choose restaurant preference'],
+        requires_reply: true,
+      },
+
+      // Thread 10: Test email - text input question (specific info AI can't know)
+      {
+        id: `sample-18`,
+        gmail_id: `sample-18`,
+        thread_id: `${baseThreadId}10`,
+        subject: 'Shipping address for your gift',
+        sender: 'HR <hr@company.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 20).toISOString(), // 20 seconds ago
+        body_text: `Hi! As part of our employee appreciation program, we're sending you a gift card.
+
+Please confirm which address you'd like us to ship it to:
+- Home address
+- Office address
+
+If home, please reply with your current shipping address.
+
+Thanks!
+HR Team`,
+        snippet: 'Employee appreciation gift - please confirm shipping address...',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Normal',
+        summary: 'HR is sending a gift card and needs your shipping address preference',
+        key_points: ['Employee appreciation gift', 'Need to choose home or office address', 'Home address requires specific details'],
+        action_items: ['Choose shipping location', 'Provide address if home'],
+        requires_reply: true,
+      },
+
+      // Thread 11: Test email - AI should SKIP (optional/casual question)
+      {
+        id: `sample-19`,
+        gmail_id: `sample-19`,
+        thread_id: `${baseThreadId}11`,
+        subject: 'Hope you had a great weekend!',
+        sender: 'Alex <alex@company.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 18).toISOString(), // 18 seconds ago
+        body_text: `Hey!
+
+Just wanted to say hi and see how you're doing. How was your weekend? Do anything fun?
+
+Let's catch up soon!
+
+Alex`,
+        snippet: 'Just wanted to say hi and see how you\'re doing...',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Normal',
+        summary: 'Casual check-in from Alex',
+        key_points: ['Saying hi', 'Asking about weekend'],
+        action_items: [],
+        requires_reply: false,
+      },
+
+      // Thread 12: Test email - AI should SKIP meeting timing (handled by calendar)
+      {
+        id: `sample-20`,
+        gmail_id: `sample-20`,
+        thread_id: `${baseThreadId}12`,
+        subject: 'Quick sync needed - when are you free?',
+        sender: 'Taylor <taylor@company.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 12).toISOString(), // 12 seconds ago
+        body_text: `Hey!
+
+Need to sync with you on the project roadmap. When are you free this week?
+
+I'm flexible Monday afternoon, Tuesday morning, or Wednesday after 2pm. Let me know what works!
+
+Taylor`,
+        snippet: 'Need to sync on project roadmap - when are you free this week?',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Important',
+        summary: 'Taylor wants to sync on the project roadmap and has proposed some times',
+        key_points: ['Project roadmap sync needed', 'Proposed: Mon afternoon, Tue morning, Wed after 2pm'],
+        action_items: [],
+        requires_reply: true,
+        meeting_request: {
+          is_meeting: true,
+          proposed_times: ['Monday afternoon', 'Tuesday morning', 'Wednesday after 2pm'],
+          duration_minutes: 30,
+          subject: 'Project roadmap sync',
+        },
+      },
     ];
 
     // Set the sample emails in the store
@@ -1980,17 +2105,43 @@ if (typeof window !== 'undefined') {
     const questionData = (window as any).emailQuestionData;
 
     sampleEmails.forEach(email => {
+      // For test emails, set up specific question data to test the improved prompt
+      let questions = [];
+      if (email.id === 'sample-17') {
+        // Team lunch - should have choice questions
+        questions = [
+          { type: 'choice', question: 'Can you make it to team lunch?', options: ['Yes', 'No'] },
+          { type: 'choice', question: 'What\'s your restaurant preference?', options: ['Pizza from Joe\'s', 'Burgers from Shake Shack', 'Tacos from new place', 'Salads from Sweetgreen'] },
+          { type: 'choice', question: 'Are you cool with splitting the check evenly?', options: ['Yes', 'No'] },
+        ];
+      } else if (email.id === 'sample-18') {
+        // Gift card - should have choice + text question
+        questions = [
+          { type: 'choice', question: 'Which address should we ship to?', options: ['Home address', 'Office address'] },
+          { type: 'text', question: 'What is your shipping address?', options: [] },
+        ];
+      } else if (email.id === 'sample-19') {
+        // Casual weekend - should have NO questions (AI can handle)
+        questions = [];
+      } else if (email.id === 'sample-20') {
+        // Meeting sync - should have NO questions (timing handled by calendar, but meeting_request is set)
+        questions = [];
+      } else {
+        // Legacy emails - use action_items
+        questions = email.action_items.map(a => ({ question: a, options: [], type: 'text' })) || [];
+      }
+
       questionData.set(email.id, {
-        questions: email.action_items.map(a => ({ question: a, options: [] })) || [],
+        questions,
         suggestedFormalityScore: 50,
         suggested_formality_score: 50,
         requiresReply: email.requires_reply || false,
         requires_reply: email.requires_reply || false,
         reply_reasoning: email.requires_reply ? 'This email requires a response' : 'FYI only',
         loaded: true,
-        meetingRequest: email.subject.includes('Meeting') || email.subject.includes('Invitation')
+        meetingRequest: email.meeting_request || (email.subject.includes('Meeting') || email.subject.includes('Invitation')
           ? { is_meeting: true, proposed_times: [] }
-          : { is_meeting: false },
+          : { is_meeting: false }),
       });
     });
 
@@ -2002,6 +2153,11 @@ if (typeof window !== 'undefined') {
     console.log('  - Newsletters');
     console.log('  - Finance/invoices');
     console.log('  - Social notifications');
+    console.log('  - QUESTION GENERATION TEST EMAILS:');
+    console.log('    • "Team lunch this Friday" - Choice questions (4 restaurant options + yes/no)');
+    console.log('    • "Shipping address for your gift" - Choice + text input questions');
+    console.log('    • "Hope you had a great weekend!" - Should show NO questions (AI can handle)');
+    console.log('    • "Quick sync needed" - Meeting request, no timing questions (calendar handles it)');
     console.log('');
     console.log('Try these views:');
     console.log('  - Click "Inbox" in sidebar for normal inbox view');
