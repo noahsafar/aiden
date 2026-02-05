@@ -291,7 +291,8 @@ Subject: [your subject line]
                           : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600'
                       }`}
                     >
-                      {template.name}
+                      <div className="font-medium">{template.name}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">{template.description.split(' ').slice(0, 3).join(' ')}</div>
                     </button>
                   ))}
                 </div>
@@ -313,7 +314,8 @@ Subject: [your subject line]
                           : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600'
                       }`}
                     >
-                      {tone.name}
+                      <div className="font-medium">{tone.name}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">{tone.description.split(' ')[0]}</div>
                     </button>
                   ))}
                 </div>
