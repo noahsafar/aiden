@@ -68,9 +68,14 @@ export function CalendarPicker({
     if (!loading && scrollContainerRef.current) {
       const scrollTimer = setTimeout(() => {
         if (scrollContainerRef.current) {
-          // We want 6 AM to be at the top of the visible area
+          // We want the 6 AM row to align with the header separator line
           const hourHeight = isModal ? 32 : 24;
-          const scrollPosition = 6 * hourHeight;
+          // 6 AM hour row starts at 6 * hourHeight = 192px from grid start
+          // But the grid starts after the header in the scroll container
+          // The header has border-b (1px) + py-2 (16px) + h-6 cell (24px) ≈ 41px
+          // Actually wait - the header is sticky, so it stays at top. We scroll the content
+          // 6 * 32 showed 4 AM, 7 * 32 showed ~6:05... let's try 6.85
+          const scrollPosition = 6.85 * hourHeight;
           scrollContainerRef.current.scrollTop = scrollPosition;
         }
       }, 50);
@@ -515,7 +520,7 @@ export function CalendarPicker({
                   const isToday = date.toDateString() === new Date().toDateString();
 
                   return (
-                    <div key={dateStr} className={`${isModal ? 'h-6' : 'h-5'} flex flex-col items-center justify-center ${isToday ? 'bg-blue-50 dark:bg-blue-900/30' : 'bg-white dark:bg-gray-800'} border-b border-gray-200 dark:border-gray-700`}>
+                    <div key={dateStr} className={`${isModal ? 'h-6' : 'h-5'} flex flex-col items-center justify-center ${isToday ? 'bg-blue-50 dark:bg-blue-900/30' : 'bg-white dark:bg-gray-800'}`}>
                       <span className={`${isModal ? 'text-[9px]' : 'text-[8px]'} font-medium text-gray-600 dark:text-gray-400`}>
                         {dayName}
                       </span>
