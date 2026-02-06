@@ -348,7 +348,7 @@ export interface EmailState {
   classifyEmail: (emailId: string) => Promise<void>;
   generateReply: (emailId: string) => Promise<void>;
   summarizeEmail: (emailId: string) => Promise<string | null>;
-  sendEmail: (to: string, subject: string, body: string, inReplyTo?: string, originalEmailData?: Email) => Promise<void>;
+  sendEmail: (to: string, subject: string, body: string, inReplyTo?: string, originalEmailData?: Email, attachments?: Array<{ path: string; base64: string; name: string }>) => Promise<void>;
   saveEmail: (emailId: string) => void;
   unsaveEmail: (emailId: string) => void;
   saveGeneratedReply: (emailId: string, reply: string) => void;
@@ -1168,9 +1168,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     return email.summary || null;
   },
 
-  sendEmail: async (to, subject, body, inReplyTo, originalEmailData) => {
+  sendEmail: async (to, subject, body, inReplyTo, originalEmailData, attachments = []) => {
     try {
-      console.log('Sending email via OAuth server...');
+      console.log('Sending email via OAuth server...', attachments.length > 0 ? `with ${attachments.length} attachment(s)` : '');
 
       // Get auth token from store
       const authStore = useAuthStore.getState();
@@ -1190,7 +1190,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ to, subject, body, inReplyTo })
+        body: JSON.stringify({ to, subject, body, inReplyTo, attachments })
       });
 
       if (!response.ok) {
@@ -1217,7 +1217,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         snippet: body.substring(0, 100),
         is_read: true,
         is_starred: false,
-        has_attachments: false,
+        has_attachments: attachments.length > 0,
         status: 'Replied',
         category: 'Normal',
         requires_reply: false,

@@ -234,18 +234,70 @@ pub async fn get_profile(access_token: String) -> Result<GmailProfile, String> {
     })
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EmailAttachment {
+    pub path: String,
+    pub base64: String,
+    pub name: String,
+}
+
 #[command]
-pub async fn send_email(access_token: String, to: String, subject: String, body: String) -> Result<String, String> {
+pub async fn send_email(access_token: String, to: String, subject: String, body: String, attachments: Option<Vec<EmailAttachment>>) -> Result<String, String> {
     let rate_limiter = get_rate_limiter();
     rate_limiter.acquire().await?;
 
-    // Create RFC 2822 formatted email
-    let email_content = format!(
-        "To: {}\r\nSubject: {}\r\n\r\n{}",
-        to, subject, body
-    );
+    let attachments = attachments.unwrap_or_default();
 
-    let encoded_email = general_purpose::STANDARD.encode(email_content);
+    // Create RFC 2822 formatted email with proper MIME multipart if we have attachments
+    let email_content = if attachments.is_empty() {
+        // Simple email without attachments
+        format!(
+            "To: {}\r\nSubject: {}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}",
+            to, subject, body
+        )
+    } else {
+        // MIME multipart email with attachments
+        let boundary = format!("boundary_{}", uuid::Uuid::new_v4());
+        let mut email_parts = Vec::new();
+
+        // Email headers
+        email_parts.push(format!("To: {}\r\n", to));
+        email_parts.push(format!("Subject: {}\r\n", subject));
+        email_parts.push(format!("MIME-Version: 1.0\r\n"));
+        email_parts.push(format!(
+            "Content-Type: multipart/mixed; boundary=\"{}\"\r\n",
+            boundary
+        ));
+        email_parts.push(format!("\r\n"));
+
+        // Email body part
+        email_parts.push(format!("--{}\r\n", boundary));
+        email_parts.push(format!("Content-Type: text/plain; charset=utf-8\r\n"));
+        email_parts.push(format!("\r\n"));
+        email_parts.push(format!("{}\r\n", body));
+        email_parts.push(format!("\r\n"));
+
+        // Attachment parts
+        for attachment in &attachments {
+            email_parts.push(format!("--{}\r\n", boundary));
+
+            // Get content type from file extension or default to application/octet-stream
+            let content_type = get_mime_type(&attachment.name);
+            email_parts.push(format!("Content-Type: {}\r\n", content_type));
+            email_parts.push(format!("Content-Transfer-Encoding: base64\r\n"));
+            email_parts.push(format!("Content-Disposition: attachment; filename=\"{}\"\r\n", attachment.name));
+            email_parts.push(format!("\r\n"));
+            email_parts.push(format!("{}\r\n", attachment.base64));
+            email_parts.push(format!("\r\n"));
+        }
+
+        // End boundary
+        email_parts.push(format!("--{}--\r\n", boundary));
+
+        email_parts.join("")
+    };
+
+    let encoded_email = general_purpose::STANDARD.encode(&email_content);
 
     let client = reqwest::Client::new();
     let response = client
@@ -267,6 +319,57 @@ pub async fn send_email(access_token: String, to: String, subject: String, body:
         .map_err(|e| format!("Failed to parse send response: {}", e))?;
 
     Ok(result["id"].as_str().unwrap_or("unknown").to_string())
+}
+
+// Helper function to get MIME type from filename
+fn get_mime_type(filename: &str) -> &'static str {
+    let filename_lower = filename.to_lowercase();
+
+    if filename_lower.ends_with(".pdf") {
+        return "application/pdf";
+    } else if filename_lower.ends_with(".doc") || filename_lower.ends_with(".docx") {
+        return "application/msword";
+    } else if filename_lower.ends_with(".docx") {
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    } else if filename_lower.ends_with(".xls") {
+        return "application/vnd.ms-excel";
+    } else if filename_lower.ends_with(".xlsx") {
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    } else if filename_lower.ends_with(".ppt") || filename_lower.ends_with(".pptx") {
+        return "application/vnd.ms-powerpoint";
+    } else if filename_lower.ends_with(".jpg") || filename_lower.ends_with(".jpeg") {
+        return "image/jpeg";
+    } else if filename_lower.ends_with(".png") {
+        return "image/png";
+    } else if filename_lower.ends_with(".gif") {
+        return "image/gif";
+    } else if filename_lower.ends_with(".webp") {
+        return "image/webp";
+    } else if filename_lower.ends_with(".svg") {
+        return "image/svg+xml";
+    } else if filename_lower.ends_with(".txt") {
+        return "text/plain";
+    } else if filename_lower.ends_with(".html") || filename_lower.ends_with(".htm") {
+        return "text/html";
+    } else if filename_lower.ends_with(".zip") {
+        return "application/zip";
+    } else if filename_lower.ends_with(".rar") {
+        return "application/vnd.rar";
+    } else if filename_lower.ends_with(".7z") {
+        return "application/x-7z-compressed";
+    } else if filename_lower.ends_with(".mp3") {
+        return "audio/mpeg";
+    } else if filename_lower.ends_with(".mp4") {
+        return "video/mp4";
+    } else if filename_lower.ends_with(".mov") {
+        return "video/quicktime";
+    } else if filename_lower.ends_with(".avi") {
+        return "video/x-msvideo";
+    } else if filename_lower.ends_with(".webm") {
+        return "video/webm";
+    } else {
+        return "application/octet-stream";
+    }
 }
 
 // Helper function to parse Gmail message details

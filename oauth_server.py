@@ -1223,6 +1223,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
             subject = data.get('subject')
             body = data.get('body')
             in_reply_to = data.get('inReplyTo')  # Gmail message ID we're replying to
+            attachments = data.get('attachments', [])  # List of {path, base64, name}
 
             if not all([to, subject, body]):
                 self.end_headers()
@@ -1236,12 +1237,52 @@ class OAuthHandler(BaseHTTPRequestHandler):
             # Build Gmail service
             service = build('gmail', 'v1', credentials=creds)
 
-            # Create RFC 2822 formatted email with threading headers
             import email.message
-            message = email.message.EmailMessage()
-            message.set_content(body)
-            message['To'] = to
-            message['Subject'] = subject
+            import email.mime.multipart
+            import email.mime.text
+            import email.mime.base
+            import email.mime.application
+            import base64
+
+            # Create email message
+            if attachments:
+                # MIME multipart message with attachments
+                message = email.mime.multipart.MIMEMultipart()
+                message['To'] = to
+                message['Subject'] = subject
+
+                # Add email body
+                mime_text = email.mime.text.MIMEText(body, 'plain')
+                message.attach(mime_text)
+
+                # Add attachments
+                for attachment in attachments:
+                    import os
+                    filename = attachment.get('name', os.path.basename(attachment.get('path', 'attachment')))
+                    file_data = base64.b64decode(attachment.get('base64', ''))
+
+                    # Detect MIME type from filename
+                    content_type = self._get_mime_type(filename)
+
+                    if content_type.startswith('text/'):
+                        # Text file
+                        mime_attachment = email.mime.text.MIMEText(file_data.read() if hasattr(file_data, 'read') else file_data.decode('utf-8'), _subtype=content_type.split('/')[1])
+                    else:
+                        # Binary file
+                        mime_attachment = email.mime.base.MIMEBase(*content_type.split('/', 1))
+                        mime_attachment.set_payload(file_data)
+
+                    # Set filename and encoding
+                    mime_attachment.add_header('Content-Disposition', 'attachment', filename=filename)
+                    email.encoders.encode_base64(mime_attachment)
+                    message.attach(mime_attachment)
+
+            else:
+                # Simple email without attachments
+                message = email.message.EmailMessage()
+                message.set_content(body)
+                message['To'] = to
+                message['Subject'] = subject
 
             # Add threading headers if replying to an existing email
             if in_reply_to:
@@ -1307,6 +1348,43 @@ class OAuthHandler(BaseHTTPRequestHandler):
                 'error': f'Failed to send email: {str(e)}'
             }
             self.wfile.write(json.dumps(response).encode())
+
+    def _get_mime_type(self, filename):
+        """Get MIME type based on file extension"""
+        filename_lower = filename.lower()
+
+        mime_types = {
+            '.pdf': 'application/pdf',
+            '.doc': 'application/msword',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.xls': 'application/vnd.ms-excel',
+            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            '.ppt': 'application/vnd.ms-powerpoint',
+            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp',
+            '.svg': 'image/svg+xml',
+            '.txt': 'text/plain',
+            '.html': 'text/html',
+            '.htm': 'text/html',
+            '.zip': 'application/zip',
+            '.rar': 'application/vnd.rar',
+            '.7z': 'application/x-7z-compressed',
+            '.mp3': 'audio/mpeg',
+            '.mp4': 'video/mp4',
+            '.mov': 'video/quicktime',
+            '.avi': 'video/x-msvideo',
+            '.webm': 'video/webm',
+        }
+
+        for ext, mime_type in mime_types.items():
+            if filename_lower.endswith(ext):
+                return mime_type
+
+        return 'application/octet-stream'  # Default binary type
 
     def handle_analyze_email(self):
         """Analyze email to extract questions that need user input and suggest formality level"""

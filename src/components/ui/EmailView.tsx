@@ -1194,8 +1194,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
       setIsEditing(false);
 
+      // Clear selected attachments after sending
+      setSelectedAttachments([]);
+
       // Send email in background (don't await - show Sent immediately)
-      sendEmail(senderEmail, `Re: ${email.subject}`, editedReply, email.id, originalEmailData)
+      sendEmail(senderEmail, `Re: ${email.subject}`, editedReply, email.id, originalEmailData, selectedAttachments)
         .catch((error) => {
           console.error('Failed to send reply:', error);
           alert('Failed to send reply');
