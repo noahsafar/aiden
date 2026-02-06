@@ -1172,42 +1172,46 @@ export const EmailView: React.FC<EmailViewProps> = ({
         thread_id: email.id,
       };
 
-      try {
-        await sendEmail(senderEmail, `Re: ${email.subject}`, editedReply, email.id, originalEmailData);
-        updateEmailStatus(email.id, 'Replied');
-        setIsEditing(false);
+      // Update UI immediately to show "Sent" before actually sending
+      updateEmailStatus(email.id, 'Replied');
+      setIsEditing(false);
 
-        // Analyze and save writing style for this recipient (do this in background, don't wait)
-        ;(async () => {
-          try {
-            // Get all sent emails to this recipient to analyze writing style
-            const sentEmailsToRecipient = sentEmails.filter((e: any) => {
-              const recipient = e.to?.email || e.to?.name || e.recipients || '';
-              return recipient.includes(senderEmail) || recipient.includes(email.from?.email || '');
-            });
+      // Send email in background (don't await - show Sent immediately)
+      sendEmail(senderEmail, `Re: ${email.subject}`, editedReply, email.id, originalEmailData)
+        .catch((error) => {
+          console.error('Failed to send reply:', error);
+          alert('Failed to send reply');
+          // Revert status if send failed
+          updateEmailStatus(email.id, 'Unhandled');
+        });
 
-            // Get bodies of sent emails for analysis
-            const sentEmailBodies = sentEmailsToRecipient
-              .map((e: any) => e.body || e.ai_generated_reply || '')
-              .filter(Boolean) as string[];
+      // Analyze and save writing style for this recipient (do this in background, don't wait)
+      ;(async () => {
+        try {
+          // Get all sent emails to this recipient to analyze writing style
+          const sentEmailsToRecipient = sentEmails.filter((e: any) => {
+            const recipient = e.to?.email || e.to?.name || e.recipients || '';
+            return recipient.includes(senderEmail) || recipient.includes(email.from?.email || '');
+          });
 
-            // Include the current reply as well
-            sentEmailBodies.unshift(editedReply);
+          // Get bodies of sent emails for analysis
+          const sentEmailBodies = sentEmailsToRecipient
+            .map((e: any) => e.body || e.ai_generated_reply || '')
+            .filter(Boolean) as string[];
 
-            if (sentEmailBodies.length >= 2) {
-              console.log('[handleSendReply] Analyzing writing style with', sentEmailBodies.length, 'emails');
-              await analyzeAndSaveWritingStyle(senderEmail, sentEmailBodies);
-              console.log('[handleSendReply] Writing style saved for', senderEmail);
-            }
-          } catch (error) {
-            console.warn('[handleSendReply] Failed to analyze writing style:', error);
-            // Don't alert user, this is a background task
+          // Include the current reply as well
+          sentEmailBodies.unshift(editedReply);
+
+          if (sentEmailBodies.length >= 2) {
+            console.log('[handleSendReply] Analyzing writing style with', sentEmailBodies.length, 'emails');
+            await analyzeAndSaveWritingStyle(senderEmail, sentEmailBodies);
+            console.log('[handleSendReply] Writing style saved for', senderEmail);
           }
-        })();
-      } catch (error) {
-        console.error('Failed to send reply:', error);
-        alert('Failed to send reply');
-      }
+        } catch (error) {
+          console.warn('[handleSendReply] Failed to analyze writing style:', error);
+          // Don't alert user, this is a background task
+        }
+      })();
     }, 5000);
   };
 
