@@ -1174,6 +1174,12 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
       // Update UI immediately to show "Sent" before actually sending
       updateEmailStatus(email.id, 'Replied');
+
+      // Immediately mark as sent in the store so hasSentReply returns true right away
+      useEmailStore.setState((state) => ({
+        sentReplyEmailIds: new Set(state.sentReplyEmailIds).add(email.id),
+      }));
+
       setIsEditing(false);
 
       // Send email in background (don't await - show Sent immediately)
@@ -1183,6 +1189,12 @@ export const EmailView: React.FC<EmailViewProps> = ({
           alert('Failed to send reply');
           // Revert status if send failed
           updateEmailStatus(email.id, 'Unhandled');
+          // Also remove from sentReplyEmailIds
+          useEmailStore.setState((state) => {
+            const newSet = new Set(state.sentReplyEmailIds);
+            newSet.delete(email.id);
+            return { sentReplyEmailIds: newSet };
+          });
         });
 
       // Analyze and save writing style for this recipient (do this in background, don't wait)
