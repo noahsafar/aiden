@@ -474,7 +474,7 @@ export const EmailList: React.FC<EmailListProps> = ({
               id={`email-item-${email.id}`}
               className={`relative p-4 bg-surface dark:bg-gray-800 border rounded-lg hover:shadow-md transition-all cursor-pointer ${
                 isSelected ? 'border-purple-500 dark:border-purple-400 ring-2 ring-purple-200 dark:ring-purple-900 bg-purple-50/50 dark:bg-purple-900/20' :
-                isFocused ? 'border-blue-400 dark:border-blue-500 ring-2 ring-blue-300 dark:ring-blue-700 bg-blue-50/50 dark:bg-blue-900/20' :
+                isFocused ? 'border-blue-500 dark:border-blue-400' :
                 selectedEmailId === email.id ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900' : 'border-border'
               } ${isFyi ? 'opacity-60' : ''}`}
               onClick={() => handleEmailClick(email.id)}
