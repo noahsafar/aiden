@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { sendGmailEmail } from '@/api/gmail';
-import { Mail, Send, CheckCircle, AlertCircle } from 'lucide-react';
+import { Mail, Send, CheckCircle, AlertCircle, Paperclip } from 'lucide-react';
 
 export function TestPage() {
   const [isSending, setIsSending] = useState(false);
@@ -34,6 +34,40 @@ export function TestPage() {
     }, 5000);
   };
 
+  const handleSendAttachmentTestEmail = async () => {
+    setIsSending(true);
+    setStatus({ type: 'idle', message: '' });
+
+    const result = await sendGmailEmail(
+      'noahsafar12345@gmail.com',
+      'Application for Software Engineer Position',
+      `Hi,
+
+Thank you for considering my application for the Software Engineer position at your company.
+
+I have attached my resume, transcript, and portfolio for your review. Please let me know if you need any additional information or if you would like to schedule an interview.
+
+Best regards,
+Noah
+
+---
+This is a test email from Aiden AI to verify attachment suggestions are working properly.`
+    );
+
+    if (result.success) {
+      setStatus({ type: 'success', message: result.message || 'Email sent successfully!' });
+    } else {
+      setStatus({ type: 'error', message: result.error || 'Failed to send email' });
+    }
+
+    setIsSending(false);
+
+    // Clear status after 5 seconds
+    setTimeout(() => {
+      setStatus({ type: 'idle', message: '' });
+    }, 5000);
+  };
+
   return (
     <div className="max-w-2xl mx-auto p-6">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-8">
@@ -50,9 +84,10 @@ export function TestPage() {
               <strong>Test Information:</strong>
             </p>
             <ul className="mt-2 space-y-1 text-sm text-blue-700 dark:text-blue-300">
-              <li>• This will send a test email to: <strong>noahsafar12345@gmail.com</strong></li>
-              <li>• The email will be sent using your authenticated Gmail account</li>
-              <li>• This verifies that the Gmail API integration is working properly</li>
+              <li>• This will send test emails to: <strong>noahsafar12345@gmail.com</strong></li>
+              <li>• Emails are sent using your authenticated Gmail account</li>
+              <li>• <strong>Send Test Email</strong> - Basic Gmail API test</li>
+              <li>• <strong>Send Attachment Test Email</strong> - Tests attachment suggestions (requests resume, transcript, portfolio)</li>
             </ul>
           </div>
 
@@ -72,6 +107,26 @@ export function TestPage() {
                 <>
                   <Send className="h-4 w-4 mr-2" />
                   Send Test Email
+                </>
+              )}
+            </Button>
+
+            <Button
+              onClick={handleSendAttachmentTestEmail}
+              disabled={isSending}
+              className="w-full max-w-xs"
+              size="lg"
+              variant="outline"
+            >
+              {isSending ? (
+                <>
+                  <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Paperclip className="h-4 w-4 mr-2" />
+                  Send Attachment Test Email
                 </>
               )}
             </Button>
