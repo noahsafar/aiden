@@ -65,4 +65,4 @@ src-tauri/target/
 # OAuth credentials
 gmail_credentials.json
 credentials.json
-*.pickle
+*.pickleoauth_server.log

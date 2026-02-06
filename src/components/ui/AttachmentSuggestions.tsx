@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { searchFiles, getFileBase64, type FileMatch, type AttachmentRequest } from '@/api/claude';
-import { Paperclip, Check, File as FileIcon, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Paperclip, Check, File as FileIcon, AlertCircle, ChevronDown, ChevronUp, Eye } from 'lucide-react';
 
 interface AttachmentSuggestion {
   request: AttachmentRequest;
@@ -23,6 +24,7 @@ export const AttachmentSuggestions: React.FC<AttachmentSuggestionsProps> = ({
 }) => {
   const [suggestions, setSuggestions] = useState<AttachmentSuggestion[]>([]);
   const [expandedSuggestions, setExpandedSuggestions] = useState<Set<number>>(new Set());
+  const [previewingFile, setPreviewingFile] = useState<string | null>(null);
 
   useEffect(() => {
     if (attachmentRequests.length === 0) {
@@ -90,6 +92,38 @@ export const AttachmentSuggestions: React.FC<AttachmentSuggestionsProps> = ({
       }
       return newSuggestions;
     });
+  };
+
+  const handlePreview = async (file: FileMatch, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent file selection when clicking preview
+    setPreviewingFile(file.path);
+
+    try {
+      // Download and open the file
+      const base64 = await getFileBase64(file.path);
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Save to downloads folder
+      const downloadsPath = await invoke<string>('get_downloads_path', {});
+      const filePath = `${downloadsPath}/${file.name}`;
+
+      await invoke('write_file', {
+        path: filePath,
+        contents: Array.from(bytes)
+      });
+
+      // Open the file
+      await invoke('open_file', { path: filePath });
+    } catch (error) {
+      console.error('Failed to preview file:', error);
+      alert('Failed to preview file');
+    } finally {
+      setPreviewingFile(null);
+    }
   };
 
   // Auto-attach selected files when selection changes
@@ -216,32 +250,46 @@ export const AttachmentSuggestions: React.FC<AttachmentSuggestionsProps> = ({
                   </p>
                   <div className="grid grid-cols-1 gap-2">
                     {getVisibleMatches(suggestion.matches, suggestionIndex).map((file, fileIndex) => (
-                      <button
+                      <div
                         key={fileIndex}
-                        onClick={() => selectFile(suggestionIndex, file)}
-                        className={`text-left p-3 rounded border-2 transition-all ${
+                        className={`p-3 rounded border-2 transition-all ${
                           suggestion.selectedFile?.path === file.path
                             ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-500 dark:border-amber-600'
-                            : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:border-amber-300 dark:hover:border-amber-700'
+                            : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <FileIcon className="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                            <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-                              {file.name}
-                            </span>
-                          </div>
-                          {suggestion.selectedFile?.path === file.path && (
-                            <Check className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                          )}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => selectFile(suggestionIndex, file)}
+                            className="flex-1 text-left"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <FileIcon className="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                                <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                                  {file.name}
+                                </span>
+                              </div>
+                              {suggestion.selectedFile?.path === file.path && (
+                                <Check className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                              <span>{file.folder_name}</span>
+                              <span>{formatFileSize(file.size)}</span>
+                              <span>{formatDate(file.modified)}</span>
+                            </div>
+                          </button>
+                          <button
+                            onClick={(e) => handlePreview(file, e)}
+                            disabled={previewingFile === file.path}
+                            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 disabled:opacity-50 transition-colors flex-shrink-0"
+                            title="Preview file"
+                          >
+                            <Eye size={16} className={previewingFile === file.path ? 'animate-pulse' : ''} />
+                          </button>
                         </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                          <span>{file.folder_name}</span>
-                          <span>{formatFileSize(file.size)}</span>
-                          <span>{formatDate(file.modified)}</span>
-                        </div>
-                      </button>
+                      </div>
                     ))}
                   </div>
                   {suggestion.matches.length > MAX_INITIAL_RESULTS && (

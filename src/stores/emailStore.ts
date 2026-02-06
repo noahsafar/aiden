@@ -1218,6 +1218,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         is_read: true,
         is_starred: false,
         has_attachments: attachments.length > 0,
+        attachments: attachments.map(att => ({
+          id: `att-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          filename: att.name,
+          mimeType: 'application/pdf', // Default to PDF, ideally should detect from file
+          size: att.base64.length * 3 / 4, // Approximate size from base64
+        })),
         status: 'Replied',
         category: 'Normal',
         requires_reply: false,
