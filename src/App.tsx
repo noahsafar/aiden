@@ -902,12 +902,30 @@ function App() {
                                   {selectedEmailId && !sentEmails.find(e => e.id === selectedEmailId) && !showResponseOptions && (
                                     <button
                                       onClick={() => setShowResponseOptions(true)}
-                                      className="flex-shrink-0 p-1.5 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
+                                      className="flex-shrink-0"
                                       title="Respond to this email"
                                     >
-                                      <MessageSquare className="w-4 h-4" />
+                                      <MessageSquare className="w-5 h-5 text-gray-400 hover:text-gray-600 transition-colors" />
                                     </button>
                                   )}
+                                  {/* Archive button */}
+                                  <button
+                                    onClick={() => {
+                                      const fullEmail = emails.find(e => e.id === selectedEmail.id);
+                                      if (fullEmail?.status === 'Archived') {
+                                        updateEmailStatus(selectedEmail.id, 'Unhandled');
+                                      } else {
+                                        updateEmailStatus(selectedEmail.id, 'Archived');
+                                      }
+                                    }}
+                                    className="flex-shrink-0"
+                                    title="Archive email"
+                                  >
+                                    <Archive
+                                      className={`w-5 h-5 ${emails.find(e => e.id === selectedEmail.id)?.status === 'Archived' ? 'text-purple-500 fill-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
+                                    />
+                                  </button>
+                                  {/* Save button */}
                                   <button
                                     onClick={() => {
                                       const fullEmail = emails.find(e => e.id === selectedEmail.id);
@@ -918,6 +936,7 @@ function App() {
                                       }
                                     }}
                                     className="flex-shrink-0"
+                                    title="Save email"
                                   >
                                     <Bookmark
                                       className={`w-5 h-5 ${emails.find(e => e.id === selectedEmail.id)?.status === 'Saved' ? 'fill-purple-500 text-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
