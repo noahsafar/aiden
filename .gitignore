@@ -57,6 +57,11 @@ src-tauri/target/
 # Claude
 .claude/
 
+# MCP
+.mcp.claude.json
+.mcp.json
+.mcp.zai.json
+
 # OAuth credentials
 gmail_credentials.json
 credentials.json

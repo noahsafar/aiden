@@ -497,6 +497,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
     isEditing: boolean;
     editedReply: string;
     hasEdited: boolean;
+    showResponseOptions: boolean;
   }
 
   // Per-email state map to preserve state when switching between emails
@@ -517,6 +518,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [analyzingQuestions, setAnalyzingQuestions] = React.useState(false);
   const [questionsLoaded, setQuestionsLoaded] = React.useState(false); // Track if we've gotten a response from backend
   const [generatingReply, setGeneratingReply] = React.useState(false);
+  const [showResponseOptions, setShowResponseOptions] = React.useState(false); // User clicked "Respond" button
   const [formalityScore, setFormalityScore] = React.useState<FormalityScore>(50); // 0-100
   const [suggestedFormalityScore, setSuggestedFormalityScore] = React.useState<FormalityScore>(50);
   const [summaryComplete, setSummaryComplete] = React.useState(false);
@@ -563,6 +565,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         isEditing: false,
         editedReply: '',
         hasEdited: false,
+        showResponseOptions: false,
       });
     }
     return emailStateMap.current.get(emailId)!;
@@ -582,6 +585,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       state.isEditing = isEditing;
       state.editedReply = editedReply;
       state.hasEdited = hasEdited;
+      state.showResponseOptions = showResponseOptions;
     }
   };
 
@@ -599,6 +603,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setIsEditing(state.isEditing || false);
       setEditedReply(state.editedReply || '');
       setHasEdited(state.hasEdited || false);
+      setShowResponseOptions(state.showResponseOptions || false);
       return true;
     }
     // Also check for background-generated questions in window global
@@ -699,6 +704,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         prevState.isEditing = isEditing;
         prevState.editedReply = editedReply;
         prevState.hasEdited = hasEdited;
+        prevState.showResponseOptions = showResponseOptions;
       }
       // Clear local reply when switching emails
       setLocalAiReply(null);
@@ -721,6 +727,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setSummaryComplete(false);
       setQuestionsLoaded(false);
       setMeetingRequest({ is_meeting: false });
+      setShowResponseOptions(false);
     } else if (prevEmailIdRef.current !== newEmailId) {
       // New email - try to load saved state
       const loaded = loadEmailState();
@@ -737,6 +744,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setMeetingRequest({ is_meeting: false });
         setIsEditing(false);
         setHasEdited(false);
+        setShowResponseOptions(false);
       }
 
       // Set edited reply from new email's AI reply (from store, not local state)
@@ -750,41 +758,44 @@ export const EmailView: React.FC<EmailViewProps> = ({
     prevEmailIdRef.current = newEmailId;
   }, [email?.id, isSentEmail, aiReply]);
 
-  // When summary completes and we have no aiReply, load or generate questions
+  // When summary completes and we have no aiReply, wait for user to click "Respond"
   useEffect(() => {
     if (summary && !displayAiReply && !isSentEmail && !hasSent && email?.id && !questionsLoaded) {
-      const state = getEmailState(email.id);
-      const globalQuestionData = (window as any).emailQuestionData?.get(email.id);
+      // Only load questions automatically if showResponseOptions is true (user clicked Respond)
+      if (showResponseOptions) {
+        const state = getEmailState(email.id);
+        const globalQuestionData = (window as any).emailQuestionData?.get(email.id);
 
-      // Check if we have pre-generated questions from background or already loaded in state
-      if ((globalQuestionData && globalQuestionData.loaded) || (state.questionsLoaded && state.pendingQuestions)) {
-        const dataSource = globalQuestionData?.loaded ? globalQuestionData : state;
-        console.log('[useEffect] Loading saved/pre-generated questions:', dataSource.pendingQuestions);
-        setPendingQuestions(dataSource.pendingQuestions || []);
-        // Clear answers when loading from global (new email), use saved answers when loading from state
-        setUserAnswers(globalQuestionData?.loaded ? {} : (dataSource.userAnswers || {}));
-        setSuggestedFormalityScore(dataSource.suggestedFormalityScore || 50);
-        setFormalityScore(dataSource.formalityScore || 50);
-        setMeetingRequest(dataSource.meetingRequest || { is_meeting: false });
-        setQuestionsLoaded(true);
-        setSummaryComplete(dataSource.summaryComplete || true);
-        // Update state if loading from global
-        if (globalQuestionData?.loaded) {
-          state.pendingQuestions = globalQuestionData.questions;
-          state.suggestedFormalityScore = globalQuestionData.suggestedFormalityScore;
-          state.formalityScore = globalQuestionData.formalityScore;
-          state.questionsLoaded = true;
-          state.summaryComplete = true;
-          state.meetingRequest = globalQuestionData.meetingRequest || { is_meeting: false };
-          state.userAnswers = {}; // Clear answers for new email from global
+        // Check if we have pre-generated questions from background or already loaded in state
+        if ((globalQuestionData && globalQuestionData.loaded) || (state.questionsLoaded && state.pendingQuestions)) {
+          const dataSource = globalQuestionData?.loaded ? globalQuestionData : state;
+          console.log('[useEffect] Loading saved/pre-generated questions:', dataSource.pendingQuestions);
+          setPendingQuestions(dataSource.pendingQuestions || []);
+          // Clear answers when loading from global (new email), use saved answers when loading from state
+          setUserAnswers(globalQuestionData?.loaded ? {} : (dataSource.userAnswers || {}));
+          setSuggestedFormalityScore(dataSource.suggestedFormalityScore || 50);
+          setFormalityScore(dataSource.formalityScore || 50);
+          setMeetingRequest(dataSource.meetingRequest || { is_meeting: false });
+          setQuestionsLoaded(true);
+          setSummaryComplete(dataSource.summaryComplete || true);
+          // Update state if loading from global
+          if (globalQuestionData?.loaded) {
+            state.pendingQuestions = globalQuestionData.questions;
+            state.suggestedFormalityScore = globalQuestionData.suggestedFormalityScore;
+            state.formalityScore = globalQuestionData.formalityScore;
+            state.questionsLoaded = true;
+            state.summaryComplete = true;
+            state.meetingRequest = globalQuestionData.meetingRequest || { is_meeting: false };
+            state.userAnswers = {}; // Clear answers for new email from global
+          }
+        } else {
+          // No pre-generated questions, trigger analysis
+          console.log('[useEffect] No saved questions, triggering analysis');
+          analyzeEmailForQuestions();
         }
-      } else {
-        // No pre-generated questions, trigger analysis
-        console.log('[useEffect] No saved questions, triggering analysis');
-        analyzeEmailForQuestions();
       }
     }
-  }, [summary, displayAiReply, isSentEmail, hasSent, email?.id]);
+  }, [summary, displayAiReply, isSentEmail, hasSent, email?.id, showResponseOptions]);
 
   const handleAiEdit = async () => {
     if (!aiEditPrompt.trim() || !editedReply) return;
@@ -1343,6 +1354,40 @@ export const EmailView: React.FC<EmailViewProps> = ({
           </div>
         )}
 
+        {/* Meeting Suggestions - independent of Respond button */}
+        {!displayAiReply && !isSentEmail && !hasSent && summary && meetingRequest?.is_meeting && (
+          <div className="mt-4" style={{ animation: 'slideInUp 0.3s ease-out' }}>
+            <MeetingSuggestions
+              meetingRequest={meetingRequest}
+              emailSubject={email.subject}
+              senderEmail={fullEmail?.sender || email.sender || ''}
+              timezone={userTimezone}
+              onTimeSelected={(slot) => {
+                setSelectedMeetingTime(slot);
+                // Trigger reply generation with the selected time
+                setAdditionalContext(`Meeting time: ${slot.dayName} at ${slot.time}`);
+              }}
+              onCreated={() => {
+                // Optionally refresh the calendar or show a confirmation
+              }}
+            />
+          </div>
+        )}
+
+        {/* Respond Button - shown after meeting suggestions, before questions */}
+        {summary && !displayAiReply && !isSentEmail && !hasSent && !showResponseOptions && (
+          <div className="mt-4 flex justify-center" style={{ animation: 'slideInUp 0.3s ease-out' }}>
+            <Button
+              onClick={() => setShowResponseOptions(true)}
+              variant="outline"
+              className="px-4 py-2 text-xs border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+            >
+              <MessageSquare className="w-3.5 h-3.5 mr-1.5" />
+              Respond
+            </Button>
+          </div>
+        )}
+
         {/* Unified Email Processing Indicator - shows while summary is generating OR questions are being analyzed */}
         {(isSummaryGenerating || (analyzingQuestions && !displayAiReply)) && (
           <div
@@ -1387,27 +1432,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
           </div>
         )}
 
-        {/* Questions Section - slides in when ready after summary */}
-        {!analyzingQuestions && questionsLoaded && !displayAiReply && summary && (
+        {/* Questions Section - slides in when ready after summary and user clicked Respond */}
+        {!analyzingQuestions && questionsLoaded && !displayAiReply && summary && showResponseOptions && (
           <div className="mt-4 space-y-4" style={{ animation: 'slideInUp 0.3s ease-out' }} data-reply-section>
-            {/* Meeting Suggestions */}
-            {meetingRequest?.is_meeting && (
-              <MeetingSuggestions
-                meetingRequest={meetingRequest}
-                emailSubject={email.subject}
-                senderEmail={fullEmail?.sender || email.sender || ''}
-                timezone={userTimezone}
-                onTimeSelected={(slot) => {
-                  setSelectedMeetingTime(slot);
-                  // Trigger reply generation with the selected time
-                  setAdditionalContext(`Meeting time: ${slot.dayName} at ${slot.time}`);
-                }}
-                onCreated={() => {
-                  // Optionally refresh the calendar or show a confirmation
-                }}
-              />
-            )}
-
             {/* Missing Attachment Warning */}
             <MissingAttachmentWarning warning={missingAttachmentWarning} />
 
