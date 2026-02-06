@@ -103,6 +103,7 @@ function App() {
   const [analysisPanelHeight, setAnalysisPanelHeight] = useState(0);
   const [emailPanelTopPosition, setEmailPanelTopPosition] = useState<number | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
+  const [showResponseOptions, setShowResponseOptions] = useState(false);
   const analysisPanelRef = React.useRef<HTMLDivElement>(null);
 
   // Convert email store format to UI format - use useCallback to avoid recreating on every render
@@ -408,23 +409,39 @@ function App() {
       return emailFromStore ? convertToUIEmail(emailFromStore) : undefined;
     })();
 
-  // Measure analysis panel height to position email panel correctly
+  // Reset response options when email changes
   useEffect(() => {
-    if (analysisPanelRef.current && animationPhase === 'idle' && selectedEmail) {
-      // Use requestAnimationFrame to ensure DOM has rendered before measuring
-      const rafId = requestAnimationFrame(() => {
-        // Double RAF to ensure layout is complete
-        requestAnimationFrame(() => {
-          if (analysisPanelRef.current) {
-            const rect = analysisPanelRef.current.getBoundingClientRect();
-            console.log('Analysis panel height measured:', rect.height, 'offsetHeight:', analysisPanelRef.current.offsetHeight);
-            setAnalysisPanelHeight(rect.height);
-          }
-        });
-      });
+    setShowResponseOptions(false);
+  }, [selectedEmailId]);
 
-      return () => cancelAnimationFrame(rafId);
-    }
+  // Measure analysis panel height to position email panel correctly
+  // Use ResizeObserver to detect size changes (e.g., when meeting suggestions expand)
+  useEffect(() => {
+    if (!analysisPanelRef.current || !selectedEmail) return;
+
+    const updateHeight = () => {
+      if (analysisPanelRef.current) {
+        const rect = analysisPanelRef.current.getBoundingClientRect();
+        const height = rect.height || analysisPanelRef.current.offsetHeight;
+        console.log('Analysis panel height:', height);
+        setAnalysisPanelHeight(height);
+      }
+    };
+
+    // Initial measurement
+    updateHeight();
+
+    // Set up ResizeObserver to detect size changes
+    const resizeObserver = new ResizeObserver(() => {
+      updateHeight();
+    });
+
+    resizeObserver.observe(analysisPanelRef.current);
+
+    // Cleanup
+    return () => {
+      resizeObserver.disconnect();
+    };
   }, [selectedEmail, animationPhase]);
 
   const handleEmailAction = (emailId: string, action: string) => {
@@ -880,21 +897,33 @@ function App() {
                             <div className="mb-6">
                               <div className="flex items-start justify-between">
                                 <h2 className="text-2xl font-bold text-foreground mb-2">{selectedEmail.subject}</h2>
-                                <button
-                                  onClick={() => {
-                                    const fullEmail = emails.find(e => e.id === selectedEmail.id);
-                                    if (fullEmail?.status === 'Saved') {
-                                      updateEmailStatus(selectedEmail.id, 'Unhandled');
-                                    } else {
-                                      updateEmailStatus(selectedEmail.id, 'Saved');
-                                    }
-                                  }}
-                                  className="flex-shrink-0"
-                                >
-                                  <Bookmark
-                                    className={`w-5 h-5 ${emails.find(e => e.id === selectedEmail.id)?.status === 'Saved' ? 'fill-purple-500 text-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
-                                  />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  {/* Respond button - only show when viewing inbox emails, not sent */}
+                                  {selectedEmailId && !sentEmails.find(e => e.id === selectedEmailId) && !showResponseOptions && (
+                                    <button
+                                      onClick={() => setShowResponseOptions(true)}
+                                      className="flex-shrink-0 p-1.5 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
+                                      title="Respond to this email"
+                                    >
+                                      <MessageSquare className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => {
+                                      const fullEmail = emails.find(e => e.id === selectedEmail.id);
+                                      if (fullEmail?.status === 'Saved') {
+                                        updateEmailStatus(selectedEmail.id, 'Unhandled');
+                                      } else {
+                                        updateEmailStatus(selectedEmail.id, 'Saved');
+                                      }
+                                    }}
+                                    className="flex-shrink-0"
+                                  >
+                                    <Bookmark
+                                      className={`w-5 h-5 ${emails.find(e => e.id === selectedEmail.id)?.status === 'Saved' ? 'fill-purple-500 text-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
+                                    />
+                                  </button>
+                                </div>
                               </div>
                               <div className="flex items-center space-x-4 text-sm text-muted">
                                 <span>From: {selectedEmail.from?.name} &lt;{selectedEmail.from?.email}&gt;</span>
@@ -1017,6 +1046,8 @@ function App() {
                         onEmailSelect={(emailId) => setSelectedEmailId(emailId)}
                         focusedView={false}
                         animationPhase={animationPhase}
+                        showResponseOptions={showResponseOptions}
+                        onShowResponseOptionsChange={setShowResponseOptions}
                       />
                     </div>
                   </div>

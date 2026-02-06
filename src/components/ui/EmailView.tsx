@@ -469,6 +469,8 @@ interface EmailViewProps {
   onEmailSelect?: (emailId: string) => void;
   focusedView?: boolean; // If true, only show analysis panel (for split view)
   animationPhase?: 'idle' | 'slideLeft' | 'expand'; // Animation phase for focused view transition
+  showResponseOptions?: boolean; // Whether to show response options/questions
+  onShowResponseOptionsChange?: (value: boolean) => void; // Callback when respond button is clicked
 }
 
 type FormalityScore = number; // 0-100, where 0=casual, 50=neutral, 100=formal
@@ -482,6 +484,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onEmailSelect,
   focusedView = false,
   animationPhase = 'idle',
+  showResponseOptions = false,
+  onShowResponseOptionsChange,
 }) => {
   const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead, getThreadEmails, getThreadPosition, selectEmail, selectedEmail: storeSelectedEmail } = useEmailStore();
 
@@ -497,7 +501,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
     isEditing: boolean;
     editedReply: string;
     hasEdited: boolean;
-    showResponseOptions: boolean;
   }
 
   // Per-email state map to preserve state when switching between emails
@@ -518,7 +521,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [analyzingQuestions, setAnalyzingQuestions] = React.useState(false);
   const [questionsLoaded, setQuestionsLoaded] = React.useState(false); // Track if we've gotten a response from backend
   const [generatingReply, setGeneratingReply] = React.useState(false);
-  const [showResponseOptions, setShowResponseOptions] = React.useState(false); // User clicked "Respond" button
   const [formalityScore, setFormalityScore] = React.useState<FormalityScore>(50); // 0-100
   const [suggestedFormalityScore, setSuggestedFormalityScore] = React.useState<FormalityScore>(50);
   const [summaryComplete, setSummaryComplete] = React.useState(false);
@@ -565,7 +567,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
         isEditing: false,
         editedReply: '',
         hasEdited: false,
-        showResponseOptions: false,
       });
     }
     return emailStateMap.current.get(emailId)!;
@@ -585,7 +586,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
       state.isEditing = isEditing;
       state.editedReply = editedReply;
       state.hasEdited = hasEdited;
-      state.showResponseOptions = showResponseOptions;
     }
   };
 
@@ -603,7 +603,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setIsEditing(state.isEditing || false);
       setEditedReply(state.editedReply || '');
       setHasEdited(state.hasEdited || false);
-      setShowResponseOptions(state.showResponseOptions || false);
       return true;
     }
     // Also check for background-generated questions in window global
@@ -704,7 +703,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
         prevState.isEditing = isEditing;
         prevState.editedReply = editedReply;
         prevState.hasEdited = hasEdited;
-        prevState.showResponseOptions = showResponseOptions;
       }
       // Clear local reply when switching emails
       setLocalAiReply(null);
@@ -727,7 +725,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setSummaryComplete(false);
       setQuestionsLoaded(false);
       setMeetingRequest({ is_meeting: false });
-      setShowResponseOptions(false);
+      onShowResponseOptionsChange(false);
     } else if (prevEmailIdRef.current !== newEmailId) {
       // New email - try to load saved state
       const loaded = loadEmailState();
@@ -744,7 +742,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setMeetingRequest({ is_meeting: false });
         setIsEditing(false);
         setHasEdited(false);
-        setShowResponseOptions(false);
+        onShowResponseOptionsChange(false);
       }
 
       // Set edited reply from new email's AI reply (from store, not local state)
@@ -1371,20 +1369,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
                 // Optionally refresh the calendar or show a confirmation
               }}
             />
-          </div>
-        )}
-
-        {/* Respond Button - shown after meeting suggestions, before questions */}
-        {summary && !displayAiReply && !isSentEmail && !hasSent && !showResponseOptions && (
-          <div className="mt-4 flex justify-center" style={{ animation: 'slideInUp 0.3s ease-out' }}>
-            <Button
-              onClick={() => setShowResponseOptions(true)}
-              variant="outline"
-              className="px-4 py-2 text-xs border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-            >
-              <MessageSquare className="w-3.5 h-3.5 mr-1.5" />
-              Respond
-            </Button>
           </div>
         )}
 
