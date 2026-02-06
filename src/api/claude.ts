@@ -40,6 +40,33 @@ export interface UserAnswer {
   answer: string;
 }
 
+// Conversation context types
+export interface ConversationEmail {
+  subject: string;
+  sender: string;
+  body: string;
+  date: string;
+  is_from_user: boolean;
+}
+
+export interface ConversationContext {
+  recipient_email: string;
+  previous_emails: ConversationEmail[];
+  total_conversation_count: number;
+}
+
+// Writing style types
+export interface RecipientWritingStyle {
+  recipient_email: string;
+  tone_description: string;
+  formality_score: number;
+  common_phrases: string[];
+  greeting_style: string;
+  sign_off_style: string;
+  sample_count: number;
+  last_updated: string;
+}
+
 export interface GenerateReplyRequest {
   sender: string;
   subject: string;
@@ -48,6 +75,9 @@ export interface GenerateReplyRequest {
   formality_level: 'casual' | 'neutral' | 'formal';
   additional_context?: string;
   selected_meeting_time?: string;
+  // New fields for context and learned tone
+  conversation_context?: ConversationContext;
+  learned_writing_style?: RecipientWritingStyle;
 }
 
 export interface GenerateReplyResponse {
@@ -130,6 +160,82 @@ export async function analyzeAttachment(request: AnalyzeAttachmentRequest): Prom
     return response;
   } catch (error) {
     console.error('Failed to analyze attachment with Claude:', error);
+    throw error;
+  }
+}
+
+// ==================== CONVERSATION CONTEXT & WRITING STYLE ====================
+
+/**
+ * Get conversation context with a recipient
+ * Returns previous emails to/from this recipient
+ */
+export async function getConversationContext(
+  recipientEmail: string,
+  allEmails: any[],
+  currentEmailId?: string,
+  limit?: number
+): Promise<ConversationContext> {
+  try {
+    const response = await invoke<ConversationContext>('get_conversation_context_from_emails', {
+      recipientEmail,
+      allEmails,
+      currentEmailId,
+      limit,
+    });
+    return response;
+  } catch (error) {
+    console.error('Failed to get conversation context:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get saved writing style for a recipient
+ */
+export async function getRecipientWritingStyle(
+  recipientEmail: string
+): Promise<RecipientWritingStyle | null> {
+  try {
+    const response = await invoke<RecipientWritingStyle | null>('get_recipient_writing_style', {
+      recipientEmail,
+    });
+    return response;
+  } catch (error) {
+    console.error('Failed to get recipient writing style:', error);
+    return null;
+  }
+}
+
+/**
+ * Save writing style for a recipient
+ */
+export async function saveRecipientWritingStyle(
+  style: RecipientWritingStyle
+): Promise<void> {
+  try {
+    await invoke('save_recipient_writing_style', { style });
+  } catch (error) {
+    console.error('Failed to save recipient writing style:', error);
+    throw error;
+  }
+}
+
+/**
+ * Analyze sent emails to learn writing style for a recipient
+ */
+export async function analyzeAndSaveWritingStyle(
+  recipientEmail: string,
+  sentEmailsBodies: string[]
+): Promise<RecipientWritingStyle> {
+  try {
+    const response = await invoke<RecipientWritingStyle>('analyze_and_save_writing_style', {
+      recipientEmail,
+      sentEmailsBodies,
+    });
+    return response;
+  } catch (error) {
+    console.error('Failed to analyze and save writing style:', error);
     throw error;
   }
 }

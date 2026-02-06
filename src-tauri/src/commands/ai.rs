@@ -2,6 +2,53 @@ use serde::{Deserialize, Serialize};
 use tauri::command;
 use reqwest;
 use std::time::Duration;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::fs;
+
+// Storage for writing styles per recipient
+lazy_static::lazy_static! {
+    static ref WRITING_STYLES: std::sync::Mutex<HashMap<String, RecipientWritingStyle>> =
+        std::sync::Mutex::new(HashMap::new());
+}
+
+// Get the path to the writing styles file
+fn get_writing_styles_path() -> PathBuf {
+    let app_dir = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."));
+    let app_dir = app_dir.join("aiden");
+    std::fs::create_dir_all(&app_dir).ok();
+    app_dir.join("writing_styles.json")
+}
+
+// Load writing styles from disk on startup
+fn load_writing_styles() {
+    let path = get_writing_styles_path();
+    if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(loaded) = serde_json::from_str::<HashMap<String, RecipientWritingStyle>>(&content) {
+            let mut styles = WRITING_STYLES.lock().unwrap();
+            *styles = loaded;
+            println!("Loaded {} writing styles from disk", styles.len());
+        }
+    }
+}
+
+// Save writing styles to disk
+fn save_writing_styles_to_disk() {
+    let styles = WRITING_STYLES.lock().unwrap();
+    let path = get_writing_styles_path();
+    if let Ok(json) = serde_json::to_string_pretty(&*styles) {
+        fs::write(&path, json).ok();
+    }
+}
+
+// Initialize writing styles on first use
+fn init_writing_styles() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        load_writing_styles();
+    });
+}
 
 // Claude API request/response structures
 #[derive(Debug, Serialize)]
@@ -64,6 +111,35 @@ pub struct WritingStyle {
     pub formality: f64,
     pub common_phrases: Vec<String>,
     pub avg_sentence_length: f64,
+}
+
+// New structs for conversation context and per-recipient writing style
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConversationEmail {
+    pub subject: String,
+    pub sender: String,
+    pub body: String,
+    pub date: String,
+    pub is_from_user: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RecipientWritingStyle {
+    pub recipient_email: String,
+    pub tone_description: String,
+    pub formality_score: i32, // 0-100
+    pub common_phrases: Vec<String>,
+    pub greeting_style: String,
+    pub sign_off_style: String,
+    pub sample_count: i32,
+    pub last_updated: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConversationContext {
+    pub recipient_email: String,
+    pub previous_emails: Vec<ConversationEmail>,
+    pub total_conversation_count: i32,
 }
 
 // Helper function to get API key from settings or environment
@@ -421,6 +497,9 @@ pub struct GenerateReplyRequest {
     pub formality_level: String, // "casual", "neutral", "formal"
     pub additional_context: Option<String>,
     pub selected_meeting_time: Option<String>,
+    // New fields for context and learned tone
+    pub conversation_context: Option<ConversationContext>,
+    pub learned_writing_style: Option<RecipientWritingStyle>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -437,8 +516,39 @@ pub struct GenerateReplyResponse {
 
 #[command]
 pub async fn generate_reply_claude(request: GenerateReplyRequest) -> Result<GenerateReplyResponse, String> {
-    let system_prompt = r#"You are Aiden, an intelligent email assistant. You write professional, contextually appropriate email replies.
+    // Initialize writing styles storage
+    init_writing_styles();
+
+    // Build enhanced system prompt with learned writing style if available
+    let base_system_prompt = r#"You are Aiden, an intelligent email assistant. You write professional, contextually appropriate email replies.
 Keep replies concise and natural. Match the requested formality level."#;
+
+    let system_prompt = if let Some(style) = &request.learned_writing_style {
+        format!(
+            r#"{}{}
+
+LEARNED WRITING STYLE FOR THIS RECIPIENT:
+- Recipient: {}
+- Tone: {} (formality: {}/100)
+- Common phrases you use with them: {}
+- Your greeting style: {}
+- Your sign-off style: {}
+- Based on {} previous emails
+
+Incorporate this learned style naturally into your reply while respecting the user's requested formality level."#,
+            base_system_prompt,
+            request.sender,
+            style.recipient_email,
+            style.tone_description,
+            style.formality_score,
+            style.common_phrases.join(", "),
+            style.greeting_style,
+            style.sign_off_style,
+            style.sample_count
+        )
+    } else {
+        base_system_prompt.to_string()
+    };
 
     let answers_section = if request.user_answers.is_empty() {
         "No specific questions to address.".to_string()
@@ -457,6 +567,39 @@ Keep replies concise and natural. Match the requested formality level."#;
         .map(|t| format!("\nMeeting Time: {}", t))
         .unwrap_or_default();
 
+    // Build conversation history section if available
+    let conversation_history_section = if let Some(ctx) = &request.conversation_context {
+        if !ctx.previous_emails.is_empty() {
+            let history: String = ctx.previous_emails.iter()
+                .take(5) // Limit to last 5 emails for context
+                .map(|email| {
+                    let role = if email.is_from_user { "You" } else { "Them" };
+                    format!(
+                        "{} ({})\nSubject: {}\n{}",
+                        role,
+                        email.date,
+                        email.subject,
+                        if email.body.len() > 200 {
+                            format!("{}...", &email.body[..200])
+                        } else {
+                            email.body.clone()
+                        }
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            format!(
+                "\nCONVERSATION HISTORY ({} emails total, showing most recent):\n{}\n",
+                ctx.total_conversation_count,
+                history
+            )
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
     let prompt = format!(
         r#"Write a reply to this email.
 
@@ -464,6 +607,7 @@ ORIGINAL EMAIL:
 From: {}
 Subject: {}
 Body: {}
+{}
 
 MY ANSWERS TO QUESTIONS:
 {}
@@ -477,6 +621,7 @@ REQUIREMENTS:
 - Keep it concise (2-4 sentences typically)
 - Be professional but natural
 - Include "Re: " in the subject line
+- Reference the conversation history naturally if relevant
 - Return ONLY a JSON object with "reply" and "subject" fields
 
 Response format:
@@ -487,6 +632,7 @@ Response format:
         request.sender,
         request.subject,
         request.body_text,
+        conversation_history_section,
         answers_section,
         context_section,
         meeting_section,
@@ -933,4 +1079,187 @@ fn extract_text_from_pdf(pdf_data: &[u8]) -> Result<String, String> {
     extract_text_from_mem(pdf_data)
         .map_err(|e| format!("PDF extraction error: {}", e))
         .map(|s| s.trim().to_string())
+}
+
+// ==================== WRITING STYLE LEARNING ====================
+
+#[command]
+pub async fn save_recipient_writing_style(style: RecipientWritingStyle) -> Result<(), String> {
+    init_writing_styles();
+    let mut styles = WRITING_STYLES.lock().unwrap();
+    styles.insert(style.recipient_email.clone(), style);
+    drop(styles);
+    save_writing_styles_to_disk();
+    Ok(())
+}
+
+#[command]
+pub async fn get_recipient_writing_style(recipient_email: String) -> Result<Option<RecipientWritingStyle>, String> {
+    init_writing_styles();
+    let styles = WRITING_STYLES.lock().unwrap();
+    Ok(styles.get(&recipient_email).cloned())
+}
+
+#[command]
+pub async fn analyze_and_save_writing_style(
+    recipient_email: String,
+    sent_emails_bodies: Vec<String>,
+) -> Result<RecipientWritingStyle, String> {
+    if sent_emails_bodies.is_empty() {
+        return Err("No emails provided for analysis".to_string());
+    }
+
+    let emails_text = sent_emails_bodies.iter()
+        .take(10) // Analyze up to 10 recent emails
+        .enumerate()
+        .map(|(i, email)| format!("Email {}:\n{}\n", i + 1, email))
+        .collect::<String>();
+
+    let prompt = format!(
+        r#"Analyze the writing style from these sent emails to a specific recipient.
+
+{}
+
+Respond in JSON format:
+{{
+  "tone_description": "e.g., 'Professional but friendly', 'Casual and warm', 'Formal and direct'",
+  "formality_score": 50,
+  "common_phrases": ["phrase1", "phrase2", "phrase3"],
+  "greeting_style": "e.g., 'Hi [Name]', 'Hey [Name]', 'Dear [Name]'",
+  "sign_off_style": "e.g., 'Best,', 'Thanks,' 'Regards,'"
+}}
+
+Analyze:
+- Overall tone in 2-3 words
+- Formality score (0=very casual, 100=very formal)
+- Common phrases or expressions used with this recipient
+- Typical greeting pattern
+- Typical sign-off pattern"#,
+        emails_text
+    );
+
+    let response = call_claude_api(prompt).await?;
+
+    let json_str = extract_json_from_response(&response)?;
+    let parsed: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| format!("Failed to parse JSON response: {}", e))?;
+
+    let tone_description = parsed["tone_description"].as_str()
+        .unwrap_or("Neutral")
+        .to_string();
+
+    let formality_score = parsed["formality_score"].as_i64()
+        .unwrap_or(50) as i32;
+
+    let common_phrases: Vec<String> = parsed["common_phrases"].as_array()
+        .and_then(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).ok())
+        .unwrap_or_default();
+
+    let greeting_style = parsed["greeting_style"].as_str()
+        .unwrap_or("Hi [Name]")
+        .to_string();
+
+    let sign_off_style = parsed["sign_off_style"].as_str()
+        .unwrap_or("Best,")
+        .to_string();
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let style = RecipientWritingStyle {
+        recipient_email: recipient_email.clone(),
+        tone_description,
+        formality_score,
+        common_phrases,
+        greeting_style,
+        sign_off_style,
+        sample_count: sent_emails_bodies.len() as i32,
+        last_updated: now,
+    };
+
+    // Save the style
+    save_recipient_writing_style(style.clone()).await?;
+
+    Ok(style)
+}
+
+// ==================== CONVERSATION CONTEXT ====================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetConversationContextRequest {
+    pub recipient_email: String,
+    pub current_email_id: Option<String>, // Exclude current email from history
+    pub limit: Option<i32>, // Max emails to return
+}
+
+#[command]
+pub async fn get_conversation_context_from_emails(
+    recipient_email: String,
+    all_emails: Vec<serde_json::Value>,
+    current_email_id: Option<String>,
+    limit: Option<i32>,
+) -> Result<ConversationContext, String> {
+    let limit = limit.unwrap_or(10);
+
+    // Filter emails to/from this recipient
+    let mut conversation_emails: Vec<ConversationEmail> = all_emails
+        .into_iter()
+        .filter(|email| {
+            // Skip current email
+            if let Some(current_id) = &current_email_id {
+                if email.get("id").and_then(|v| v.as_str()) == Some(current_id.as_str()) {
+                    return false;
+                }
+            }
+
+            // Check if sender or recipient matches
+            let sender = email.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+            let from = email.get("from").and_then(|v| v.as_str());
+            let to = email.get("to").and_then(|v| v.as_str());
+            let recipients = email.get("recipients").and_then(|v| v.as_str());
+
+            sender == &recipient_email ||
+            from == Some(recipient_email.as_str()) ||
+            to == Some(recipient_email.as_str()) ||
+            recipients == Some(recipient_email.as_str())
+        })
+        .map(|email| {
+            let subject = email.get("subject").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let sender = email.get("sender").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let body = email.get("body_text")
+                .and_then(|v| v.as_str())
+                .or_else(|| email.get("snippet").and_then(|v| v.as_str()))
+                .unwrap_or("")
+                .to_string();
+            let date = email.get("date")
+                .or_else(|| email.get("timestamp"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            // Determine if this is from the user (sent email) or received
+            let is_from_user = email.get("is_sent")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            ConversationEmail {
+                subject,
+                sender,
+                body,
+                date,
+                is_from_user,
+            }
+        })
+        .collect();
+
+    // Sort by date (most recent first) and limit
+    conversation_emails.sort_by(|a, b| b.date.cmp(&a.date));
+    conversation_emails.truncate(limit as usize);
+
+    let total_count = conversation_emails.len() as i32;
+
+    Ok(ConversationContext {
+        recipient_email,
+        previous_emails: conversation_emails,
+        total_conversation_count: total_count,
+    })
 }

@@ -27,6 +27,7 @@ chrono = { version = "0.4", features = ["serde"] }
 lettre = "0.11"
 dirs = "5.0"
 dotenv = "0.15"
+lazy_static = "1.4"
 
 # REQUIRED FOR TAURI 2.0 !!!
 [package.metadata.tauri]

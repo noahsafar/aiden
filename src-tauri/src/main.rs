@@ -31,6 +31,10 @@ fn main() {
             ai::generate_reply_claude,
             ai::edit_reply_claude,
             ai::analyze_attachment_claude,
+            ai::save_recipient_writing_style,
+            ai::get_recipient_writing_style,
+            ai::analyze_and_save_writing_style,
+            ai::get_conversation_context_from_emails,
             // Database commands
             database::save_email,
             database::get_emails,

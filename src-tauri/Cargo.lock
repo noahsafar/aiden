@@ -47,6 +47,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "dotenv",
+ "lazy_static",
  "lettre",
  "oauth2",
  "pdf-extract",

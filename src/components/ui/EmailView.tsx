@@ -6,7 +6,7 @@ import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
 import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X, Clock, ChevronUp, ChevronDown, MessageSquare } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { serverURL, downloadAttachment, saveAttachmentToFile } from '@/api/emails';
-import { analyzeEmail, generateReply as claudeGenerateReply, editReply, analyzeAttachment, type AnalyzeEmailRequest, type GenerateReplyRequest } from '@/api/claude';
+import { analyzeEmail, generateReply as claudeGenerateReply, editReply, analyzeAttachment, type AnalyzeEmailRequest, type GenerateReplyRequest, getConversationContext, getRecipientWritingStyle, analyzeAndSaveWritingStyle, type ConversationContext, type RecipientWritingStyle } from '@/api/claude';
 
 // Helper to decode HTML entities
 function decodeHTMLEntities(text: string): string {
@@ -1031,6 +1031,31 @@ export const EmailView: React.FC<EmailViewProps> = ({
       answer: userAnswers[idx] || ''
     }));
 
+    // Fetch conversation context and learned writing style
+    let conversationContext: ConversationContext | undefined;
+    let learnedWritingStyle: RecipientWritingStyle | undefined;
+
+    try {
+      const senderEmail = email.from?.email || email.from?.name || email.sender;
+
+      // Get conversation context (previous emails with this sender)
+      conversationContext = await getConversationContext(
+        senderEmail,
+        emails,
+        email.id, // Exclude current email from history
+        5 // Get last 5 emails for context
+      );
+      console.log('[generateReply] Found conversation context:', conversationContext.total_conversation_count, 'emails');
+
+      // Get learned writing style for this recipient
+      learnedWritingStyle = await getRecipientWritingStyle(senderEmail);
+      if (learnedWritingStyle) {
+        console.log('[generateReply] Found learned writing style:', learnedWritingStyle.tone_description);
+      }
+    } catch (error) {
+      console.warn('[generateReply] Failed to fetch context/style, continuing without it:', error);
+    }
+
     // Build request
     const request: GenerateReplyRequest = {
       sender: fullEmail.sender,
@@ -1040,6 +1065,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
       formality_level: formalityLevel,
       additional_context: additionalContext || undefined,
       selected_meeting_time: selectedMeetingTime ? `${selectedMeetingTime.dayName} at ${selectedMeetingTime.time}` : undefined,
+      conversation_context: conversationContext,
+      learned_writing_style: learnedWritingStyle,
     };
 
     console.log('[generateReply] Request body:', JSON.stringify(request, null, 2));
@@ -1149,6 +1176,34 @@ export const EmailView: React.FC<EmailViewProps> = ({
         await sendEmail(senderEmail, `Re: ${email.subject}`, editedReply, email.id, originalEmailData);
         updateEmailStatus(email.id, 'Replied');
         setIsEditing(false);
+
+        // Analyze and save writing style for this recipient (do this in background, don't wait)
+        ;(async () => {
+          try {
+            // Get all sent emails to this recipient to analyze writing style
+            const sentEmailsToRecipient = sentEmails.filter((e: any) => {
+              const recipient = e.to?.email || e.to?.name || e.recipients || '';
+              return recipient.includes(senderEmail) || recipient.includes(email.from?.email || '');
+            });
+
+            // Get bodies of sent emails for analysis
+            const sentEmailBodies = sentEmailsToRecipient
+              .map((e: any) => e.body || e.ai_generated_reply || '')
+              .filter(Boolean) as string[];
+
+            // Include the current reply as well
+            sentEmailBodies.unshift(editedReply);
+
+            if (sentEmailBodies.length >= 2) {
+              console.log('[handleSendReply] Analyzing writing style with', sentEmailBodies.length, 'emails');
+              await analyzeAndSaveWritingStyle(senderEmail, sentEmailBodies);
+              console.log('[handleSendReply] Writing style saved for', senderEmail);
+            }
+          } catch (error) {
+            console.warn('[handleSendReply] Failed to analyze writing style:', error);
+            // Don't alert user, this is a background task
+          }
+        })();
       } catch (error) {
         console.error('Failed to send reply:', error);
         alert('Failed to send reply');
