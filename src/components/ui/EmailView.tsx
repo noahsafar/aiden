@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEmailStore, fetchWithTimeout, type EmailAttachment } from '@/stores/emailStore';
 import { Button } from '@/components/ui/Button';
 import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
+import { AttachmentSuggestions } from '@/components/ui/AttachmentSuggestions';
 import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X, Clock, ChevronUp, ChevronDown, MessageSquare } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { serverURL, downloadAttachment, saveAttachmentToFile } from '@/api/emails';
@@ -530,6 +531,10 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [selectedMeetingTime, setSelectedMeetingTime] = React.useState<any>(null); // { date, time, start, end, dayName }
   const [userTimezone, setUserTimezone] = React.useState<string>('America/New_York');
 
+  // Attachment suggestions state
+  const [attachmentRequests, setAttachmentRequests] = React.useState<any[]>([]);
+  const [selectedAttachments, setSelectedAttachments] = React.useState<Array<{ path: string; base64: string; name: string }>>([]);
+
   // Load user timezone from settings
   React.useEffect(() => {
     invoke('get_settings').then((settings: any) => {
@@ -600,6 +605,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setQuestionsLoaded(state.questionsLoaded);
       setSummaryComplete(state.summaryComplete);
       setMeetingRequest(state.meetingRequest || { is_meeting: false });
+      setAttachmentRequests(state.attachmentRequests || []);
       setIsEditing(state.isEditing || false);
       setEditedReply(state.editedReply || '');
       setHasEdited(state.hasEdited || false);
@@ -621,6 +627,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setQuestionsLoaded(true);
         setSummaryComplete(true);
         setMeetingRequest(globalQuestionData.meetingRequest || { is_meeting: false });
+        setAttachmentRequests(globalQuestionData.attachmentRequests || []);
         setIsEditing(false);
         setHasEdited(false);
         setEditedReply('');
@@ -774,6 +781,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
           setSuggestedFormalityScore(dataSource.suggestedFormalityScore || 50);
           setFormalityScore(dataSource.formalityScore || 50);
           setMeetingRequest(dataSource.meetingRequest || { is_meeting: false });
+          setAttachmentRequests(dataSource.attachmentRequests || []);
           setQuestionsLoaded(true);
           setSummaryComplete(dataSource.summaryComplete || true);
           // Update state if loading from global
@@ -856,6 +864,10 @@ export const EmailView: React.FC<EmailViewProps> = ({
       // Set meeting request
       if (globalQuestionData.meetingRequest) {
         setMeetingRequest(globalQuestionData.meetingRequest);
+      }
+      // Set attachment requests
+      if (globalQuestionData.attachment_requests) {
+        setAttachmentRequests(globalQuestionData.attachment_requests);
       }
       // Set missing attachment warning
       setMissingAttachmentWarning(globalQuestionData.missingAttachmentWarning || null);
@@ -1621,6 +1633,16 @@ export const EmailView: React.FC<EmailViewProps> = ({
               <div className="h-4" />
             </div>
             */}
+
+            {/* Attachment Suggestions */}
+            {attachmentRequests.length > 0 && (
+              <AttachmentSuggestions
+                attachmentRequests={attachmentRequests}
+                onAttachmentsSelected={(attachments) => {
+                  setSelectedAttachments(attachments);
+                }}
+              />
+            )}
 
             {/* Generate Button - more subtle, hide when generating */}
             {!generatingReply && (

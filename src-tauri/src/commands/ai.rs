@@ -330,6 +330,15 @@ pub struct AnalyzeEmailResponse {
     pub meeting_request: Option<MeetingRequest>,
     pub missing_attachment_warning: Option<String>,
     pub mentioned_document_types: Vec<String>,
+    // New field for attachment suggestions
+    pub attachment_requests: Vec<AttachmentRequest>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AttachmentRequest {
+    pub keyword: String, // e.g., "resume", "transcript", "invoice"
+    pub file_type: Option<String>, // e.g., "pdf", "docx"
+    pub description: String, // e.g., "They want your resume"
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -356,6 +365,7 @@ pub async fn analyze_email_claude(request: AnalyzeEmailRequest) -> Result<Analyz
 3. The appropriate tone (formality 0-100)
 4. Whether this is a meeting request
 5. Any missing attachments mentioned
+6. What attachments the sender is requesting (keywords and file types)
 
 Always respond with valid JSON only."#;
 
@@ -383,7 +393,11 @@ Respond in this exact JSON format:
     "subject": "Meeting subject extracted from email"
   }},
   "missing_attachment_warning": null,
-  "mentioned_document_types": []
+  "mentioned_document_types": [],
+  "attachment_requests": [
+    {{"keyword": "resume", "file_type": "pdf", "description": "They want your resume"}},
+    {{"keyword": "transcript", "file_type": null, "description": "They're asking for your transcript"}}
+  ]
 }}
 
 Guidelines:
@@ -393,6 +407,10 @@ Guidelines:
 - Meeting: Set is_meeting=true if they want to meet; extract proposed times like "Tuesday at 2pm"
 - Missing attachment: Warn if they mention "attached file" but no attachments exist
 - Document types: List mentioned file types (resume, PDF, etc.)
+- Attachment requests: Extract files/documents they're asking for. For each, identify:
+  * keyword: The main thing they're asking for (e.g., "resume", "portfolio", "transcript", "cover letter")
+  * file_type: Specific format if mentioned (pdf, docx, xlsx, jpg), or null if not specified
+  * description: Brief description of what they want
 
 IMPORTANT - Set requires_reply to FALSE for:
 - Newsletters, marketing emails, notifications, or automated emails
@@ -434,6 +452,10 @@ Set requires_reply to TRUE for:
         .and_then(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).ok())
         .unwrap_or_default();
 
+    let attachment_requests: Vec<AttachmentRequest> = parsed["attachment_requests"].as_array()
+        .and_then(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).ok())
+        .unwrap_or_default();
+
     Ok(AnalyzeEmailResponse {
         questions,
         suggested_formality_score,
@@ -442,6 +464,7 @@ Set requires_reply to TRUE for:
         meeting_request,
         missing_attachment_warning,
         mentioned_document_types,
+        attachment_requests,
     })
 }
 

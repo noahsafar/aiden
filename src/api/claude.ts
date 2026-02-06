@@ -33,6 +33,29 @@ export interface AnalyzeEmailResponse {
   meeting_request?: MeetingRequest | null;
   missing_attachment_warning?: string | null;
   mentioned_document_types: string[];
+  attachment_requests: AttachmentRequest[];
+}
+
+export interface AttachmentRequest {
+  keyword: string;
+  file_type: string | null;
+  description: string;
+}
+
+// File search types
+export interface IndexedFolder {
+  path: string;
+  name: string;
+  enabled: boolean;
+}
+
+export interface FileMatch {
+  path: string;
+  name: string;
+  file_type: string;
+  size: number;
+  modified: number;
+  folder_name: string;
 }
 
 export interface UserAnswer {
@@ -236,6 +259,76 @@ export async function analyzeAndSaveWritingStyle(
     return response;
   } catch (error) {
     console.error('Failed to analyze and save writing style:', error);
+    throw error;
+  }
+}
+
+// ==================== FILE SEARCH ====================
+
+/**
+ * Get indexed folders configuration
+ */
+export async function getIndexedFolders(): Promise<IndexedFolder[]> {
+  try {
+    return await invoke<IndexedFolder[]>('get_indexed_folders');
+  } catch (error) {
+    console.error('Failed to get indexed folders:', error);
+    return [];
+  }
+}
+
+/**
+ * Update indexed folders configuration
+ */
+export async function updateIndexedFolders(folders: IndexedFolder[]): Promise<void> {
+  try {
+    await invoke('update_indexed_folders', { folders });
+  } catch (error) {
+    console.error('Failed to update indexed folders:', error);
+    throw error;
+  }
+}
+
+/**
+ * Search files by keywords and optionally by file type
+ */
+export async function searchFiles(
+  keywords: string[],
+  fileTypes?: string[],
+  limit?: number
+): Promise<FileMatch[]> {
+  try {
+    return await invoke<FileMatch[]>('search_files', {
+      keywords,
+      file_types: fileTypes,
+      limit,
+    });
+  } catch (error) {
+    console.error('Failed to search files:', error);
+    return [];
+  }
+}
+
+/**
+ * Get file as base64 for attachment
+ */
+export async function getFileBase64(path: string): Promise<string> {
+  try {
+    return await invoke<string>('get_file_base64', { path });
+  } catch (error) {
+    console.error('Failed to get file base64:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get file info
+ */
+export async function getFileInfo(path: string): Promise<FileMatch> {
+  try {
+    return await invoke<FileMatch>('get_file_info', { path });
+  } catch (error) {
+    console.error('Failed to get file info:', error);
     throw error;
   }
 }

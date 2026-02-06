@@ -54,6 +54,11 @@ fn main() {
             fs::get_downloads_path,
             fs::get_platform,
             fs::open_file,
+            fs::get_indexed_folders,
+            fs::update_indexed_folders,
+            fs::search_files,
+            fs::get_file_base64,
+            fs::get_file_info,
             // CRM commands
             crm::extract_contacts_from_emails,
             crm::get_contacts,
