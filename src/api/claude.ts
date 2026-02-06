@@ -33,6 +33,7 @@ export interface AnalyzeEmailResponse {
   meeting_request?: MeetingRequest | null;
   missing_attachment_warning?: string | null;
   mentioned_document_types: string[];
+  // Separate attachment requests from questions (shown before Generate Reply)
   attachment_requests: AttachmentRequest[];
 }
 

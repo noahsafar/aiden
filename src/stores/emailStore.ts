@@ -2186,6 +2186,12 @@ TechCorp`,
         meetingRequest: email.meeting_request || (email.subject.includes('Meeting') || email.subject.includes('Invitation')
           ? { is_meeting: true, proposed_times: [] }
           : { is_meeting: false }),
+        // Add attachment_requests for sample-21 (attachment request test email)
+        attachment_requests: email.id === 'sample-21' ? [
+          { keyword: 'resume', file_type: 'pdf', description: 'Please attach your resume (PDF format preferred)' },
+          { keyword: 'transcript', file_type: 'pdf', description: 'Please attach your academic transcript' },
+          { keyword: 'portfolio', file_type: null, description: 'Please attach your portfolio or provide GitHub link' },
+        ] : [],
       });
     });
 

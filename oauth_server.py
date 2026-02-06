@@ -1225,6 +1225,11 @@ class OAuthHandler(BaseHTTPRequestHandler):
             in_reply_to = data.get('inReplyTo')  # Gmail message ID we're replying to
             attachments = data.get('attachments', [])  # List of {path, base64, name}
 
+            print(f"[DEBUG] send-email received: to={to}, subject={subject}, in_reply_to={in_reply_to}")
+            print(f"[DEBUG] attachments count: {len(attachments)}")
+            for i, att in enumerate(attachments):
+                print(f"[DEBUG] attachment {i}: name={att.get('name')}, base64_length={len(att.get('base64', ''))}")
+
             if not all([to, subject, body]):
                 self.end_headers()
                 response = {
@@ -1259,10 +1264,15 @@ class OAuthHandler(BaseHTTPRequestHandler):
                 for attachment in attachments:
                     import os
                     filename = attachment.get('name', os.path.basename(attachment.get('path', 'attachment')))
-                    file_data = base64.b64decode(attachment.get('base64', ''))
+                    base64_data = attachment.get('base64', '')
+                    print(f"[DEBUG] Processing attachment: filename={filename}, base64_length={len(base64_data)}")
+
+                    file_data = base64.b64decode(base64_data)
+                    print(f"[DEBUG] Decoded data length: {len(file_data)} bytes")
 
                     # Detect MIME type from filename
                     content_type = self._get_mime_type(filename)
+                    print(f"[DEBUG] MIME type: {content_type}")
 
                     if content_type.startswith('text/'):
                         # Text file
@@ -1276,6 +1286,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
                     mime_attachment.add_header('Content-Disposition', 'attachment', filename=filename)
                     email.encoders.encode_base64(mime_attachment)
                     message.attach(mime_attachment)
+                    print(f"[DEBUG] Attached {filename} to message")
 
             else:
                 # Simple email without attachments

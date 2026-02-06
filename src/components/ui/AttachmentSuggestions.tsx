@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { searchFiles, getFileBase64, type FileMatch, type AttachmentRequest } from '@/api/claude';
-import { Paperclip, X, Check, File as FileIcon, AlertCircle } from 'lucide-react';
+import { Paperclip, Check, File as FileIcon, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface AttachmentSuggestion {
   request: AttachmentRequest;
@@ -15,12 +15,14 @@ interface AttachmentSuggestionsProps {
   onAttachmentsSelected: (attachments: Array<{ path: string; base64: string; name: string }>) => void;
 }
 
+const MAX_INITIAL_RESULTS = 3;
+
 export const AttachmentSuggestions: React.FC<AttachmentSuggestionsProps> = ({
   attachmentRequests,
   onAttachmentsSelected,
 }) => {
   const [suggestions, setSuggestions] = useState<AttachmentSuggestion[]>([]);
-  const [attaching, setAttaching] = useState(false);
+  const [expandedSuggestions, setExpandedSuggestions] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     if (attachmentRequests.length === 0) {
@@ -73,39 +75,80 @@ export const AttachmentSuggestions: React.FC<AttachmentSuggestionsProps> = ({
   const selectFile = (suggestionIndex: number, file: FileMatch) => {
     setSuggestions(prev => {
       const newSuggestions = [...prev];
-      newSuggestions[suggestionIndex] = {
-        ...newSuggestions[suggestionIndex],
-        selectedFile: file,
-      };
+      const current = newSuggestions[suggestionIndex];
+      // Toggle: if clicking the same file, unselect it
+      if (current.selectedFile?.path === file.path) {
+        newSuggestions[suggestionIndex] = {
+          ...current,
+          selectedFile: null,
+        };
+      } else {
+        newSuggestions[suggestionIndex] = {
+          ...current,
+          selectedFile: file,
+        };
+      }
       return newSuggestions;
     });
   };
 
-  const handleAttachAll = async () => {
-    setAttaching(true);
+  // Auto-attach selected files when selection changes
+  useEffect(() => {
+    const attachSelectedFiles = async () => {
+      const attachments: Array<{ path: string; base64: string; name: string }> = [];
 
-    const attachments: Array<{ path: string; base64: string; name: string }> = [];
-
-    for (const suggestion of suggestions) {
-      if (suggestion.selectedFile) {
-        try {
-          const base64 = await getFileBase64(suggestion.selectedFile.path);
-          attachments.push({
-            path: suggestion.selectedFile.path,
-            base64,
-            name: suggestion.selectedFile.name,
-          });
-        } catch (error) {
-          console.error('Failed to get file base64:', error);
+      for (const suggestion of suggestions) {
+        if (suggestion.selectedFile) {
+          try {
+            const base64 = await getFileBase64(suggestion.selectedFile.path);
+            attachments.push({
+              path: suggestion.selectedFile.path,
+              base64,
+              name: suggestion.selectedFile.name,
+            });
+          } catch (error) {
+            console.error('Failed to get file base64:', error);
+          }
         }
+      }
+
+      onAttachmentsSelected(attachments);
+    };
+
+    attachSelectedFiles();
+  }, [suggestions, onAttachmentsSelected]);
+
+  const toggleExpanded = (suggestionIndex: number) => {
+    setExpandedSuggestions(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(suggestionIndex)) {
+        newSet.delete(suggestionIndex);
+      } else {
+        newSet.add(suggestionIndex);
+      }
+      return newSet;
+    });
+  };
+
+  const getVisibleMatches = (matches: FileMatch[], suggestionIndex: number) => {
+    const isExpanded = expandedSuggestions.has(suggestionIndex);
+    if (isExpanded || matches.length <= MAX_INITIAL_RESULTS) {
+      return matches;
+    }
+
+    const suggestion = suggestions[suggestionIndex];
+    // If a file is selected that's outside the top 3, include it
+    const selectedFile = suggestion?.selectedFile;
+    if (selectedFile) {
+      const selectedIndex = matches.findIndex(m => m.path === selectedFile.path);
+      if (selectedIndex >= MAX_INITIAL_RESULTS) {
+        // Include top 3 + the selected file
+        return [...matches.slice(0, MAX_INITIAL_RESULTS), selectedFile];
       }
     }
 
-    setAttaching(false);
-    onAttachmentsSelected(attachments);
+    return matches.slice(0, MAX_INITIAL_RESULTS);
   };
-
-  const canAttachAll = suggestions.every(s => s.selectedFile !== null);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return bytes + ' B';
@@ -169,10 +212,10 @@ export const AttachmentSuggestions: React.FC<AttachmentSuggestionsProps> = ({
               {!suggestion.loading && suggestion.matches.length > 0 && (
                 <div className="mt-3 space-y-2">
                   <p className="text-xs text-gray-600 dark:text-gray-400">
-                    {suggestion.matches.length} file{suggestion.matches.length !== 1 ? '' : ''} found:
+                    {suggestion.matches.length} file{suggestion.matches.length !== 1 ? 's' : ''} found:
                   </p>
                   <div className="grid grid-cols-1 gap-2">
-                    {suggestion.matches.map((file, fileIndex) => (
+                    {getVisibleMatches(suggestion.matches, suggestionIndex).map((file, fileIndex) => (
                       <button
                         key={fileIndex}
                         onClick={() => selectFile(suggestionIndex, file)}
@@ -201,27 +244,30 @@ export const AttachmentSuggestions: React.FC<AttachmentSuggestionsProps> = ({
                       </button>
                     ))}
                   </div>
+                  {suggestion.matches.length > MAX_INITIAL_RESULTS && (
+                    <button
+                      onClick={() => toggleExpanded(suggestionIndex)}
+                      className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-1 mt-2 transition-colors"
+                    >
+                      {expandedSuggestions.has(suggestionIndex) ? (
+                        <>
+                          <ChevronUp className="w-3 h-3" />
+                          Show less
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="w-3 h-3" />
+                          See {suggestion.matches.length - MAX_INITIAL_RESULTS} more file{suggestion.matches.length - MAX_INITIAL_RESULTS > 1 ? 's' : ''}
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
           </div>
         </div>
       ))}
-
-      {suggestions.some(s => s.matches.length > 0) && (
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            {suggestions.filter(s => s.selectedFile).length} / {suggestions.length} selected
-          </span>
-          <button
-            onClick={handleAttachAll}
-            disabled={!canAttachAll || attaching}
-            className="px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-amber-500 hover:bg-amber-600 text-white dark:bg-amber-600 dark:hover:bg-amber-700"
-          >
-            {attaching ? 'Attaching...' : canAttachAll ? 'Attach Selected' : 'Select All Files'}
-          </button>
-        </div>
-      )}
     </div>
   );
 };

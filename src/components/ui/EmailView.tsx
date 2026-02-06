@@ -4,7 +4,7 @@ import { useEmailStore, fetchWithTimeout, type EmailAttachment } from '@/stores/
 import { Button } from '@/components/ui/Button';
 import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
 import { AttachmentSuggestions } from '@/components/ui/AttachmentSuggestions';
-import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X, Clock, ChevronUp, ChevronDown, MessageSquare } from 'lucide-react';
+import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X, Clock, ChevronUp, ChevronDown, MessageSquare, Paperclip } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { serverURL, downloadAttachment, saveAttachmentToFile } from '@/api/emails';
 import { analyzeEmail, generateReply as claudeGenerateReply, editReply, analyzeAttachment, type AnalyzeEmailRequest, type GenerateReplyRequest, getConversationContext, getRecipientWritingStyle, analyzeAndSaveWritingStyle, type ConversationContext, type RecipientWritingStyle } from '@/api/claude';
@@ -499,6 +499,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
     questionsLoaded: boolean;
     summaryComplete: boolean;
     meetingRequest: any;
+    attachmentRequests: any[];
     isEditing: boolean;
     editedReply: string;
     hasEdited: boolean;
@@ -569,6 +570,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         questionsLoaded: false,
         summaryComplete: false,
         meetingRequest: { is_meeting: false },
+        attachmentRequests: [],
         isEditing: false,
         editedReply: '',
         hasEdited: false,
@@ -588,6 +590,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       state.questionsLoaded = questionsLoaded;
       state.summaryComplete = summaryComplete;
       state.meetingRequest = meetingRequest;
+      state.attachmentRequests = attachmentRequests;
       state.isEditing = isEditing;
       state.editedReply = editedReply;
       state.hasEdited = hasEdited;
@@ -627,7 +630,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setQuestionsLoaded(true);
         setSummaryComplete(true);
         setMeetingRequest(globalQuestionData.meetingRequest || { is_meeting: false });
-        setAttachmentRequests(globalQuestionData.attachmentRequests || []);
+        const attachmentReqs = globalQuestionData.attachment_requests || globalQuestionData.attachmentRequests || [];
+        console.log('[loadEmailState] Loading attachment requests:', attachmentReqs);
+        setAttachmentRequests(attachmentReqs);
         setIsEditing(false);
         setHasEdited(false);
         setEditedReply('');
@@ -866,9 +871,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setMeetingRequest(globalQuestionData.meetingRequest);
       }
       // Set attachment requests
-      if (globalQuestionData.attachment_requests) {
-        setAttachmentRequests(globalQuestionData.attachment_requests);
-      }
+      const attachmentReqs = globalQuestionData.attachment_requests || [];
+      console.log('[analyzeEmail] Setting attachment requests:', attachmentReqs);
+      setAttachmentRequests(attachmentReqs);
       // Set missing attachment warning
       setMissingAttachmentWarning(globalQuestionData.missingAttachmentWarning || null);
       // Save to email state map
@@ -1163,7 +1168,41 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setIsSending(false);
       setSendCountdown(5);
 
-      const senderEmail = email.from?.email || email.from?.name || email.sender;
+      // Debug: log email structure
+      console.log('[handleSendReply] Email object:', {
+        id: email.id,
+        sender: email.sender,
+        from: email.from,
+        recipients: email.recipients,
+        to: email.to,
+      });
+
+      // Get the recipient email (who we're replying to)
+      let senderEmail = email.from?.email || email.sender;
+
+      // For sample emails, the sender might be in format "Name <email>" (sometimes malformed)
+      if (senderEmail && senderEmail.includes('<')) {
+        // Extract email from "Name <email>" format
+        // First try standard format with closing >
+        const match = senderEmail.match(/<([^>]+)>/);
+        if (match) {
+          senderEmail = match[1];
+        } else {
+          // Handle malformed format like "Name <email" (no closing >)
+          const parts = senderEmail.split('<');
+          if (parts.length > 1) {
+            senderEmail = parts[1].trim(); // Take everything after "<"
+          }
+        }
+      }
+
+      // Last resort: use a test email for sample emails
+      if (!senderEmail || !senderEmail.includes('@')) {
+        console.warn('[handleSendReply] No valid email found, using test address');
+        senderEmail = 'test@example.com';
+      }
+
+      console.log('[handleSendReply] Final recipient email:', senderEmail);
 
       // Get the full email data from store to pass as original email
       const originalEmailData = fullEmail || {
@@ -1194,14 +1233,30 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
       setIsEditing(false);
 
-      // Clear selected attachments after sending
-      setSelectedAttachments([]);
+      // Build the final reply with attachment indication if any
+      let finalReply = editedReply;
+      if (selectedAttachments.length > 0) {
+        const attachmentNames = selectedAttachments.map(a => a.name).join(', ');
+        finalReply = `${editedReply}\n\n[Attachments: ${attachmentNames}]`;
+      }
+
+      // Capture attachments before clearing state
+      const attachmentsToSend = [...selectedAttachments];
+
+      console.log('[handleSendReply] Sending email with attachments:', attachmentsToSend.length, 'files');
+      console.log('[handleSendReply] Attachments:', attachmentsToSend.map(a => ({ name: a.name, base64_length: a.base64?.length })));
 
       // Send email in background (don't await - show Sent immediately)
-      sendEmail(senderEmail, `Re: ${email.subject}`, editedReply, email.id, originalEmailData, selectedAttachments)
+      sendEmail(senderEmail, `Re: ${email.subject}`, finalReply, email.id, originalEmailData, attachmentsToSend)
+        .then(() => {
+          // Only clear attachments after successful send
+          setSelectedAttachments([]);
+        })
         .catch((error) => {
           console.error('Failed to send reply:', error);
           alert('Failed to send reply');
+          // Restore attachments if send failed
+          setSelectedAttachments(attachmentsToSend);
           // Revert status if send failed
           updateEmailStatus(email.id, 'Unhandled');
           // Also remove from sentReplyEmailIds
@@ -1577,20 +1632,6 @@ export const EmailView: React.FC<EmailViewProps> = ({
               </div>
             )}
 
-            {/* Additional Context Input - Optional keywords/instructions for AI */}
-            <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-                Additional context <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={additionalContext}
-                onChange={(e) => setAdditionalContext(e.target.value)}
-                placeholder="e.g., 'mention I'll be out of office next week', 'ask about the project timeline'..."
-                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800/50 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-              />
-            </div>
-
             {/* Formality Score Selector - Continuous Slider */}
             {/* TEMPORARILY DISABLED - Auto-detecting tone from email instead */}
             {/*
@@ -1636,27 +1677,47 @@ export const EmailView: React.FC<EmailViewProps> = ({
               <div className="h-4" />
             </div>
             */}
+          </div>
+        )}
 
-            {/* Attachment Suggestions */}
-            {attachmentRequests.length > 0 && (
-              <AttachmentSuggestions
-                attachmentRequests={attachmentRequests}
-                onAttachmentsSelected={(attachments) => {
-                  setSelectedAttachments(attachments);
-                }}
-              />
-            )}
+        {/* Attachment Suggestions Section - separate container, appears before generate button */}
+        {!analyzingQuestions && questionsLoaded && !displayAiReply && summary && showResponseOptions && attachmentRequests.length > 0 && (
+          <div className="mt-4 space-y-4" style={{ animation: 'slideInUp 0.3s ease-out' }}>
+            <AttachmentSuggestions
+              attachmentRequests={attachmentRequests}
+              onAttachmentsSelected={(attachments) => {
+                setSelectedAttachments(attachments);
+              }}
+            />
+          </div>
+        )}
 
-            {/* Generate Button - more subtle, hide when generating */}
-            {!generatingReply && (
-              <Button
-                onClick={generateReply}
-                variant="outline"
-                className="w-full text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 py-2 text-sm"
-              >
-                Generate Reply
-              </Button>
-            )}
+        {/* Additional Context Input - Optional keywords/instructions for AI */}
+        {!analyzingQuestions && questionsLoaded && !displayAiReply && summary && showResponseOptions && (
+          <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+              Additional context <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={additionalContext}
+              onChange={(e) => setAdditionalContext(e.target.value)}
+              placeholder="e.g., 'mention I'll be out of office next week', 'ask about the project timeline'..."
+              className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800/50 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+            />
+          </div>
+        )}
+
+        {/* Generate Button - more subtle, hide when generating */}
+        {!analyzingQuestions && questionsLoaded && !displayAiReply && summary && showResponseOptions && !generatingReply && (
+          <div className="mt-4">
+            <Button
+              onClick={generateReply}
+              variant="outline"
+              className="w-full text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 py-2 text-sm"
+            >
+              Generate Reply
+            </Button>
           </div>
         )}
 
@@ -1698,6 +1759,18 @@ export const EmailView: React.FC<EmailViewProps> = ({
                     <span className={`text-sm ${hasSent ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`}>Subject: </span>
                     Re: {email.subject}
                   </p>
+                </div>
+              )}
+
+              {/* Show attachments indicator */}
+              {selectedAttachments.length > 0 && !isEditing && (
+                <div className={`mb-3 p-2 rounded-lg ${hasSent ? 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700' : 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700'}`}>
+                  <div className="flex items-center gap-2">
+                    <Paperclip className="w-4 h-4 text-gray-600 dark:text-gray-400 flex-shrink-0" />
+                    <p className="text-xs text-gray-700 dark:text-gray-300">
+                      <span className="font-medium">Attachments:</span> {selectedAttachments.map(a => a.name).join(', ')}
+                    </p>
+                  </div>
                 </div>
               )}
 
