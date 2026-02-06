@@ -2093,6 +2093,43 @@ Taylor`,
           subject: 'Project roadmap sync',
         },
       },
+
+      // Thread 13: Test email - attachment request (resume, transcript, portfolio)
+      {
+        id: `sample-21`,
+        gmail_id: `sample-21`,
+        thread_id: `${baseThreadId}13`,
+        subject: 'Application for Software Engineer Position',
+        sender: 'Recruiting <recruiting@techcorp.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 8).toISOString(), // 8 seconds ago
+        body_text: `Hi,
+
+Thank you for applying for the Software Engineer position at TechCorp.
+
+We've reviewed your application and are interested in moving forward. Could you please send us the following documents:
+
+1. Your resume (PDF format preferred)
+2. Your academic transcript (unofficial is fine to start)
+3. Your portfolio or GitHub profile link
+
+Also, please let us know your availability for an initial technical interview this week or next.
+
+Best regards,
+Sarah Thompson
+Technical Recruiter
+TechCorp`,
+        snippet: 'Application for Software Engineer position at TechCorp...',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Important',
+        summary: 'Sarah from TechCorp recruiting is interested in your application and requests your resume, transcript, and portfolio for the next steps',
+        key_points: ['TechCorp is interested in your application', 'Requesting: resume (PDF)', 'Requesting: academic transcript', 'Requesting: portfolio or GitHub', 'Availability needed for technical interview this week or next'],
+        action_items: ['Send resume (PDF)', 'Send academic transcript', 'Send portfolio or GitHub link', 'Provide availability for interview'],
+        requires_reply: true,
+      },
     ];
 
     // Set the sample emails in the store
@@ -2126,6 +2163,13 @@ Taylor`,
       } else if (email.id === 'sample-20') {
         // Meeting sync - should have NO questions (timing handled by calendar, but meeting_request is set)
         questions = [];
+      } else if (email.id === 'sample-21') {
+        // Attachment request - should trigger attachment suggestions
+        questions = [
+          { type: 'choice', question: 'Do you have your resume ready to send?', options: ['Yes, I\'ll attach it', 'I need to update it first', 'I\'ll send it separately'] },
+          { type: 'choice', question: 'Should we also include your transcript and portfolio?', options: ['Yes, all documents', 'Resume and transcript only', 'I\'ll send portfolio separately'] },
+          { type: 'text', question: 'What is your availability for an interview this week or next?', options: [] },
+        ];
       } else {
         // Legacy emails - use action_items
         questions = email.action_items.map(a => ({ question: a, options: [], type: 'text' })) || [];
@@ -2153,11 +2197,13 @@ Taylor`,
     console.log('  - Newsletters');
     console.log('  - Finance/invoices');
     console.log('  - Social notifications');
+    console.log('  - Attachment request emails (resume, transcript, portfolio)');
     console.log('  - QUESTION GENERATION TEST EMAILS:');
     console.log('    • "Team lunch this Friday" - Choice questions (4 restaurant options + yes/no)');
     console.log('    • "Shipping address for your gift" - Choice + text input questions');
     console.log('    • "Hope you had a great weekend!" - Should show NO questions (AI can handle)');
     console.log('    • "Quick sync needed" - Meeting request, no timing questions (calendar handles it)');
+    console.log('    • "Application for Software Engineer" - Attachment suggestions (resume, transcript, portfolio)');
     console.log('');
     console.log('Try these views:');
     console.log('  - Click "Inbox" in sidebar for normal inbox view');
