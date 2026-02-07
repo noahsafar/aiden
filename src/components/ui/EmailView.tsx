@@ -9,6 +9,7 @@ import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, Alert
 import DOMPurify from 'dompurify';
 import { serverURL, downloadAttachment, saveAttachmentToFile } from '@/api/emails';
 import { analyzeEmail, generateReply as claudeGenerateReply, editReply, analyzeAttachment, type AnalyzeEmailRequest, type GenerateReplyRequest, getConversationContext, getRecipientWritingStyle, analyzeAndSaveWritingStyle, type ConversationContext, type RecipientWritingStyle } from '@/api/claude';
+import { useAuthStore } from '@/stores/authStore';
 
 // Helper to decode HTML entities
 function decodeHTMLEntities(text: string): string {
@@ -490,6 +491,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onShowResponseOptionsChange,
 }) => {
   const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead, getThreadEmails, getThreadPosition, selectEmail, selectedEmail: storeSelectedEmail } = useEmailStore();
+  const { user } = useAuthStore();
+  const userName = user?.name || 'Your Name';
 
   // Type definition for email state
   interface EmailState {
@@ -1090,6 +1093,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       selected_meeting_time: selectedMeetingTime ? `${selectedMeetingTime.dayName} at ${selectedMeetingTime.time}` : undefined,
       conversation_context: conversationContext,
       learned_writing_style: learnedWritingStyle,
+      user_name: userName,
     };
 
     console.log('[generateReply] Request body:', JSON.stringify(request, null, 2));
@@ -1155,7 +1159,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
     // Start the sending countdown
     setIsSending(true);
-    setSendCountdown(5);
+    setSendCountdown(3);
 
     // Start countdown
     countdownIntervalRef.current = setInterval(() => {
@@ -1168,11 +1172,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
       });
     }, 1000);
 
-    // Set timeout to actually send after 5 seconds
+    // Set timeout to actually send after 3 seconds
     sendTimeoutRef.current = setTimeout(async () => {
       clearInterval(countdownIntervalRef.current!);
       setIsSending(false);
-      setSendCountdown(5);
+      setSendCountdown(3);
 
       // Debug: log email structure
       console.log('[handleSendReply] Email object:', {
@@ -1293,7 +1297,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
           // Don't alert user, this is a background task
         }
       })();
-    }, 5000);
+    }, 3000);
   };
 
   const handleUnsend = () => {

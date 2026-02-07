@@ -102,6 +102,8 @@ export interface GenerateReplyRequest {
   // New fields for context and learned tone
   conversation_context?: ConversationContext;
   learned_writing_style?: RecipientWritingStyle;
+  // User's name for sign-off - prevents placeholder like "[Your Name]"
+  user_name?: string;
 }
 
 export interface GenerateReplyResponse {

@@ -305,6 +305,7 @@ export interface Email {
   reminder_triggered?: boolean;  // Whether reminder has been shown
   reminder_count?: number;  // Number of reminders sent
   reminder_snoozed_until?: string;  // ISO timestamp if reminder was snoozed
+  needs_follow_up?: boolean;  // Whether this email actually needs a follow-up (AI determined)
 }
 
 export interface EmailAttachment {
@@ -324,7 +325,7 @@ export interface EmailState {
   selectedEmail: Email | null;
   isLoading: boolean;
   error: string | null;
-  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'archived' | 'deleted' | 'urgent' | 'important' | 'normal' | 'low' | 'focus' | 'triage' | 'waiting';
+  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'archived' | 'deleted' | 'urgent' | 'important' | 'normal' | 'low' | 'focus' | 'triage';
   searchQuery: string;
   notifiedEmailIds: Set<string>;  // Track which emails we've sent notifications for
   initialEmailIds: Set<string>;   // Track emails that existed at app startup
@@ -405,6 +406,7 @@ export interface EmailState {
   checkPendingReminders: () => void;
   getThreadsWaitingOnReply: () => Email[];
   cancelReminder: (emailId: string) => void;
+  snoozeReminder: (emailId: string, days: number) => void;
   initializeReminderChecker: () => void;
   cleanupReminderChecker: () => void;
   loadMockWaitingEmails: () => void;
@@ -654,6 +656,10 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
       return;
     }
 
+    // Get user's name for sign-off
+    const authStore = useAuthStore.getState();
+    const userName = authStore.user?.name || 'Your Name';
+
     console.log(`[AI Processing] Calling reply API for ${emailId}`);
     const baseURL = await serverURL();
     const response = await fetchWithTimeout(`${baseURL}/generate-reply`, {
@@ -663,6 +669,7 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
         sender: email.sender,
         subject: email.subject,
         body_text: email.body_text,
+        user_name: userName,
       }),
     }, 90000);
 
@@ -1159,10 +1166,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const email = get().emails.find(e => e.id === emailId);
       if (!email) return;
 
+      // Get user's name for sign-off
+      const authStore = useAuthStore.getState();
+      const userName = authStore.user?.name || 'Your Name';
+
       // Simple reply generation for now
       // TODO: Implement AI reply generation via backend
       const senderName = email.sender.split('<')[0].trim() || 'there';
-      const generatedReply = `Dear ${senderName},\n\nThank you for your email. I have received your message and will respond as soon as possible.\n\nBest regards,\n[Your name]`;
+      const generatedReply = `Dear ${senderName},\n\nThank you for your email. I have received your message and will respond as soon as possible.\n\nBest regards,\n${userName}`;
 
       // Update local state
       set((state) => ({
@@ -1228,11 +1239,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
       console.log('Email sent successfully');
 
+      // Find the original email to get its thread_id
+      const state = get();
+      const originalEmail = inReplyTo ? state.emails.find(e => e.id === inReplyTo) : null;
+      const originalThreadId = originalEmail?.thread_id || originalEmail?.id || inReplyTo;
+
       // Add to sent emails with reference to original email
       const sentEmail: Email = {
         id: result.id || `sent-${Date.now()}`,
         gmail_id: result.id || `sent-${Date.now()}`,
-        thread_id: result.id || `sent-${Date.now()}`,
+        thread_id: originalThreadId || result.id || `sent-${Date.now()}`, // Use original thread_id
         subject,
         sender: userInfo?.email || 'me',
         recipients: to,
@@ -1254,6 +1270,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         inReplyTo: inReplyTo,
         originalEmail: originalEmailData,
       };
+
+      console.log('[sendEmail] Thread mapping:', { inReplyTo, originalThreadId, sentThreadId: sentEmail.thread_id, originalEmailId: originalEmail?.id });
 
       set((state) => ({
         sentEmails: [sentEmail, ...state.sentEmails],
@@ -1356,8 +1374,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
     switch (currentFilter) {
       case 'inbox':
-        // Inbox shows only unhandled emails (exclude Replied, Archived, Saved, Deleted)
-        filtered = emails.filter(e => e.status === 'Unhandled');
+        // Inbox shows unhandled emails PLUS waiting-on-reply emails at the top
+        const waitingEmails = sentEmails.filter(e => e.waiting_on_reply_since);
+        const regularInbox = emails.filter(e => e.status === 'Unhandled');
+        // Put waiting emails first, then regular inbox
+        filtered = [...waitingEmails, ...regularInbox];
         break;
       case 'unhandled':
         filtered = emails.filter(e => e.status === 'Unhandled');
@@ -1408,10 +1429,6 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           // (they'll appear if AI later determines they require action)
           return false;
         });
-        break;
-      case 'waiting':
-        // Show sent emails that are waiting for a reply
-        filtered = sentEmails.filter(e => e.waiting_on_reply_since);
         break;
       default:
         filtered = emails;
@@ -1608,8 +1625,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   getThreadEmails: (threadId: string) => {
     const state = get();
-    return state.emails.filter(e => e.thread_id === threadId)
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    // Include both received emails and sent emails in the thread
+    const allThreadEmails = [
+      ...state.emails.filter(e => e.thread_id === threadId || e.id === threadId),
+      ...state.sentEmails.filter(e => e.thread_id === threadId || e.id === threadId)
+    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    return allThreadEmails;
   },
 
   getThreadRepresentative: (threadId: string) => {
@@ -1661,11 +1682,46 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   // Auto-reminder implementations
   scheduleReplyReminder: (sentEmailId: string, originalEmailId: string, delayDays: number = 3) => {
+    const state = get();
     const now = new Date();
-    const reminderDue = new Date(now.getTime() + delayDays * 24 * 60 * 60 * 1000);
+
+    // Find the original email to determine if follow-up is needed
+    const originalEmail = state.emails.find(e => e.id === originalEmailId);
+
+    // AI determines: only set needs_follow_up if the original email required a response
+    // Urgency determines delay days (Urgent=2, Important=3, Normal/Low=5)
+    let needsFollowUp = false;
+    let reminderDelay = delayDays;
+
+    if (originalEmail) {
+      // Check if original email required a reply (from AI analysis or category)
+      const originalRequiredReply = originalEmail.requires_reply;
+      const originalCategory = originalEmail.category;
+
+      // Set needs_follow_up based on whether the original email needed a response
+      needsFollowUp = originalRequiredReply === true;
+
+      // AI determines urgency based on category
+      if (originalCategory === 'Urgent') {
+        reminderDelay = 2; // 2 days for urgent
+      } else if (originalCategory === 'Important') {
+        reminderDelay = 3; // 3 days for important
+      } else {
+        reminderDelay = 5; // 5 days for normal/low priority
+      }
+
+      console.log('[scheduleReplyReminder] Original email analysis:', {
+        subject: originalEmail.subject,
+        requiredReply: originalRequiredReply,
+        category: originalCategory,
+        needsFollowUp,
+        reminderDelay
+      });
+    }
+
+    const reminderDue = new Date(now.getTime() + reminderDelay * 24 * 60 * 60 * 1000);
 
     // Update the sent email with reminder tracking
-    const state = get();
     const sentEmail = state.sentEmails.find(e => e.id === sentEmailId);
     if (sentEmail) {
       const updatedSentEmails = state.sentEmails.map(e =>
@@ -1676,19 +1732,27 @@ export const useEmailStore = create<EmailState>((set, get) => ({
               reminder_due_date: reminderDue.toISOString(),
               reminder_triggered: false,
               reminder_count: 0,
+              needs_follow_up: needsFollowUp,
             }
           : e
       );
       set({ sentEmails: updatedSentEmails });
 
-      // Add to pending reminders
-      const pendingReminders = new Set(state.pendingReminders);
-      pendingReminders.add(sentEmailId);
-      set({ pendingReminders });
+      // Only add to pending reminders if follow-up is needed
+      if (needsFollowUp) {
+        const pendingReminders = new Set(state.pendingReminders);
+        pendingReminders.add(sentEmailId);
+        set({ pendingReminders });
+      }
+
+      console.log('[scheduleReplyReminder] Sent email updated:', {
+        sentEmailId,
+        needsFollowUp,
+        reminderDue: reminderDue.toISOString()
+      });
     }
 
     // Also update the original email to track that we've sent a reply
-    const originalEmail = state.emails.find(e => e.id === originalEmailId);
     if (originalEmail) {
       const updatedEmails = state.emails.map(e =>
         e.id === originalEmailId
@@ -1803,6 +1867,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
             reminder_triggered: undefined,
             reminder_count: undefined,
             reminder_snoozed_until: undefined,
+            waiting_on_reply_since: undefined,
+            needs_follow_up: false,
           }
         : e
     );
@@ -1811,6 +1877,36 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       pendingReminders,
       sentEmails: updatedSentEmails,
     });
+
+    console.log('[cancelReminder] Reminder cancelled for', emailId);
+  },
+
+  snoozeReminder: (emailId: string, days: number) => {
+    const state = get();
+    const now = new Date();
+    const snoozeUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+    const updatedSentEmails = state.sentEmails.map(e =>
+      e.id === emailId
+        ? {
+            ...e,
+            reminder_snoozed_until: snoozeUntil.toISOString(),
+            reminder_due_date: snoozeUntil.toISOString(),
+            reminder_triggered: false,
+          }
+        : e
+    );
+
+    // Remove from pending reminders until snooze expires
+    const pendingReminders = new Set(state.pendingReminders);
+    pendingReminders.delete(emailId);
+
+    set({
+      sentEmails: updatedSentEmails,
+      pendingReminders,
+    });
+
+    console.log('[snoozeReminder] Reminder snoozed for', emailId, 'until', snoozeUntil.toISOString());
   },
 
   initializeReminderChecker: () => {
@@ -1870,6 +1966,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         reminder_due_date: new Date(fourDaysAgo.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
         reminder_triggered: false,
         reminder_count: 0,
+        // Mark if this needs follow-up (based on original email requiring reply)
+        needs_follow_up: true,
         originalEmail: {
           id: 'original-1',
           gmail_id: 'original-1',
@@ -1901,7 +1999,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         is_read: true,
         is_starred: false,
         has_attachments: true,
-        attachments: [],
+        attachments: [
+          {
+            id: 'att-inv-2024-089',
+            filename: 'INV-2024-089_Payment_Details.pdf',
+            mimeType: 'application/pdf',
+            size: 245760, // ~240KB
+          }
+        ],
         status: 'Replied',
         category: 'Normal',
         requires_reply: false,
@@ -1911,6 +2016,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         reminder_due_date: new Date(twoDaysAgo.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
         reminder_triggered: false,
         reminder_count: 0,
+        needs_follow_up: true,
         originalEmail: {
           id: 'original-2',
           gmail_id: 'original-2',
@@ -1924,7 +2030,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           is_read: true,
           is_starred: false,
           has_attachments: true,
-          attachments: [],
+          attachments: [
+            {
+              id: 'att-inv-2024-089-original',
+              filename: 'INV-2024-089.pdf',
+              mimeType: 'application/pdf',
+              size: 125829, // ~123KB
+            }
+          ],
           status: 'Replied',
           category: 'Important',
           requires_reply: true,
@@ -1952,6 +2065,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         reminder_due_date: new Date(oneDayAgo.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
         reminder_triggered: false,
         reminder_count: 0,
+        needs_follow_up: true,
         originalEmail: {
           id: 'original-3',
           gmail_id: 'original-3',
