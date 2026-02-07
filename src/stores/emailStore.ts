@@ -1578,13 +1578,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const idsToSave = emailIds || Array.from(state.selectedEmailIds);
     if (idsToSave.length === 0) return;
 
-    // Save each email by updating its status in both arrays
+    // Save/unsaves each email by toggling its status in both arrays
     set((state) => ({
       emails: state.emails.map(email =>
-        idsToSave.includes(email.id) ? { ...email, status: 'Saved' } : email
+        idsToSave.includes(email.id)
+          ? { ...email, status: email.status === 'Saved' ? 'Unhandled' : 'Saved' }
+          : email
       ),
       sentEmails: state.sentEmails.map(email =>
-        idsToSave.includes(email.id) ? { ...email, status: 'Saved' } : email
+        idsToSave.includes(email.id)
+          ? { ...email, status: email.status === 'Saved' ? 'Unhandled' : 'Saved' }
+          : email
       ),
     }));
 
