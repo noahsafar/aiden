@@ -1046,6 +1046,7 @@ function App() {
                           onOpenFocusedView={handleOpenFocusedView}
                           sortMode={sortMode}
                           onBulkDelete={handleBulkDeleteWithUndo}
+                          currentFilter={currentFilter}
                         />
                       ) : (
                         <EmailList

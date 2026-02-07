@@ -337,6 +337,7 @@ export const EmailList: React.FC<EmailListProps> = ({
     toggleEmailSelection,
     handleBulkAction,
     selectedEmailIds,
+    currentFilter,
   });
 
   // Update refs when callbacks change
@@ -356,6 +357,7 @@ export const EmailList: React.FC<EmailListProps> = ({
       toggleEmailSelection,
       handleBulkAction,
       selectedEmailIds,
+      currentFilter,
     };
   });
 
@@ -411,9 +413,14 @@ export const EmailList: React.FC<EmailListProps> = ({
       }
 
       // Bulk action shortcuts when emails are selected (a/s/d)
+      // Archive is not allowed in sent view
       if (cb.isSelectMode && cb.selectedEmailIds.size > 0) {
         if (e.key === 'a' || e.key === 'A') {
           e.preventDefault();
+          // Skip archiving in sent view
+          if (cb.currentFilter === 'sent') {
+            return;
+          }
           cb.handleBulkAction('archive');
           cb.clearSelection();
           return;
@@ -452,6 +459,10 @@ export const EmailList: React.FC<EmailListProps> = ({
           break;
         case 'a':
           e.preventDefault();
+          // Skip archiving in sent view
+          if (cb.currentFilter === 'sent') {
+            return;
+          }
           cb.archiveEmail();
           break;
         case 's':
@@ -486,13 +497,15 @@ export const EmailList: React.FC<EmailListProps> = ({
               >
                 Mark read
               </button>
-              <button
-                onClick={() => handleBulkAction('archive')}
-                className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
-                title="Archive"
-              >
-                Archive
-              </button>
+              {currentFilter !== 'sent' && (
+                <button
+                  onClick={() => handleBulkAction('archive')}
+                  className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                  title="Archive"
+                >
+                  Archive
+                </button>
+              )}
               <button
                 onClick={() => handleBulkAction('save')}
                 className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"

@@ -74,6 +74,7 @@ interface ThreadedEmailListProps {
   onOpenFocusedView?: () => void;
   sortMode?: 'date' | 'importance';
   onBulkDelete?: (emailIds?: string[]) => void;
+  currentFilter?: string;
 }
 
 export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
@@ -86,6 +87,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   onOpenFocusedView,
   sortMode = 'date',
   onBulkDelete,
+  currentFilter = 'inbox',
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const [shortcutsCollapsed, setShortcutsCollapsed] = useState(true);
@@ -424,9 +426,13 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         return;
       }
 
-      // Archive (a) - works on selected emails or focused email
+      // Archive (a) - works on selected emails or focused email, but NOT for sent emails
       if (e.key === 'a' || e.key === 'A') {
         e.preventDefault();
+        // Skip archiving in sent view
+        if (currentFilter === 'sent') {
+          return;
+        }
         if (isSelectMode && selectedEmailIds.size > 0) {
           // Archive all selected emails using bulk action
           handleBulkAction('archive');
@@ -539,13 +545,15 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
               {selectedEmailIds.size} email{selectedEmailIds.size !== 1 ? 's' : ''} selected
             </span>
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => handleBulkAction('archive')}
-                className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
-                title="Archive"
-              >
-                Archive
-              </button>
+              {currentFilter !== 'sent' && (
+                <button
+                  onClick={() => handleBulkAction('archive')}
+                  className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                  title="Archive"
+                >
+                  Archive
+                </button>
+              )}
               <button
                 onClick={() => handleBulkAction('save')}
                 className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
@@ -589,8 +597,12 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
               <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> select all</span>
               <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">s</kbd> save email</span>
               <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">S</kbd> save thread</span>
-              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">a</kbd> archive email</span>
-              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> archive thread</span>
+              {currentFilter !== 'sent' && (
+                <>
+                  <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">a</kbd> archive email</span>
+                  <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> archive thread</span>
+                </>
+              )}
               <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">d</kbd> delete email</span>
               <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⇧</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">D</kbd> delete thread</span>
               <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">e</kbd> expand thread</span>
