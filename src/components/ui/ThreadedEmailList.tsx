@@ -106,6 +106,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     expandAllThreads,
     collapseAllThreads,
     sentEmails,
+    emails: allStoreEmails, // All received emails from the store
   } = useEmailStore();
 
   // Group emails by thread - include both received emails and sent emails for complete threads
@@ -116,16 +117,29 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     const emailsWithSentLabel = emails.filter((e: any) => e.labels?.some((l: any) => l.name === 'Sent'));
     const alreadyIncludesSent = emails.length > 0 && emailsWithSentLabel.length > emails.length / 2;
 
-    // Combine received and sent emails for complete thread view, but only add sent emails if not already included
-    const allEmails = alreadyIncludesSent
-      ? emails // Already includes sent emails (sent view)
-      : [...emails, ...sentEmails]; // Add sent emails to received emails (inbox view)
+    // Combine received and sent emails for complete thread view
+    let allEmails: any[];
+    if (alreadyIncludesSent) {
+      // In sent view: combine sent emails with received emails from the same threads
+      // Get thread_ids from the sent emails
+      const sentThreadIds = new Set(emails.map((e: any) => e.thread_id || e.id));
+      // Find all received emails that belong to these threads
+      const receivedEmailsInThreads = allStoreEmails.filter((e: any) => {
+        const threadId = e.thread_id || e.id;
+        return sentThreadIds.has(threadId);
+      });
+      // Combine: sent emails + received emails from the same threads
+      allEmails = [...emails, ...receivedEmailsInThreads];
+    } else {
+      // In inbox view: add sent emails to received emails
+      allEmails = [...emails, ...sentEmails];
+    }
 
     const groups = groupEmailsByThread(allEmails);
     console.log('[threadGroups] groups:', Array.from(groups.entries()).map(([tid, emails]) => [tid, emails.map((e: any) => ({ id: e.id, isSent: !!sentEmails.find(se => se.id === e.id) }))]));
     console.log('[threadGroups] alreadyIncludesSent:', alreadyIncludesSent, 'emails:', emails.length, 'emailsWithSentLabel:', emailsWithSentLabel.length, 'sentEmails:', sentEmails.length, 'allEmails:', allEmails.length);
     return groups;
-  }, [emails, groupEmailsByThread, sentEmails]);
+  }, [emails, groupEmailsByThread, sentEmails, allStoreEmails]);
 
   // Convert to array and sort by most recent email in each thread
   const sortedThreads = useMemo(() => {
