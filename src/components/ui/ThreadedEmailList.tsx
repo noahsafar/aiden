@@ -429,8 +429,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         e.preventDefault();
         if (isSelectMode && selectedEmailIds.size > 0) {
           // Archive all selected emails using bulk action
-          bulkArchive();
-          clearSelection();
+          handleBulkAction('archive');
         } else if (focusedEmailId) {
           if (e.shiftKey) {
             // Archive entire thread
@@ -453,8 +452,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         e.preventDefault();
         if (isSelectMode && selectedEmailIds.size > 0) {
           // Save all selected emails using bulk action
-          bulkSave();
-          clearSelection();
+          handleBulkAction('save');
         } else if (focusedEmailId) {
           if (e.shiftKey) {
             // Save entire thread
@@ -476,9 +474,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
       if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
         if (isSelectMode && selectedEmailIds.size > 0) {
-          // Delete all selected emails using bulk action
-          bulkDelete();
-          clearSelection();
+          // Delete all selected emails using bulk action with undo toast
+          handleBulkAction('delete');
         } else if (focusedEmailId) {
           if (e.shiftKey) {
             // Delete entire thread
