@@ -5,6 +5,7 @@ import { EmailList } from '@/components/ui/EmailList';
 import { ThreadedEmailList } from '@/components/ui/ThreadedEmailList';
 import { EmailView } from '@/components/ui/EmailView';
 import { SmartTriage } from '@/components/ui/SmartTriage';
+import { WaitingOnReplyList } from '@/components/ui/ReminderSuggestion';
 import { AttachmentItem, getFileIcon, formatFileSize } from '@/components/ui/EmailView';
 import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
@@ -309,6 +310,15 @@ function App() {
       // if (isAuthenticated) {
       //   fetchEmails();
       // }
+
+      // Initialize the reminder checker for auto-reminders
+      if (isAuthenticated) {
+        const { initializeReminderChecker, loadMockWaitingEmails } = useEmailStore.getState();
+        initializeReminderChecker();
+
+        // Load mock waiting-on-reply emails for testing
+        loadMockWaitingEmails();
+      }
     };
 
     initAuth();
@@ -364,6 +374,14 @@ function App() {
     };
   }, [isAuthenticated, fetchEmails]);
   */
+
+  // Cleanup reminder checker on unmount
+  useEffect(() => {
+    return () => {
+      const { cleanupReminderChecker } = useEmailStore.getState();
+      cleanupReminderChecker();
+    };
+  }, []);
 
   // Set up notification click handler to focus window
   useEffect(() => {
@@ -719,6 +737,12 @@ function App() {
                         onEmailSelect={(emailId) => setSelectedEmailId(emailId)}
                       />
                     </div>
+                  ) : currentFilter === 'waiting' ? (
+                    <div className="h-full overflow-y-auto">
+                      <WaitingOnReplyList
+                        onViewEmail={(emailId) => setSelectedEmailId(emailId)}
+                      />
+                    </div>
                   ) : filteredEmails.length === 0 && !emailsLoading ? (
                     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                       <Mail className="h-12 w-12 text-gray-400 mb-4" />
@@ -726,6 +750,7 @@ function App() {
                         {currentFilter === 'sent' ? 'No sent emails yet' :
                          currentFilter === 'saved' ? 'No saved emails yet' :
                          currentFilter === 'archived' ? 'No archived emails yet' :
+                         currentFilter === 'waiting' ? 'No threads waiting for reply' :
                          isFocusMode && currentFilter === 'inbox' ? 'No action-required emails' :
                          'No new emails yet'}
                       </h3>
@@ -736,6 +761,8 @@ function App() {
                           ? 'Emails you bookmark will appear here.'
                           : currentFilter === 'archived'
                           ? 'Emails you archive will appear here.'
+                          : currentFilter === 'waiting'
+                          ? 'When you send a reply, Aiden will track if you get a response.'
                           : isFocusMode && currentFilter === 'inbox'
                           ? 'Emails requiring action will appear here.'
                           : 'Emails that arrive will appear here.'}

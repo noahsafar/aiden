@@ -298,6 +298,13 @@ export interface Email {
   // For sent emails: reference to the original email being replied to
   inReplyTo?: string;  // original email ID
   originalEmail?: Email;  // full original email data (populated when viewing sent emails)
+
+  // Auto-reminder / Sequencing tracking
+  waiting_on_reply_since?: string;  // ISO timestamp when we started waiting for reply
+  reminder_due_date?: string;  // ISO timestamp for when reminder should trigger
+  reminder_triggered?: boolean;  // Whether reminder has been shown
+  reminder_count?: number;  // Number of reminders sent
+  reminder_snoozed_until?: string;  // ISO timestamp if reminder was snoozed
 }
 
 export interface EmailAttachment {
@@ -317,7 +324,7 @@ export interface EmailState {
   selectedEmail: Email | null;
   isLoading: boolean;
   error: string | null;
-  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'archived' | 'deleted' | 'urgent' | 'important' | 'normal' | 'low' | 'focus' | 'triage';
+  currentFilter: 'all' | 'inbox' | 'unhandled' | 'saved' | 'sent' | 'archived' | 'deleted' | 'urgent' | 'important' | 'normal' | 'low' | 'focus' | 'triage' | 'waiting';
   searchQuery: string;
   notifiedEmailIds: Set<string>;  // Track which emails we've sent notifications for
   initialEmailIds: Set<string>;   // Track emails that existed at app startup
@@ -337,6 +344,10 @@ export interface EmailState {
 
   // Sort state
   sortMode: 'date' | 'importance';      // How to sort emails
+
+  // Auto-reminder state
+  pendingReminders: Set<string>;        // Email IDs needing reminder check
+  reminderCheckInterval: NodeJS.Timeout | null;  // Interval for reminder checks
 
   // Actions
   fetchEmails: () => Promise<void>;
@@ -388,6 +399,15 @@ export interface EmailState {
   getFilteredThreads: () => Map<string, Email[]>;
   isInThread: (emailId: string) => boolean;
   getThreadPosition: (emailId: string) => { current: number; total: number } | null;
+
+  // Auto-reminder methods
+  scheduleReplyReminder: (sentEmailId: string, originalEmailId: string, delayDays?: number) => void;
+  checkPendingReminders: () => void;
+  getThreadsWaitingOnReply: () => Email[];
+  cancelReminder: (emailId: string) => void;
+  initializeReminderChecker: () => void;
+  cleanupReminderChecker: () => void;
+  loadMockWaitingEmails: () => void;
 }
 
 // Track which emails are being processed (for both summary and reply)
@@ -753,6 +773,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   // Sort state
   sortMode: 'date',
+
+  // Auto-reminder state
+  pendingReminders: new Set<string>(),
+  reminderCheckInterval: null,
 
   fetchEmails: async () => {
     try {
@@ -1236,6 +1260,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // Track that we sent a reply to this email
         sentReplyEmailIds: new Set(state.sentReplyEmailIds).add(inReplyTo || ''),
       }));
+
+      // Schedule a reminder if this is a reply (has inReplyTo)
+      if (inReplyTo) {
+        get().scheduleReplyReminder(sentEmail.id, inReplyTo, 3); // 3 days default
+      }
     } catch (error) {
       console.error('Failed to send email:', error);
       throw error;
@@ -1327,7 +1356,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
     switch (currentFilter) {
       case 'inbox':
-        filtered = emails.filter(e => e.status !== 'Archived' && e.status !== 'Saved');
+        // Inbox shows only unhandled emails (exclude Replied, Archived, Saved, Deleted)
+        filtered = emails.filter(e => e.status === 'Unhandled');
         break;
       case 'unhandled':
         filtered = emails.filter(e => e.status === 'Unhandled');
@@ -1378,6 +1408,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           // (they'll appear if AI later determines they require action)
           return false;
         });
+        break;
+      case 'waiting':
+        // Show sent emails that are waiting for a reply
+        filtered = sentEmails.filter(e => e.waiting_on_reply_since);
         break;
       default:
         filtered = emails;
@@ -1623,6 +1657,331 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const index = threadEmails.findIndex(e => e.id === emailId);
     if (index === -1) return null;
     return { current: index + 1, total: threadEmails.length };
+  },
+
+  // Auto-reminder implementations
+  scheduleReplyReminder: (sentEmailId: string, originalEmailId: string, delayDays: number = 3) => {
+    const now = new Date();
+    const reminderDue = new Date(now.getTime() + delayDays * 24 * 60 * 60 * 1000);
+
+    // Update the sent email with reminder tracking
+    const state = get();
+    const sentEmail = state.sentEmails.find(e => e.id === sentEmailId);
+    if (sentEmail) {
+      const updatedSentEmails = state.sentEmails.map(e =>
+        e.id === sentEmailId
+          ? {
+              ...e,
+              waiting_on_reply_since: now.toISOString(),
+              reminder_due_date: reminderDue.toISOString(),
+              reminder_triggered: false,
+              reminder_count: 0,
+            }
+          : e
+      );
+      set({ sentEmails: updatedSentEmails });
+
+      // Add to pending reminders
+      const pendingReminders = new Set(state.pendingReminders);
+      pendingReminders.add(sentEmailId);
+      set({ pendingReminders });
+    }
+
+    // Also update the original email to track that we've sent a reply
+    const originalEmail = state.emails.find(e => e.id === originalEmailId);
+    if (originalEmail) {
+      const updatedEmails = state.emails.map(e =>
+        e.id === originalEmailId
+          ? { ...e, status: 'Replied' as const }
+          : e
+      );
+      set({ emails: updatedEmails });
+
+      // Track that we've replied to this email
+      const sentReplyEmailIds = new Set(state.sentReplyEmailIds);
+      sentReplyEmailIds.add(originalEmailId);
+      set({ sentReplyEmailIds });
+    }
+  },
+
+  checkPendingReminders: () => {
+    const state = get();
+    const now = new Date().toISOString();
+    const dueReminders: string[] = [];
+
+    // Check each pending reminder
+    state.pendingReminders.forEach(emailId => {
+      const sentEmail = state.sentEmails.find(e => e.id === emailId);
+      if (!sentEmail) return;
+
+      // Check if snoozed
+      if (sentEmail.reminder_snoozed_until) {
+        if (new Date(now) >= new Date(sentEmail.reminder_snoozed_until)) {
+          // Clear snooze
+          const updatedSentEmails = state.sentEmails.map(e =>
+            e.id === emailId
+              ? { ...e, reminder_snoozed_until: undefined }
+              : e
+          );
+          set({ sentEmails: updatedSentEmails });
+        } else {
+          // Still snoozed, skip
+          return;
+        }
+      }
+
+      // Check if reminder is due
+      if (sentEmail.reminder_due_date && new Date(now) >= new Date(sentEmail.reminder_due_date) && !sentEmail.reminder_triggered) {
+        dueReminders.push(emailId);
+
+        // Mark as triggered
+        const updatedSentEmails = state.sentEmails.map(e =>
+          e.id === emailId
+            ? {
+                ...e,
+                reminder_triggered: true,
+                reminder_count: (e.reminder_count || 0) + 1,
+              }
+            : e
+        );
+        set({ sentEmails: updatedSentEmails });
+      }
+    });
+
+    // Send notifications for due reminders
+    if (dueReminders.length > 0 && typeof window !== 'undefined' && 'Notification' in window) {
+      dueReminders.forEach(emailId => {
+        const sentEmail = state.sentEmails.find(e => e.id === emailId);
+        if (sentEmail && Notification.permission === 'granted') {
+          new Notification('Aiden - Follow-up Reminder', {
+            body: `No reply to "${sentEmail.subject}" in 3 days. Want to bump this?`,
+            icon: '/icon.png',
+            tag: emailId,
+          });
+        }
+      });
+    }
+
+    return dueReminders;
+  },
+
+  getThreadsWaitingOnReply: () => {
+    const state = get();
+    const now = new Date().toISOString();
+
+    // Get sent emails that are waiting for reply
+    return state.sentEmails
+      .filter(e => e.waiting_on_reply_since && !e.reminder_triggered)
+      .map(sentEmail => {
+        const waitingSince = new Date(sentEmail.waiting_on_reply_since!);
+        const daysWaiting = Math.floor((new Date(now).getTime() - waitingSince.getTime()) / (1000 * 60 * 60 * 24));
+        const reminderDue = sentEmail.reminder_due_date
+          ? new Date(sentEmail.reminder_due_date)
+          : new Date(waitingSince.getTime() + 3 * 24 * 60 * 60 * 1000);
+        const daysUntilReminder = Math.ceil((reminderDue.getTime() - new Date(now).getTime()) / (1000 * 60 * 60 * 24));
+
+        return {
+          ...sentEmail,
+          daysWaiting,
+          daysUntilReminder: daysUntilReminder > 0 ? daysUntilReminder : 0,
+        };
+      })
+      .sort((a, b) => a.daysUntilReminder - b.daysUntilReminder);
+  },
+
+  cancelReminder: (emailId: string) => {
+    const state = get();
+    const pendingReminders = new Set(state.pendingReminders);
+    pendingReminders.delete(emailId);
+
+    // Clear reminder data from the email
+    const updatedSentEmails = state.sentEmails.map(e =>
+      e.id === emailId
+        ? {
+            ...e,
+            reminder_due_date: undefined,
+            reminder_triggered: undefined,
+            reminder_count: undefined,
+            reminder_snoozed_until: undefined,
+          }
+        : e
+    );
+
+    set({
+      pendingReminders,
+      sentEmails: updatedSentEmails,
+    });
+  },
+
+  initializeReminderChecker: () => {
+    const state = get();
+
+    // Clear existing interval if any
+    if (state.reminderCheckInterval) {
+      clearInterval(state.reminderCheckInterval);
+    }
+
+    // Check every hour
+    const interval = setInterval(() => {
+      get().checkPendingReminders();
+    }, 60 * 60 * 1000); // 1 hour
+
+    set({ reminderCheckInterval: interval });
+
+    // Also check immediately on initialization
+    state.checkPendingReminders();
+  },
+
+  cleanupReminderChecker: () => {
+    const state = get();
+    if (state.reminderCheckInterval) {
+      clearInterval(state.reminderCheckInterval);
+      set({ reminderCheckInterval: null });
+    }
+  },
+
+  // Add mock waiting-on-reply emails for testing
+  loadMockWaitingEmails: () => {
+    const now = new Date();
+    const fourDaysAgo = new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000);
+    const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+    const oneDayAgo = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+
+    const mockWaitingEmails: Email[] = [
+      {
+        id: 'waiting-sent-1',
+        gmail_id: 'waiting-sent-1',
+        thread_id: 'thread-waiting-1',
+        subject: 'Re: Project Proposal - Next Steps',
+        sender: 'me@example.com',
+        recipients: 'john@company.com',
+        date: fourDaysAgo.toISOString(),
+        body_text: 'Hi John,\n\nThanks for the call earlier. Per our discussion, I\'ll send over the revised proposal by end of week.\n\nBest,\nNoah',
+        snippet: 'Thanks for the call earlier. Per our discussion...',
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Replied',
+        category: 'Normal',
+        requires_reply: false,
+        inReplyTo: 'original-1',
+        // Reminder fields - this one is OVERDUE (4 days ago, 3 day reminder)
+        waiting_on_reply_since: fourDaysAgo.toISOString(),
+        reminder_due_date: new Date(fourDaysAgo.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        reminder_triggered: false,
+        reminder_count: 0,
+        originalEmail: {
+          id: 'original-1',
+          gmail_id: 'original-1',
+          thread_id: 'thread-waiting-1',
+          subject: 'Project Proposal - Next Steps',
+          sender: 'john@company.com',
+          recipients: 'me@example.com',
+          date: fourDaysAgo.toISOString(),
+          body_text: 'Hi Noah,\n\nGreat chatting with you! Looking forward to seeing the revised proposal.\n\nBest,\nJohn',
+          snippet: 'Great chatting with you! Looking forward...',
+          is_read: true,
+          is_starred: false,
+          has_attachments: false,
+          status: 'Replied',
+          category: 'Normal',
+          requires_reply: true,
+        } as Email,
+      },
+      {
+        id: 'waiting-sent-2',
+        gmail_id: 'waiting-sent-2',
+        thread_id: 'thread-waiting-2',
+        subject: 'Re: Invoice #INV-2024-089',
+        sender: 'me@example.com',
+        recipients: 'billing@vendor.com',
+        date: twoDaysAgo.toISOString(),
+        body_text: 'Hi,\n\nPlease find attached the payment details for Invoice #INV-2024-089. Let me know if you need anything else.\n\nThanks,\nNoah',
+        snippet: 'Please find attached the payment details...',
+        is_read: true,
+        is_starred: false,
+        has_attachments: true,
+        attachments: [],
+        status: 'Replied',
+        category: 'Normal',
+        requires_reply: false,
+        inReplyTo: 'original-2',
+        // Reminder fields - this one is NOT due yet (2 days ago, 3 day reminder)
+        waiting_on_reply_since: twoDaysAgo.toISOString(),
+        reminder_due_date: new Date(twoDaysAgo.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        reminder_triggered: false,
+        reminder_count: 0,
+        originalEmail: {
+          id: 'original-2',
+          gmail_id: 'original-2',
+          thread_id: 'thread-waiting-2',
+          subject: 'Invoice #INV-2024-089',
+          sender: 'billing@vendor.com',
+          recipients: 'me@example.com',
+          date: twoDaysAgo.toISOString(),
+          body_text: 'Dear Noah,\n\nPlease find attached Invoice #INV-2024-089 for $2,500. Payment is due within 30 days.\n\nBest regards,\nBilling Department',
+          snippet: 'Please find attached Invoice #INV-2024-089...',
+          is_read: true,
+          is_starred: false,
+          has_attachments: true,
+          attachments: [],
+          status: 'Replied',
+          category: 'Important',
+          requires_reply: true,
+        } as Email,
+      },
+      {
+        id: 'waiting-sent-3',
+        gmail_id: 'waiting-sent-3',
+        thread_id: 'thread-waiting-3',
+        subject: 'Re: Conference Sponsorship Opportunity',
+        sender: 'me@example.com',
+        recipients: 'events@techconf.com',
+        date: oneDayAgo.toISOString(),
+        body_text: 'Hi Sarah,\n\nYes, we\'re interested in the Gold sponsorship package. Please send over the contract.\n\nBest regards,\nNoah',
+        snippet: 'Yes, we\'re interested in the Gold sponsorship...',
+        is_read: true,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Replied',
+        category: 'Normal',
+        requires_reply: false,
+        inReplyTo: 'original-3',
+        // Reminder fields - this one was just sent yesterday (1 day ago, 3 day reminder)
+        waiting_on_reply_since: oneDayAgo.toISOString(),
+        reminder_due_date: new Date(oneDayAgo.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        reminder_triggered: false,
+        reminder_count: 0,
+        originalEmail: {
+          id: 'original-3',
+          gmail_id: 'original-3',
+          thread_id: 'thread-waiting-3',
+          subject: 'Conference Sponsorship Opportunity',
+          sender: 'events@techconf.com',
+          recipients: 'me@example.com',
+          date: oneDayAgo.toISOString(),
+          body_text: 'Hi Noah,\n\nI hope this email finds you well. We\'d love to have your company as a sponsor for our upcoming TechConf 2024.\n\nWould you be interested in discussing sponsorship opportunities?\n\nBest,\nSarah\nEvents Coordinator',
+          snippet: 'I hope this email finds you well...',
+          is_read: true,
+          is_starred: false,
+          has_attachments: false,
+          status: 'Replied',
+          category: 'Important',
+          requires_reply: true,
+        } as Email,
+      },
+    ];
+
+    // Add to pending reminders for the overdue one
+    const pendingReminders = new Set(get().pendingReminders);
+    pendingReminders.add('waiting-sent-1'); // This one is overdue
+
+    set({
+      sentEmails: [...get().sentEmails, ...mockWaitingEmails],
+      pendingReminders,
+    });
+
+    console.log('[Mock Data] Added', mockWaitingEmails.length, 'waiting-on-reply emails');
   },
 }));
 

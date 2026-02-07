@@ -1,5 +1,6 @@
 import React from 'react';
 import { useEmailStore } from '@/stores/emailStore';
+import { Clock } from 'lucide-react';
 import {
   InboxIcon,
   PaperAirplaneIcon,
@@ -26,10 +27,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'triage', label: 'Smart Triage', icon: SparklesIconHero },
     { id: 'saved', label: 'Saved', icon: BookmarkIcon },
     { id: 'sent', label: 'Sent', icon: PaperAirplaneIcon },
+    { id: 'waiting', label: 'Waiting', icon: Clock, customIcon: true },
     { id: 'archived', label: 'Archive', icon: ArchiveBoxIcon },
   ] as const;
 
-  const isDashboardActive = currentFilter === 'inbox' || currentFilter === 'triage' || currentFilter === 'saved' || currentFilter === 'sent' || currentFilter === 'archived';
+  const isDashboardActive = currentFilter === 'inbox' || currentFilter === 'triage' || currentFilter === 'saved' || currentFilter === 'sent' || currentFilter === 'waiting' || currentFilter === 'archived';
 
   const getFilterCount = (filterId: string) => {
     switch (filterId) {
@@ -39,6 +41,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return emails.filter(e => e.status === 'Saved').length;
       case 'sent':
         return sentEmails.length;
+      case 'waiting':
+        return sentEmails.filter(e => e.waiting_on_reply_since).length;
       case 'archived':
         return emails.filter(e => e.status === 'Archived').length;
       default:
@@ -55,6 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const Icon = filter.icon;
             const isActive = currentFilter === filter.id;
             const count = getFilterCount(filter.id);
+            const isCustomIcon = (filter as any).customIcon;
 
             return (
               <button
@@ -68,7 +73,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title={filter.label}
               >
                 <div className="flex items-center gap-2 sm:gap-3">
-                  <Icon className="h-4 w-4 flex-shrink-0" />
+                  {isCustomIcon ? (
+                    <Icon className="h-4 w-4 flex-shrink-0" />
+                  ) : (
+                    <Icon className="h-4 w-4 flex-shrink-0" />
+                  )}
                   <span className="hidden sm:inline">{filter.label}</span>
                 </div>
                 {count > 0 && (

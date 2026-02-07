@@ -81,7 +81,19 @@ export async function fetchEvents(
     const data: EventsResponse = await response.json();
 
     // DEBUG: Log what we received from Python
-    console.log('[calendar API] Received events from Python:');
+    console.log('[calendar API] Received response from Python:', data);
+
+    // Validate response has events array
+    if (!data.events || !Array.isArray(data.events)) {
+      console.warn('[calendar API] Response missing events array:', data);
+      return {
+        success: false,
+        events: [],
+        error: data.error || 'Invalid response from server'
+      };
+    }
+
+    // Log first 5 events
     data.events.forEach((e, i) => {
       if (i < 5) {  // First 5 events
         console.log(`  ${e.summary}: time=${e.time}, date=${e.date}, start=${e.start}`);

@@ -4,6 +4,7 @@ import { useEmailStore, fetchWithTimeout, type EmailAttachment } from '@/stores/
 import { Button } from '@/components/ui/Button';
 import { MeetingSuggestions } from '@/components/ui/MeetingSuggestions';
 import { AttachmentSuggestions } from '@/components/ui/AttachmentSuggestions';
+import { ReminderSuggestion } from '@/components/ui/ReminderSuggestion';
 import { Bookmark, File, Image, FileText, Archive, Music, Video, Download, AlertCircle, Sparkles, Eye, X, Clock, ChevronUp, ChevronDown, MessageSquare, Paperclip } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { serverURL, downloadAttachment, saveAttachmentToFile } from '@/api/emails';
@@ -642,25 +643,30 @@ export const EmailView: React.FC<EmailViewProps> = ({
     return false;
   };
 
-  // Get the full email data from store - this updates when store updates
-  const fullEmail = useMemo(() => {
-    return email ? emails.find(e => e.id === email.id) : null;
-  }, [email?.id, emails]);
-
   // Check if this is a sent email
   const sentEmail = email ? sentEmails.find(e => e.id === email.id) : null;
   const isSentEmail = !!sentEmail;
 
+  // Get the full email data from store - check both emails and sentEmails arrays
+  const fullEmail = useMemo(() => {
+    if (!email) return null;
+    // First check if it's a sent email
+    if (sentEmail) return sentEmail;
+    // Otherwise check regular emails
+    return emails.find(e => e.id === email.id) || null;
+  }, [email?.id, emails, sentEmail]);
+
   // For sent emails, get the original email that was replied to
   const originalEmail = sentEmail?.originalEmail || (sentEmail?.inReplyTo ? emails.find(e => e.id === sentEmail.inReplyTo) : null);
 
-  // Get summary from store
-  const summary = fullEmail?.summary || '';
-  const keyPoints = fullEmail?.key_points || [];
-  const actionItems = fullEmail?.action_items || [];
+  // Get summary from store (only for regular emails, not sent emails)
+  const summary = !isSentEmail ? (fullEmail?.summary || '') : '';
+  const keyPoints = !isSentEmail ? (fullEmail?.key_points || []) : [];
+  const actionItems = !isSentEmail ? (fullEmail?.action_items || []) : [];
 
   // Get AI reply from store
-  const aiReply = fullEmail?.ai_generated_reply || null;
+  // For sent emails, the reply is the body of the sent email
+  const aiReply = isSentEmail ? (sentEmail?.body || sentEmail?.ai_generated_reply || null) : (fullEmail?.ai_generated_reply || null);
 
   // Use local AI reply ONLY if it's from the current email, otherwise use store
   const displayAiReply = (currentEmailId === email?.id ? localAiReply : null) || aiReply;
@@ -1728,8 +1734,12 @@ export const EmailView: React.FC<EmailViewProps> = ({
         )}
 
         {/* Original Email Display - shown when viewing sent email */}
-        {displayAiReply && hasSent && originalEmail && (
-          <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-900/20 rounded-lg border border-gray-200 dark:border-gray-700">
+        {displayAiReply && isSentEmail && originalEmail && (
+          <>
+            {/* Reminder Suggestion - show when viewing a sent email that's waiting for reply */}
+            <ReminderSuggestion sentEmailId={email.id} />
+
+            <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-900/20 rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-300 dark:border-gray-600">
               <MessageSquare className="w-4 h-4 text-gray-500 dark:text-gray-400" />
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Original email you replied to:</p>
@@ -1758,17 +1768,18 @@ export const EmailView: React.FC<EmailViewProps> = ({
               )}
             </div>
           </div>
+        </>
         )}
 
         {/* AI Reply Display/Edit */}
         {displayAiReply && (
           <div className="mt-4 space-y-3">
-            <div className={`p-4 rounded-lg border ${hasSent ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'}`}>
+            <div className={`p-4 rounded-lg border ${hasSent || isSentEmail ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'}`}>
               <div className="flex items-center justify-between mb-3">
-                <p className={`text-sm font-medium ${hasSent ? 'text-green-700 dark:text-green-300' : 'text-blue-700 dark:text-blue-300'}`}>
-                  AI Response {hasSent && '(Sent)'}
+                <p className={`text-sm font-medium ${hasSent || isSentEmail ? 'text-green-700 dark:text-green-300' : 'text-blue-700 dark:text-blue-300'}`}>
+                  AI Response {(hasSent || isSentEmail) && '(Sent)'}
                 </p>
-                {hasSent && (
+                {(hasSent || isSentEmail) && (
                   <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                     <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -1780,21 +1791,21 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
               {/* Show subject line */}
               {!isEditing && email?.subject && (
-                <div className={`mb-3 pb-3 border-b ${hasSent ? 'border-green-200 dark:border-green-700' : 'border-blue-200 dark:border-blue-700'}`}>
+                <div className={`mb-3 pb-3 border-b ${hasSent || isSentEmail ? 'border-green-200 dark:border-green-700' : 'border-blue-200 dark:border-blue-700'}`}>
                   <p className="text-sm text-gray-700 dark:text-gray-300">
-                    <span className={`text-sm ${hasSent ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`}>Subject: </span>
+                    <span className={`text-sm ${hasSent || isSentEmail ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`}>Subject: </span>
                     Re: {email.subject}
                   </p>
                 </div>
               )}
 
               {/* Show attachments indicator */}
-              {!isEditing && ((selectedAttachments.length > 0 && !hasSent) || (hasSent && fullEmail?.attachments && fullEmail.attachments.length > 0)) && (
-                <div className={`mb-3 p-2 rounded-lg ${hasSent ? 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700' : 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700'}`}>
+              {!isEditing && ((selectedAttachments.length > 0 && !hasSent && !isSentEmail) || ((hasSent || isSentEmail) && fullEmail?.attachments?.length > 0)) && (
+                <div className={`mb-3 p-2 rounded-lg ${hasSent || isSentEmail ? 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700' : 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700'}`}>
                   <div className="flex items-center gap-2">
                     <Paperclip className="w-4 h-4 text-gray-600 dark:text-gray-400 flex-shrink-0" />
                     <p className="text-xs text-gray-700 dark:text-gray-300">
-                      <span className="font-medium">Attachments:</span> {hasSent && fullEmail?.attachments ? fullEmail.attachments.map(a => a.filename).join(', ') : selectedAttachments.map(a => a.name).join(', ')}
+                      <span className="font-medium">Attachments:</span> {(hasSent || isSentEmail) ? (fullEmail?.attachments || []).map(a => a.filename || a.name).join(', ') : selectedAttachments.map(a => a.name).join(', ')}
                     </p>
                   </div>
                 </div>
@@ -1810,7 +1821,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
               ) : (
                 <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{hasEdited ? editedReply : (displayAiReply || '')}</p>
               )}
-              {!hasSent && (
+              {!hasSent && !isSentEmail && (
                 <div className="flex items-center gap-2 mt-4">
                   {isSending ? (
                     <>
@@ -1844,7 +1855,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
             </div>
 
             {/* AI Edit Section - only show if not sent and not sending */}
-            {isEditing && !hasSent && !isSending && (
+            {isEditing && !hasSent && !isSentEmail && !isSending && (
               <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
                 <label className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-2 block">
                   AI Edit - describe how to change the email:
