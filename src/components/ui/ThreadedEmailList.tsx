@@ -503,7 +503,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectMode, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView, isEmailSelected, selectMultipleEmails, deselectMultipleEmails]);
+  }, [isSelectMode, selectedEmailIds, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView, isEmailSelected, selectMultipleEmails, deselectMultipleEmails]);
 
   // Helper to format date
   const formatDate = (dateString: string) => {
