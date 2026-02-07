@@ -175,6 +175,7 @@ function App() {
       thread_id: email.thread_id,
       sender: email.sender,
       date: email.date,
+      status: email.status,
       from: {
         name: 'You',
         email: email.sender || 'me',
@@ -282,7 +283,7 @@ function App() {
           // Always exclude deleted emails from all views
           if (email.status === 'Deleted') return false;
 
-          // For Saved category, only show saved emails
+          // For Saved category, show saved emails from both emails and sentEmails
           if (currentFilter === 'saved') {
             return email.status === 'Saved';
           }
@@ -293,6 +294,14 @@ function App() {
           return true;
         })
         .map(convertToUIEmail);
+
+      // For Saved filter, also include saved sent emails
+      if (currentFilter === 'saved') {
+        const savedSentEmails = sentEmails
+          .filter(e => e.status === 'Saved')
+          .map(convertSentEmailToUI);
+        result = [...result, ...savedSentEmails];
+      }
     }
 
     // Apply search query

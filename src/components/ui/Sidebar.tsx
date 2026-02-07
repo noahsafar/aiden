@@ -37,7 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       case 'inbox':
         return inboxCount !== undefined ? inboxCount : emails.filter(e => e.status !== 'Archived' && e.status !== 'Saved').length;
       case 'saved':
-        return emails.filter(e => e.status === 'Saved').length;
+        return emails.filter(e => e.status === 'Saved').length + sentEmails.filter(e => e.status === 'Saved').length;
       case 'sent':
         return sentEmails.filter(e => e.status !== 'Deleted').length;
       case 'archived':
