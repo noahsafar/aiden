@@ -111,16 +111,19 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   // Group emails by thread - include both received emails and sent emails for complete threads
   const threadGroups = useMemo(() => {
     // Check if current view is already showing sent emails (to avoid duplicates)
-    // If the emails array already contains sent emails (we check by looking for 'Sent' label), don't add them again
-    const alreadyIncludesSent = emails.length > 0 && emails[0]?.labels?.some((l: any) => l.name === 'Sent');
+    // We check if ALL (or most) emails have the 'Sent' label, which indicates sent view
+    // In inbox view, emails would be received emails without the 'Sent' label
+    const emailsWithSentLabel = emails.filter((e: any) => e.labels?.some((l: any) => l.name === 'Sent'));
+    const alreadyIncludesSent = emails.length > 0 && emailsWithSentLabel.length > emails.length / 2;
 
     // Combine received and sent emails for complete thread view, but only add sent emails if not already included
     const allEmails = alreadyIncludesSent
-      ? emails // Already includes sent emails
-      : [...emails, ...sentEmails]; // Add sent emails to received emails
+      ? emails // Already includes sent emails (sent view)
+      : [...emails, ...sentEmails]; // Add sent emails to received emails (inbox view)
 
     const groups = groupEmailsByThread(allEmails);
     console.log('[threadGroups] groups:', Array.from(groups.entries()).map(([tid, emails]) => [tid, emails.map((e: any) => ({ id: e.id, isSent: !!sentEmails.find(se => se.id === e.id) }))]));
+    console.log('[threadGroups] alreadyIncludesSent:', alreadyIncludesSent, 'emails:', emails.length, 'emailsWithSentLabel:', emailsWithSentLabel.length, 'sentEmails:', sentEmails.length, 'allEmails:', allEmails.length);
     return groups;
   }, [emails, groupEmailsByThread, sentEmails]);
 
