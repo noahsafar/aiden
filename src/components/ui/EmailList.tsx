@@ -327,6 +327,7 @@ export const EmailList: React.FC<EmailListProps> = ({
     selectAllVisible,
     toggleEmailSelection,
     handleBulkAction,
+    selectedEmailIds,
   });
 
   // Update refs when callbacks change
@@ -345,6 +346,7 @@ export const EmailList: React.FC<EmailListProps> = ({
       selectAllVisible,
       toggleEmailSelection,
       handleBulkAction,
+      selectedEmailIds,
     };
   });
 
@@ -400,7 +402,7 @@ export const EmailList: React.FC<EmailListProps> = ({
       }
 
       // Bulk action shortcuts when emails are selected (a/s/d)
-      if (cb.isSelectMode && selectedEmailIds.size > 0) {
+      if (cb.isSelectMode && cb.selectedEmailIds.size > 0) {
         if (e.key === 'a' || e.key === 'A') {
           e.preventDefault();
           cb.handleBulkAction('archive');
