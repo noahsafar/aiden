@@ -326,6 +326,7 @@ export const EmailList: React.FC<EmailListProps> = ({
     clearSelection,
     selectAllVisible,
     toggleEmailSelection,
+    handleBulkAction,
   });
 
   // Update refs when callbacks change
@@ -343,6 +344,7 @@ export const EmailList: React.FC<EmailListProps> = ({
       clearSelection,
       selectAllVisible,
       toggleEmailSelection,
+      handleBulkAction,
     };
   });
 
@@ -395,6 +397,28 @@ export const EmailList: React.FC<EmailListProps> = ({
         e.preventDefault();
         cb.navigateEmail('prev');
         return;
+      }
+
+      // Bulk action shortcuts when emails are selected (a/s/d)
+      if (cb.isSelectMode && selectedEmailIds.size > 0) {
+        if (e.key === 'a' || e.key === 'A') {
+          e.preventDefault();
+          cb.handleBulkAction('archive');
+          cb.clearSelection();
+          return;
+        }
+        if (e.key === 's' || e.key === 'S') {
+          e.preventDefault();
+          cb.handleBulkAction('save');
+          cb.clearSelection();
+          return;
+        }
+        if (e.key === 'd' || e.key === 'D') {
+          e.preventDefault();
+          cb.handleBulkAction('delete');
+          cb.clearSelection();
+          return;
+        }
       }
 
       // If in select mode, don't process other single-email actions
