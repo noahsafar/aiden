@@ -401,21 +401,14 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         return;
       }
 
-      if (isSelectMode) return;
-
-      // Enter to open focused view
-      if (e.key === 'Enter' && focusedEmailId) {
-        e.preventDefault();
-        onEmailSelect(focusedEmailId);
-        if (onOpenFocusedView) {
-          onOpenFocusedView();
-        }
-        return;
-      }
-
+      // Archive (a) - works on selected emails or focused email
       if (e.key === 'a' || e.key === 'A') {
         e.preventDefault();
-        if (focusedEmailId) {
+        if (isSelectMode && selectedEmailIds.size > 0) {
+          // Archive all selected emails
+          Array.from(selectedEmailIds).forEach(id => onEmailAction(id, 'archive'));
+          clearSelection();
+        } else if (focusedEmailId) {
           if (e.shiftKey) {
             // Archive entire thread
             for (const [threadId, threadEmails] of threadGroups.entries()) {
@@ -429,9 +422,17 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
             onEmailAction(focusedEmailId, 'archive');
           }
         }
-      } else if (e.key === 's' || e.key === 'S') {
+        return;
+      }
+
+      // Save (s) - works on selected emails or focused email
+      if (e.key === 's' || e.key === 'S') {
         e.preventDefault();
-        if (focusedEmailId) {
+        if (isSelectMode && selectedEmailIds.size > 0) {
+          // Save all selected emails
+          Array.from(selectedEmailIds).forEach(id => onEmailAction(id, 'save'));
+          clearSelection();
+        } else if (focusedEmailId) {
           if (e.shiftKey) {
             // Save entire thread
             for (const [threadId, threadEmails] of threadGroups.entries()) {
@@ -445,9 +446,17 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
             onEmailAction(focusedEmailId, 'save');
           }
         }
-      } else if (e.key === 'd' || e.key === 'D') {
+        return;
+      }
+
+      // Delete (d) - works on selected emails or focused email
+      if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
-        if (focusedEmailId) {
+        if (isSelectMode && selectedEmailIds.size > 0) {
+          // Delete all selected emails
+          Array.from(selectedEmailIds).forEach(id => onEmailAction(id, 'delete'));
+          clearSelection();
+        } else if (focusedEmailId) {
           if (e.shiftKey) {
             // Delete entire thread
             for (const [threadId, threadEmails] of threadGroups.entries()) {
@@ -462,6 +471,19 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
             navigateEmail('next');
           }
         }
+        return;
+      }
+
+      if (isSelectMode) return;
+
+      // Enter to open focused view
+      if (e.key === 'Enter' && focusedEmailId) {
+        e.preventDefault();
+        onEmailSelect(focusedEmailId);
+        if (onOpenFocusedView) {
+          onOpenFocusedView();
+        }
+        return;
       }
     };
 
