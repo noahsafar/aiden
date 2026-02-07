@@ -105,14 +105,24 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     deselectMultipleEmails,
     expandAllThreads,
     collapseAllThreads,
+    sentEmails,
   } = useEmailStore();
 
-  // Group emails by thread
+  // Group emails by thread - include both received emails and sent emails for complete threads
   const threadGroups = useMemo(() => {
-    const groups = groupEmailsByThread(emails);
-    console.log('[threadGroups] groups:', Array.from(groups.entries()).map(([tid, emails]) => [tid, emails.map((e: any) => e.id)]));
+    // Check if current view is already showing sent emails (to avoid duplicates)
+    // If the emails array already contains sent emails (we check by looking for 'Sent' label), don't add them again
+    const alreadyIncludesSent = emails.length > 0 && emails[0]?.labels?.some((l: any) => l.name === 'Sent');
+
+    // Combine received and sent emails for complete thread view, but only add sent emails if not already included
+    const allEmails = alreadyIncludesSent
+      ? emails // Already includes sent emails
+      : [...emails, ...sentEmails]; // Add sent emails to received emails
+
+    const groups = groupEmailsByThread(allEmails);
+    console.log('[threadGroups] groups:', Array.from(groups.entries()).map(([tid, emails]) => [tid, emails.map((e: any) => ({ id: e.id, isSent: !!sentEmails.find(se => se.id === e.id) }))]));
     return groups;
-  }, [emails, groupEmailsByThread]);
+  }, [emails, groupEmailsByThread, sentEmails]);
 
   // Convert to array and sort by most recent email in each thread
   const sortedThreads = useMemo(() => {
@@ -186,6 +196,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     const emailIsSelected = currentSelection.has(emailId);
     const isFocused = focusedEmailId === emailId;
     const hasExistingSelection = currentSelection.size > 0;
+
+    console.log('[handleIndividualEmailClick] emailId:', emailId, 'emailIsSelected:', emailIsSelected, 'hasExistingSelection:', hasExistingSelection, 'currentSelection:', Array.from(currentSelection));
 
     if (emailIsSelected) {
       // Email is selected - deselect it
@@ -576,13 +588,17 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                 } ${!allSelected ? 'hover:bg-gray-50 dark:hover:bg-gray-700/50' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation();
+                  console.log('[Thread header click] threadId:', threadId, 'emailId:', mostRecent.id);
                   handleThreadHeaderClick(mostRecent.id, threadId, threadEmails);
                 }}
               >
                 <div className="flex items-start gap-3">
                   {/* Expand/collapse button */}
                   <button
-                    onClick={(e) => handleThreadToggle(threadId, e)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleThreadToggle(threadId, e);
+                    }}
                     className="flex-shrink-0 mt-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                   >
                     {isExpanded ? (
@@ -679,7 +695,10 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                         } ${email.id === selectedEmailId ? 'bg-blue-50 dark:bg-blue-900/20' : ''} ${
                           isFocused ? 'bg-gray-100 dark:bg-gray-800/50' : ''
                         }`}
-                        onClick={() => handleIndividualEmailClick(email.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleIndividualEmailClick(email.id);
+                        }}
                       >
                         {/* Selection strip for individual email - absolute positioned like collapsed view */}
                         {!allSelected && (

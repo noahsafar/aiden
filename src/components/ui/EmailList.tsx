@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
+import { Clock, BellOff, Send, ChevronDown } from 'lucide-react';
 
 interface EmailQuestionData {
   questions: string[];
@@ -72,6 +73,25 @@ function getThreadCount(emailId: string, emails: any[]): number {
   return count > 1 ? count : 1;
 }
 
+// Helper function to get waiting email info
+function getWaitingEmailInfo(email: any, sentEmails: any[]): { daysWaiting: number; isOverdue: boolean } | null {
+  const sentEmail = sentEmails.find((e: any) => e.id === email.id);
+  console.log('[EmailList] getWaitingEmailInfo for', email.id, ': found?', !!sentEmail, 'has waiting field?', !!sentEmail?.waiting_on_reply_since);
+
+  if (!sentEmail?.waiting_on_reply_since) return null;
+
+  const now = new Date();
+  const waitingSince = new Date(sentEmail.waiting_on_reply_since);
+  const daysWaiting = Math.floor((now.getTime() - waitingSince.getTime()) / (1000 * 60 * 60 * 24));
+
+  const reminderDue = sentEmail.reminder_due_date
+    ? new Date(sentEmail.reminder_due_date)
+    : new Date(waitingSince.getTime() + 3 * 24 * 60 * 60 * 1000);
+  const isOverdue = new Date(now) >= reminderDue;
+
+  return { daysWaiting, isOverdue };
+}
+
 // Component for the action badge - memoized for performance (defined outside to prevent re-creation)
 const ActionBadge = React.memo(({ emailId }: { emailId: string }) => {
   const data = getEmailReplyData(emailId);
@@ -124,6 +144,7 @@ export const EmailList: React.FC<EmailListProps> = ({
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const [shortcutsCollapsed, setShortcutsCollapsed] = useState(true);
+  const [snoozeDropdownOpen, setSnoozeDropdownOpen] = useState<string | null>(null);
 
   // Bulk selection state from store
   const {
@@ -137,7 +158,37 @@ export const EmailList: React.FC<EmailListProps> = ({
     bulkMarkAsRead,
     bulkSave,
     isEmailSelected,
+    sentEmails,
+    cancelReminder,
+    snoozeReminder,
+    currentFilter,
   } = useEmailStore();
+
+  // Debug: log sentEmails with waiting field
+  React.useEffect(() => {
+    const waitingInStore = sentEmails.filter(e => e.waiting_on_reply_since);
+    console.log('[EmailList] sentEmails with waiting_on_reply_since:', waitingInStore.length, waitingInStore.map(e => ({ id: e.id, subject: e.subject })));
+    if (emails.length > 0) {
+      const firstEmail = emails[0];
+      console.log('[EmailList] FIRST EMAIL:', JSON.stringify({
+        id: firstEmail.id,
+        subject: firstEmail.subject,
+        hasWaiting: !!firstEmail.waiting_on_reply_since,
+        allKeys: Object.keys(firstEmail),
+        from: firstEmail.from,
+        to: firstEmail.to
+      }));
+    }
+  }, [sentEmails, emails]);
+
+  // Close snooze dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setSnoozeDropdownOpen(null);
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   // Track last clicked email for shift+click range selection
   const lastClickedEmailRef = useRef<string | null>(null);
@@ -456,7 +507,7 @@ export const EmailList: React.FC<EmailListProps> = ({
         )}
       </div>
       <div className="p-4 space-y-2">
-        {emails.map((email: any) => {
+        {emails.map((email: any, index: number) => {
           const replyData = getEmailReplyData(email.id);
           const isFyi = replyData?.loaded && replyData.requiresReply === false;
           const isFocused = focusedEmailId === email.id;
@@ -468,35 +519,192 @@ export const EmailList: React.FC<EmailListProps> = ({
           const isReply = isReplyEmail(email, emails);
           const threadCount = getThreadCount(email.id, emails);
 
+          // Check if this is a waiting-on-reply sent email - check by the waiting field directly
+          const isWaitingEmail = !!email.waiting_on_reply_since;
+          const isOverdue = email.waiting_on_reply_since ? (() => {
+            const now = new Date();
+            const waitingSince = new Date(email.waiting_on_reply_since);
+            const daysWaiting = Math.floor((now.getTime() - waitingSince.getTime()) / (1000 * 60 * 60 * 24));
+            const reminderDue = email.reminder_due_date
+              ? new Date(email.reminder_due_date)
+              : new Date(waitingSince.getTime() + 3 * 24 * 60 * 60 * 1000);
+            return new Date(now) >= reminderDue ? { daysWaiting, isOverdue: true } : { daysWaiting, isOverdue: false };
+          })() : null;
+
+          // Handle dismiss action
+          const handleDismiss = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            // Find the email in sentEmails by matching subject and date
+            const sentEmail = sentEmails.find((se: any) =>
+              se.subject === email.subject &&
+              Math.abs(new Date(se.date).getTime() - new Date(email.date || 0).getTime()) < 1000
+            );
+            if (sentEmail?.id) {
+              cancelReminder(sentEmail.id);
+            }
+          };
+
           return (
             <div
-              key={email.id}
-              id={`email-item-${email.id}`}
+              key={email.id || `email-${index}`}
+              id={`email-item-${email.id || index}`}
               className={`relative p-4 bg-surface dark:bg-gray-800 border rounded-lg hover:shadow-md transition-all cursor-pointer ${
-                isSelected ? 'border-purple-500 dark:border-purple-400 ring-2 ring-purple-200 dark:ring-purple-900 bg-purple-50/50 dark:bg-purple-900/20' :
-                isFocused ? 'border-blue-500 dark:border-blue-400' :
-                selectedEmailId === email.id ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900' : 'border-border'
-              } ${isFyi ? 'opacity-60' : ''}`}
+                isWaitingEmail
+                  ? (selectedEmailId === email.id || isFocused
+                      ? (isOverdue?.isOverdue
+                          ? 'bg-amber-50 dark:bg-amber-900/20 border-blue-500 dark:border-blue-400'
+                          : 'bg-blue-50 dark:bg-blue-900/20 border-blue-500 dark:border-blue-400')
+                      : (isOverdue?.isOverdue
+                          ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 shadow-sm'
+                          : 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700'))
+                  : (isSelected
+                      ? 'border-purple-500 dark:border-purple-400 ring-2 ring-purple-200 dark:ring-purple-900 bg-purple-50/50 dark:bg-purple-900/20'
+                      : (isFocused
+                          ? 'border-blue-500 dark:border-blue-400'
+                          : (selectedEmailId === email.id
+                              ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900'
+                              : 'bg-surface dark:bg-gray-800 border-border')))
+              } ${isFyi && !isWaitingEmail ? 'opacity-60' : ''}`}
               onClick={() => handleEmailClick(email.id)}
             >
               {/* Selection sidebar strip */}
               <div
-                className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-lg transition-all cursor-pointer ${
+                className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-lg transition-all cursor-pointer z-10 ${
                   isSelected ? 'bg-purple-500' : 'bg-transparent hover:bg-gray-400 dark:hover:bg-gray-600'
                 }`}
                 onClick={(e) => handleStripClick(email.id, e)}
                 title={isSelected ? 'Click to deselect' : 'Click to select (Shift+click for range)'}
               />
 
+              {/* Waiting indicator header */}
+              {isWaitingEmail && (
+                <div className={`py-2 mb-3 flex items-center justify-between -mx-4 -mt-4 rounded-t-xl ${
+                  isOverdue?.isOverdue
+                    ? 'bg-amber-100 dark:bg-amber-900/40 px-4'
+                    : 'bg-blue-100 dark:bg-blue-900/40 px-4'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <Clock className={`w-3.5 h-3.5 ${isOverdue?.isOverdue ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`} />
+                    <span className={`text-xs font-medium ${isOverdue?.isOverdue ? 'text-amber-700 dark:text-amber-300' : 'text-blue-700 dark:text-blue-300'}`}>
+                      {isOverdue?.isOverdue ? 'No reply!' : 'Waiting'}
+                    </span>
+                    <span className={`text-xs ${isOverdue?.isOverdue ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                      {isOverdue?.daysWaiting} {isOverdue?.daysWaiting === 1 ? 'day' : 'days'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {(isOverdue?.isOverdue || currentFilter === 'sent') && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleEmailClick(email.id); }}
+                        className={`p-1 bg-white dark:bg-gray-800 border rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                          isOverdue?.isOverdue
+                            ? 'text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/30'
+                            : 'text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600'
+                        }`}
+                        title="Bump this thread"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {/* Only show snooze and dismiss in inbox, not in sent page */}
+                    {currentFilter !== 'sent' && (
+                      <>
+                        <div className="relative">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSnoozeDropdownOpen(snoozeDropdownOpen === email.id ? null : email.id);
+                            }}
+                            className="p-1 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                            title="Snooze reminder"
+                          >
+                            <Clock className="w-3.5 h-3.5" />
+                          </button>
+                          {snoozeDropdownOpen === email.id && (
+                            <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 min-w-[100px]">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const sentEmail = sentEmails.find((se: any) => se.id === email.id);
+                                  if (sentEmail?.id) {
+                                    snoozeReminder(sentEmail.id, 1);
+                                  }
+                                  setSnoozeDropdownOpen(null);
+                                }}
+                                className="w-full px-2 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
+                              >
+                                <span>Tomorrow</span>
+                                <span className="text-gray-500">1d</span>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const sentEmail = sentEmails.find((se: any) => se.id === email.id);
+                                  if (sentEmail?.id) {
+                                    snoozeReminder(sentEmail.id, 2);
+                                  }
+                                  setSnoozeDropdownOpen(null);
+                                }}
+                                className="w-full px-2 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
+                              >
+                                <span>2 days</span>
+                                <span className="text-gray-500">2d</span>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const sentEmail = sentEmails.find((se: any) => se.id === email.id);
+                                  if (sentEmail?.id) {
+                                    snoozeReminder(sentEmail.id, 3);
+                                  }
+                                  setSnoozeDropdownOpen(null);
+                                }}
+                                className="w-full px-2 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
+                              >
+                                <span>3 days</span>
+                                <span className="text-gray-500">3d</span>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const sentEmail = sentEmails.find((se: any) => se.id === email.id);
+                                  if (sentEmail?.id) {
+                                    snoozeReminder(sentEmail.id, 7);
+                                  }
+                                  setSnoozeDropdownOpen(null);
+                                }}
+                                className="w-full px-2 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
+                              >
+                                <span>1 week</span>
+                                <span className="text-gray-500">7d</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={handleDismiss}
+                          className="p-1 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          title="Dismiss reminder"
+                        >
+                          <BellOff className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-start justify-between gap-2 pl-2">
                 <div className="flex-1 min-w-0">
                   {/* Top row: Sender, badges, indicators */}
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="text-xs text-muted truncate">{email.from?.name || email.from?.email || 'Unknown'}</span>
-                    <ActionBadge emailId={email.id} />
+                    <span className="text-xs text-muted truncate">
+                      {isWaitingEmail ? `To: ${email.recipients || 'Unknown'}` : (email.from?.name || email.from?.email || 'Unknown')}
+                    </span>
+                    {!isWaitingEmail && <ActionBadge emailId={email.id} />}
                     {email.status === 'Saved' && <span className="text-blue-500" title="Saved">◆</span>}
                     {/* Thread indicator */}
-                    {isReply && (
+                    {isReply && !isWaitingEmail && (
                       <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-0.5" title={`Thread (${threadCount} messages)`}>
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
@@ -516,7 +724,9 @@ export const EmailList: React.FC<EmailListProps> = ({
                   </div>
 
                   {/* Subject */}
-                  <h3 className={`font-semibold text-foreground text-sm ${!email.isRead ? 'text-blue-600 dark:text-blue-400' : ''}`}>{email.subject}</h3>
+                  <h3 className={`font-semibold text-foreground text-sm ${!email.isRead && !isWaitingEmail ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                    {email.subject}
+                  </h3>
 
                   {/* Summary or preview - show summary if available, otherwise preview */}
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">

@@ -27,11 +27,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'triage', label: 'Smart Triage', icon: SparklesIconHero },
     { id: 'saved', label: 'Saved', icon: BookmarkIcon },
     { id: 'sent', label: 'Sent', icon: PaperAirplaneIcon },
-    { id: 'waiting', label: 'Waiting', icon: Clock, customIcon: true },
     { id: 'archived', label: 'Archive', icon: ArchiveBoxIcon },
   ] as const;
 
-  const isDashboardActive = currentFilter === 'inbox' || currentFilter === 'triage' || currentFilter === 'saved' || currentFilter === 'sent' || currentFilter === 'waiting' || currentFilter === 'archived';
+  const isDashboardActive = currentFilter === 'inbox' || currentFilter === 'triage' || currentFilter === 'saved' || currentFilter === 'sent' || currentFilter === 'archived';
 
   const getFilterCount = (filterId: string) => {
     switch (filterId) {
@@ -41,8 +40,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return emails.filter(e => e.status === 'Saved').length;
       case 'sent':
         return sentEmails.length;
-      case 'waiting':
-        return sentEmails.filter(e => e.waiting_on_reply_since).length;
       case 'archived':
         return emails.filter(e => e.status === 'Archived').length;
       default:

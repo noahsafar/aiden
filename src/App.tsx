@@ -5,7 +5,6 @@ import { EmailList } from '@/components/ui/EmailList';
 import { ThreadedEmailList } from '@/components/ui/ThreadedEmailList';
 import { EmailView } from '@/components/ui/EmailView';
 import { SmartTriage } from '@/components/ui/SmartTriage';
-import { WaitingOnReplyList } from '@/components/ui/ReminderSuggestion';
 import { AttachmentItem, getFileIcon, formatFileSize } from '@/components/ui/EmailView';
 import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
@@ -44,6 +43,7 @@ import {
   MessageSquare,
   Target,
   PenSquare,
+  Paperclip,
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -52,6 +52,7 @@ interface Email {
   thread_id?: string;
   sender?: string;
   date?: string;
+  recipients?: string;  // For sent emails - who received it
   from: {
     name: string;
     email: string;
@@ -85,6 +86,12 @@ interface Email {
     size: string;
     type: string;
   }>;
+  // Waiting-on-reply fields
+  waiting_on_reply_since?: string;
+  reminder_due_date?: string;
+  reminder_triggered?: boolean;
+  reminder_count?: number;
+  needs_follow_up?: boolean;
 }
 
 function App() {
@@ -163,22 +170,28 @@ function App() {
       return { name, email: emailAddr };
     }) : [{ name: 'Unknown', email: email.recipients || '' }];
 
-    return {
+    const converted = {
       id: email.id,
+      thread_id: email.thread_id,
+      sender: email.sender,
+      date: email.date,
       from: {
         name: 'You',
         email: email.sender || 'me',
         status: 'offline' as const
       },
       to: toRecipients,
+      recipients: email.recipients, // Keep raw recipients string for display
       subject: email.subject,
       preview: email.snippet,
       content: email.body_text || email.snippet,
       bodyHtml: email.body_html,
+      body_html: email.body_html,
       timestamp: new Date(email.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isRead: email.is_read,
       isStarred: email.is_starred,
       hasAttachments: email.has_attachments,
+      attachments: email.attachments || [],
       labels: [
         { id: '1', name: 'Sent', color: 'primary' as const }
       ],
@@ -186,58 +199,99 @@ function App() {
       aiCategory: email.category,
       aiSummary: email.summary,
       aiActionItems: email.key_points || [],
-      aiPriority: 'low' as const
+      aiPriority: 'low' as const,
+      // Preserve waiting-on-reply fields
+      waiting_on_reply_since: email.waiting_on_reply_since,
+      reminder_due_date: email.reminder_due_date,
+      reminder_triggered: email.reminder_triggered,
+      reminder_count: email.reminder_count,
+      needs_follow_up: email.needs_follow_up,
+      recipients: email.recipients,
     };
+
+    console.log('[App] convertSentEmailToUI:', { originalId: email.id, convertedId: converted.id, hasWaiting: !!converted.waiting_on_reply_since, needsFollowUp: converted.needs_follow_up });
+
+    return converted;
   }, []);
 
   // Filter emails based on current filter - use useMemo to avoid recalculating on every render
   const filteredEmails = React.useMemo(() => {
-    let result = currentFilter === 'sent'
-      ? sentEmails.map(convertSentEmailToUI)
-      : emails
-          .filter(email => {
-            // Always exclude deleted emails from all views
-            if (email.status === 'Deleted') return false;
+    let result: Email[] = [];
 
-            // For Saved category, only show saved emails
-            if (currentFilter === 'saved') {
-              return email.status === 'Saved';
-            }
-            // For Archived category, show archived emails
-            if (currentFilter === 'archived') {
-              return email.status === 'Archived';
-            }
-            // For Focus mode (only applies to inbox), show only important/action-required emails (exclude FYI)
-            if (isFocusMode && currentFilter === 'inbox') {
-              // Exclude archived and saved
-              if (email.status === 'Archived' || email.status === 'Saved') return false;
+    if (currentFilter === 'sent') {
+      result = sentEmails.map(convertSentEmailToUI);
+    } else if (currentFilter === 'inbox') {
+      // For inbox: show ONLY OVERDUE waiting-on-reply emails at top, then regular unhandled emails
+      const now = new Date();
+      const overdueEmails = sentEmails
+        .filter(e => {
+          if (!e.waiting_on_reply_since || !e.needs_follow_up) return false;
+          // Only show if reminder is due/overdue
+          if (!e.reminder_due_date) return false;
+          return new Date(e.reminder_due_date) <= now;
+        })
+        .map(convertSentEmailToUI);
+      const regularInbox = emails
+        .filter(email => {
+          // Always exclude deleted emails
+          if (email.status === 'Deleted') return false;
+          // For Focus mode, show only important/action-required emails (exclude FYI)
+          if (isFocusMode) {
+            // Exclude archived and saved
+            if (email.status === 'Archived' || email.status === 'Saved') return false;
 
-              // Check AI analysis for more precise filtering
-              let requiresReply: boolean | null = null;
-              if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
-                const data = (window as any).emailQuestionData.get(email.id);
-                if (data?.loaded) {
-                  requiresReply = data.requiresReply === true;
-                }
+            // Check AI analysis for more precise filtering
+            let requiresReply: boolean | null = null;
+            if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
+              const data = (window as any).emailQuestionData.get(email.id);
+              if (data?.loaded) {
+                requiresReply = data.requiresReply === true;
               }
-
-              // Show if AI has determined it requires reply
-              if (requiresReply === true) return true;
-              // Explicitly exclude if AI says no reply needed (FYI)
-              if (requiresReply === false) return false;
-
-              // Before AI analysis completes, include based on category
-              // Always show Urgent and Important categories
-              if (email.category === 'Urgent' || email.category === 'Important') return true;
-
-              // Exclude Normal and Low categories when AI hasn't analyzed yet
-              // (they'll appear if AI later determines they require action)
-              return false;
             }
-            // For inbox, exclude saved/archived
-            return email.status !== 'Archived' && email.status !== 'Saved';
-          })
-          .map(convertToUIEmail);
+
+            // Show if AI has determined it requires reply
+            if (requiresReply === true) return true;
+            // Explicitly exclude if AI says no reply needed (FYI)
+            if (requiresReply === false) return false;
+
+            // Before AI analysis completes, include based on category
+            // Always show Urgent and Important categories
+            if (email.category === 'Urgent' || email.category === 'Important') return true;
+
+            // Exclude Normal and Low categories when AI hasn't analyzed yet
+            return false;
+          }
+          // Regular inbox: exclude saved/archived
+          return email.status !== 'Archived' && email.status !== 'Saved';
+        })
+        .map(convertToUIEmail);
+
+      // Put overdue emails FIRST, then regular inbox
+      result = [...overdueEmails, ...regularInbox];
+
+      // Debug logging
+      console.log('[App] Inbox filter:', { overdueEmails: overdueEmails.length, regularInbox: regularInbox.length, total: result.length });
+      console.log('[App] OverdueEmails:', overdueEmails.map(e => ({ id: e.id, subject: e.subject, hasWaiting: !!e.waiting_on_reply_since })));
+      console.log('[App] Sent emails with waiting_on_reply_since:', sentEmails.filter(e => e.waiting_on_reply_since).map(e => ({ id: e.id, subject: e.subject, waiting: e.waiting_on_reply_since })));
+    } else {
+      // All other filters
+      result = emails
+        .filter(email => {
+          // Always exclude deleted emails from all views
+          if (email.status === 'Deleted') return false;
+
+          // For Saved category, only show saved emails
+          if (currentFilter === 'saved') {
+            return email.status === 'Saved';
+          }
+          // For Archived category, show archived emails
+          if (currentFilter === 'archived') {
+            return email.status === 'Archived';
+          }
+          return true;
+        })
+        .map(convertToUIEmail);
+    }
 
     // Apply search query
     if (searchQuery) {
@@ -254,8 +308,42 @@ function App() {
     // Sort by selected mode
     if (sortMode === 'importance') {
       // Sort by category priority: Urgent > Important > Normal > Low
+      // BUT keep waiting emails at the top regardless (except for sent page)
       const categoryOrder = { 'Urgent': 0, 'Important': 1, 'Normal': 2, 'Low': 3 };
       return result.sort((a, b) => {
+        // For sent page: sort by how long waiting (oldest first = most important)
+        if (currentFilter === 'sent') {
+          const aIsWaiting = !!a.waiting_on_reply_since;
+          const bIsWaiting = !!b.waiting_on_reply_since;
+
+          // Waiting emails come first, sorted by how long they've been waiting
+          if (aIsWaiting && bIsWaiting) {
+            const aDays = a.waiting_on_reply_since ? new Date(a.waiting_on_reply_since).getTime() : 0;
+            const bDays = b.waiting_on_reply_since ? new Date(b.waiting_on_reply_since).getTime() : 0;
+            return aDays - bDays; // Oldest first (waiting longest)
+          }
+          if (aIsWaiting !== bIsWaiting) {
+            return aIsWaiting ? -1 : 1;
+          }
+          // Non-waiting emails: sort by date (newest first)
+          return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+        }
+
+        // For other pages (inbox, etc.): keep waiting emails at top
+        const aIsWaiting = !!a.waiting_on_reply_since;
+        const bIsWaiting = !!b.waiting_on_reply_since;
+        if (aIsWaiting !== bIsWaiting) {
+          return aIsWaiting ? -1 : 1;
+        }
+
+        // Within waiting emails, sort by days waiting (oldest first = most urgent)
+        if (aIsWaiting && bIsWaiting) {
+          const aDays = a.waiting_on_reply_since ? new Date(a.waiting_on_reply_since).getTime() : 0;
+          const bDays = b.waiting_on_reply_since ? new Date(b.waiting_on_reply_since).getTime() : 0;
+          return aDays - bDays; // Oldest first (most overdue)
+        }
+
+        // For regular emails, sort by category
         const aCategory = a.aiCategory || 'Normal';
         const bCategory = b.aiCategory || 'Normal';
         const aOrder = categoryOrder[aCategory as keyof typeof categoryOrder] ?? 2;
@@ -268,7 +356,32 @@ function App() {
       });
     } else {
       // Sort by date (newest first)
-      return result.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      // For sent page: simple date sort (no special waiting handling)
+      if (currentFilter === 'sent') {
+        return result.sort((a, b) => {
+          return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+        });
+      }
+
+      // For other pages: keep waiting emails at the top
+      return result.sort((a, b) => {
+        // Waiting emails always come first
+        const aIsWaiting = !!a.waiting_on_reply_since;
+        const bIsWaiting = !!b.waiting_on_reply_since;
+        if (aIsWaiting !== bIsWaiting) {
+          return aIsWaiting ? -1 : 1;
+        }
+
+        // Within waiting emails, sort by days waiting (oldest first = most urgent)
+        if (aIsWaiting && bIsWaiting) {
+          const aDays = a.waiting_on_reply_since ? new Date(a.waiting_on_reply_since).getTime() : 0;
+          const bDays = b.waiting_on_reply_since ? new Date(b.waiting_on_reply_since).getTime() : 0;
+          return aDays - bDays; // Oldest first (most overdue)
+        }
+
+        // For regular emails, sort by date (newest first)
+        return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+      });
     }
   }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI, sortMode, isFocusMode, searchQuery]
   );
@@ -276,15 +389,37 @@ function App() {
   // Calculate actual inbox count (emails not archived/saved/deleted)
   // Use useMemo to avoid recalculating on every render
   const inboxCount = React.useMemo(() => {
-    // When in inbox view, use the filtered emails count (respects focus mode)
+    // When in inbox view, count only regular inbox emails (exclude follow-up suggested emails)
     if (currentFilter === 'inbox') {
-      return filteredEmails.length;
+      const now = new Date();
+      // Count regular inbox emails (not the overdue sent emails)
+      const regularInboxCount = emails
+        .filter(email => {
+          if (email.status === 'Deleted') return false;
+          if (isFocusMode) {
+            if (email.status === 'Archived' || email.status === 'Saved') return false;
+            let requiresReply: boolean | null = null;
+            if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
+              const data = (window as any).emailQuestionData.get(email.id);
+              if (data?.loaded) {
+                requiresReply = data.requiresReply === true;
+              }
+            }
+            if (requiresReply === true) return true;
+            if (requiresReply === false) return false;
+            if (email.category === 'Urgent' || email.category === 'Important') return true;
+            return false;
+          }
+          return email.status !== 'Archived' && email.status !== 'Saved';
+        })
+        .length;
+      return regularInboxCount;
     }
     // Otherwise, count all non-archived/non-saved emails
     return emails.filter(email => {
       return email.status !== 'Archived' && email.status !== 'Saved' && email.status !== 'Deleted';
     }).length;
-  }, [emails, filteredEmails, currentFilter]);
+  }, [emails, filteredEmails, currentFilter, isFocusMode]);
 
   useEffect(() => {
     // Initialize authentication state on app load
@@ -317,6 +452,7 @@ function App() {
         initializeReminderChecker();
 
         // Load mock waiting-on-reply emails for testing
+        console.log('[App] Loading mock waiting emails...');
         loadMockWaitingEmails();
       }
     };
@@ -419,12 +555,19 @@ function App() {
     };
   }, []);
 
-  // Find selected email - first in filtered emails, then fall back to all emails
-  // This allows viewing thread emails that aren't in the current filter (e.g., unsaved emails in a thread when viewing saved)
+  // Find selected email - first in filtered emails, then fall back to all emails and sent emails
+  // This allows viewing thread emails that aren't in the current filter (e.g., sent replies in a thread)
   const selectedEmail = filteredEmails.find(email => email.id === selectedEmailId) ||
     (() => {
+      // Try to find in regular emails
       const emailFromStore = emails.find(email => email.id === selectedEmailId && email.status !== 'Deleted');
-      return emailFromStore ? convertToUIEmail(emailFromStore) : undefined;
+      if (emailFromStore) return convertToUIEmail(emailFromStore);
+
+      // Try to find in sent emails
+      const sentEmail = sentEmails.find(email => email.id === selectedEmailId);
+      if (sentEmail) return convertSentEmailToUI(sentEmail);
+
+      return undefined;
     })();
 
   // Reset response options when email changes
@@ -737,12 +880,6 @@ function App() {
                         onEmailSelect={(emailId) => setSelectedEmailId(emailId)}
                       />
                     </div>
-                  ) : currentFilter === 'waiting' ? (
-                    <div className="h-full overflow-y-auto">
-                      <WaitingOnReplyList
-                        onViewEmail={(emailId) => setSelectedEmailId(emailId)}
-                      />
-                    </div>
                   ) : filteredEmails.length === 0 && !emailsLoading ? (
                     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                       <Mail className="h-12 w-12 text-gray-400 mb-4" />
@@ -750,7 +887,6 @@ function App() {
                         {currentFilter === 'sent' ? 'No sent emails yet' :
                          currentFilter === 'saved' ? 'No saved emails yet' :
                          currentFilter === 'archived' ? 'No archived emails yet' :
-                         currentFilter === 'waiting' ? 'No threads waiting for reply' :
                          isFocusMode && currentFilter === 'inbox' ? 'No action-required emails' :
                          'No new emails yet'}
                       </h3>
@@ -761,8 +897,6 @@ function App() {
                           ? 'Emails you bookmark will appear here.'
                           : currentFilter === 'archived'
                           ? 'Emails you archive will appear here.'
-                          : currentFilter === 'waiting'
-                          ? 'When you send a reply, Aiden will track if you get a response.'
                           : isFocusMode && currentFilter === 'inbox'
                           ? 'Emails requiring action will appear here.'
                           : 'Emails that arrive will appear here.'}
@@ -921,105 +1055,187 @@ function App() {
                         }
                       >
                           <div className="max-w-4xl mx-auto">
-                            <div className="mb-6">
-                              <div className="flex items-start justify-between">
-                                <h2 className="text-2xl font-bold text-foreground mb-2">{selectedEmail.subject}</h2>
-                                <div className="flex items-center gap-2">
-                                  {/* Respond button - only show when viewing inbox emails, not sent */}
-                                  {selectedEmailId && !sentEmails.find(e => e.id === selectedEmailId) && !showResponseOptions && (
-                                    <button
-                                      onClick={() => setShowResponseOptions(true)}
-                                      className="flex-shrink-0"
-                                      title="Respond to this email"
-                                    >
-                                      <MessageSquare className="w-5 h-5 text-gray-400 hover:text-gray-600 transition-colors" />
-                                    </button>
+                            {/* Check if this is a sent email - show full thread */}
+                            {sentEmails.find(e => e.id === selectedEmail.id) ? (
+                              <>
+                                {/* Thread view for sent emails */}
+                                {(() => {
+                                  const threadId = selectedEmail.thread_id;
+                                  console.log('[Sent Thread View] selectedEmail:', { id: selectedEmail.id, thread_id: threadId, subject: selectedEmail.subject });
+                                  if (!threadId) return null;
+
+                                  // Get all emails in this thread (both received and sent)
+                                  const allThreadEmails = [
+                                    ...emails.filter(e => e.thread_id === threadId || e.id === threadId),
+                                    ...sentEmails.filter(e => e.thread_id === threadId || e.id === threadId)
+                                  ].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+
+                                  console.log('[Sent Thread View] Thread emails found:', allThreadEmails.map(e => ({ id: e.id, thread_id: e.thread_id, subject: e.subject, date: e.date, isSent: !!sentEmails.find(se => se.id === e.id) })));
+
+                                  return (
+                                    <div className="space-y-6">
+                                      {allThreadEmails.map((threadEmail, idx) => {
+                                        const isSent = sentEmails.find(e => e.id === threadEmail.id);
+                                        const emailData = isSent ? convertSentEmailToUI(threadEmail) : convertToUIEmail(threadEmail);
+
+                                        return (
+                                          <div key={threadEmail.id} className={`border-l-4 ${isSent ? 'border-blue-400 bg-blue-50/30 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700'} pl-4 py-2`}>
+                                            <div className="mb-2">
+                                              <div className="flex items-center gap-2 text-sm">
+                                                <span className={`font-medium ${isSent ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white'}`}>
+                                                  {isSent ? `To: ${emailData.recipients || threadEmail.recipients}` : `${emailData.from?.name || 'Unknown'} <${emailData.from?.email || ''}>`}
+                                                </span>
+                                                <span className="text-gray-500">•</span>
+                                                <span className="text-gray-500">{new Date(threadEmail.date || 0).toLocaleString()}</span>
+                                                {isSent && (
+                                                  <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded">Sent</span>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div className="prose prose-sm max-w-none dark:prose-invert">
+                                              {emailData.bodyHtml || emailData.body_html ? (
+                                                <div className="email-html-content" dangerouslySetInnerHTML={{ __html: emailData.bodyHtml || emailData.body_html || '' }} />
+                                              ) : (
+                                                <div className="whitespace-pre-wrap text-foreground">
+                                                  {(emailData.content || '').startsWith(emailData.subject)
+                                                    ? emailData.content.substring(emailData.subject.length).trim()
+                                                    : (emailData.content || '')}
+                                                </div>
+                                              )}
+                                            </div>
+                                            {/* Show attachments for this email in thread */}
+                                            {emailData.attachments && emailData.attachments.length > 0 && (
+                                              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                  <Paperclip className="w-4 h-4 text-gray-500" />
+                                                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                                                    {emailData.attachments.length} attachment{emailData.attachments.length > 1 ? 's' : ''}
+                                                  </span>
+                                                </div>
+                                                {emailData.attachments.map((attachment: any) => (
+                                                  <AttachmentItem
+                                                    key={attachment.id}
+                                                    attachment={attachment}
+                                                    messageId={emailData.id}
+                                                    emailSubject={emailData.subject}
+                                                    emailSender={`${emailData.from?.name || ''} <${emailData.from?.email || ''}>`.trim()}
+                                                    emailBody={emailData.body || emailData.content || emailData.snippet}
+                                                    emailSummary={emails.find(e => e.id === emailData.id)?.summary}
+                                                  />
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
+                              </>
+                            ) : (
+                              <>
+                                {/* Single email view for regular inbox emails */}
+                                <div className="mb-6">
+                                  <div className="flex items-start justify-between">
+                                    <h2 className="text-2xl font-bold text-foreground mb-2">{selectedEmail.subject}</h2>
+                                    <div className="flex items-center gap-2">
+                                      {/* Respond button - only show when viewing inbox emails, not sent */}
+                                      {selectedEmailId && !sentEmails.find(e => e.id === selectedEmailId) && !showResponseOptions && (
+                                        <button
+                                          onClick={() => setShowResponseOptions(true)}
+                                          className="flex-shrink-0"
+                                          title="Respond to this email"
+                                        >
+                                          <MessageSquare className="w-5 h-5 text-gray-400 hover:text-gray-600 transition-colors" />
+                                        </button>
+                                      )}
+                                      {/* Archive button */}
+                                      <button
+                                        onClick={() => {
+                                          const fullEmail = emails.find(e => e.id === selectedEmail.id);
+                                          if (fullEmail?.status === 'Archived') {
+                                            updateEmailStatus(selectedEmail.id, 'Unhandled');
+                                          } else {
+                                            updateEmailStatus(selectedEmail.id, 'Archived');
+                                          }
+                                        }}
+                                        className="flex-shrink-0"
+                                        title="Archive email"
+                                      >
+                                        <Archive
+                                          className={`w-5 h-5 ${emails.find(e => e.id === selectedEmail.id)?.status === 'Archived' ? 'text-purple-500 fill-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
+                                        />
+                                      </button>
+                                      {/* Save button */}
+                                      <button
+                                        onClick={() => {
+                                          const fullEmail = emails.find(e => e.id === selectedEmail.id);
+                                          if (fullEmail?.status === 'Saved') {
+                                            updateEmailStatus(selectedEmail.id, 'Unhandled');
+                                          } else {
+                                            updateEmailStatus(selectedEmail.id, 'Saved');
+                                          }
+                                        }}
+                                        className="flex-shrink-0"
+                                        title="Save email"
+                                      >
+                                        <Bookmark
+                                          className={`w-5 h-5 ${emails.find(e => e.id === selectedEmail.id)?.status === 'Saved' ? 'fill-purple-500 text-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
+                                        />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center space-x-4 text-sm text-muted">
+                                    <span>From: {selectedEmail.from?.name} &lt;{selectedEmail.from?.email}&gt;</span>
+                                    <span>{selectedEmail.timestamp}</span>
+                                  </div>
+                                </div>
+
+                                <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:text-foreground">
+                                  {selectedEmail.bodyHtml || selectedEmail.body_html ? (
+                                    <div className="email-html-content" dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml || selectedEmail.body_html || '' }} />
+                                  ) : (
+                                    <div className="whitespace-pre-wrap text-foreground">
+                                      {(selectedEmail.content || '').startsWith(selectedEmail.subject)
+                                        ? selectedEmail.content.substring(selectedEmail.subject.length).trim()
+                                        : (selectedEmail.content || '')}
+                                    </div>
                                   )}
-                                  {/* Archive button */}
-                                  <button
-                                    onClick={() => {
-                                      const fullEmail = emails.find(e => e.id === selectedEmail.id);
-                                      if (fullEmail?.status === 'Archived') {
-                                        updateEmailStatus(selectedEmail.id, 'Unhandled');
-                                      } else {
-                                        updateEmailStatus(selectedEmail.id, 'Archived');
-                                      }
-                                    }}
-                                    className="flex-shrink-0"
-                                    title="Archive email"
-                                  >
-                                    <Archive
-                                      className={`w-5 h-5 ${emails.find(e => e.id === selectedEmail.id)?.status === 'Archived' ? 'text-purple-500 fill-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
-                                    />
-                                  </button>
-                                  {/* Save button */}
-                                  <button
-                                    onClick={() => {
-                                      const fullEmail = emails.find(e => e.id === selectedEmail.id);
-                                      if (fullEmail?.status === 'Saved') {
-                                        updateEmailStatus(selectedEmail.id, 'Unhandled');
-                                      } else {
-                                        updateEmailStatus(selectedEmail.id, 'Saved');
-                                      }
-                                    }}
-                                    className="flex-shrink-0"
-                                    title="Save email"
-                                  >
-                                    <Bookmark
-                                      className={`w-5 h-5 ${emails.find(e => e.id === selectedEmail.id)?.status === 'Saved' ? 'fill-purple-500 text-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
-                                    />
-                                  </button>
                                 </div>
-                              </div>
-                              <div className="flex items-center space-x-4 text-sm text-muted">
-                                <span>From: {selectedEmail.from?.name} &lt;{selectedEmail.from?.email}&gt;</span>
-                                <span>{selectedEmail.timestamp}</span>
-                              </div>
-                            </div>
 
-                            <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:text-foreground">
-                              {selectedEmail.bodyHtml || selectedEmail.body_html ? (
-                                <div className="email-html-content" dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml || selectedEmail.body_html || '' }} />
-                              ) : (
-                                <div className="whitespace-pre-wrap text-foreground">
-                                  {(selectedEmail.content || '').startsWith(selectedEmail.subject)
-                                    ? selectedEmail.content.substring(selectedEmail.subject.length).trim()
-                                    : (selectedEmail.content || '')}
-                                </div>
-                              )}
-                            </div>
+                                {/* Attachments Section */}
+                                {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
+                                  <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                                    <div className="flex items-center gap-2 mb-4">
+                                      <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                      </svg>
+                                      <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                        Attachments ({selectedEmail.attachments?.length || 0})
+                                      </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                      {selectedEmail.attachments?.map((attachment: any) => {
+                                        // Get the full email from store to include AI analysis data
+                                        const fullEmail = emails.find(e => e.id === selectedEmail.id);
+                                        const fullAttachment = fullEmail?.attachments?.find((a: any) => a.id === attachment.id) || attachment;
 
-                            {/* Attachments Section */}
-                            {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
-                              <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-                                <div className="flex items-center gap-2 mb-4">
-                                  <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                                  </svg>
-                                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                                    Attachments ({selectedEmail.attachments?.length || 0})
-                                  </p>
-                                </div>
-                                <div className="space-y-2">
-                                  {selectedEmail.attachments?.map((attachment: any) => {
-                                    // Get the full email from store to include AI analysis data
-                                    const fullEmail = emails.find(e => e.id === selectedEmail.id);
-                                    const fullAttachment = fullEmail?.attachments?.find((a: any) => a.id === attachment.id) || attachment;
-
-                                    return (
-                                      <AttachmentItem
-                                        key={attachment.id}
-                                        attachment={fullAttachment}
-                                        messageId={selectedEmail.id}
-                                        emailSubject={selectedEmail.subject}
-                                        emailSender={`${selectedEmail.from?.name || ''} <${selectedEmail.from?.email || ''}>`.trim()}
-                                        emailBody={selectedEmail.body || selectedEmail.content || selectedEmail.snippet}
-                                        emailSummary={fullEmail?.summary}
-                                      />
-                                    );
-                                  })}
-                                </div>
-                              </div>
+                                        return (
+                                          <AttachmentItem
+                                            key={attachment.id}
+                                            attachment={fullAttachment}
+                                            messageId={selectedEmail.id}
+                                            emailSubject={selectedEmail.subject}
+                                            emailSender={`${selectedEmail.from?.name || ''} <${selectedEmail.from?.email || ''}>`.trim()}
+                                            emailBody={selectedEmail.body || selectedEmail.content || selectedEmail.snippet}
+                                            emailSummary={fullEmail?.summary}
+                                          />
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                         </div>
