@@ -607,10 +607,12 @@ function App() {
 
   const handleEmailAction = (emailId: string, action: string) => {
     console.log(`Email ${emailId}: ${action}`);
+    // Find email in both emails and sentEmails arrays
+    const email = emails.find(e => e.id === emailId) || sentEmails.find(e => e.id === emailId);
+
     switch (action) {
       case 'save': {
         // Toggle save status
-        const email = emails.find(e => e.id === emailId);
         if (email) {
           const newStatus = email.status === 'Saved' ? 'Unhandled' : 'Saved';
           updateEmailStatus(emailId, newStatus);
@@ -619,7 +621,6 @@ function App() {
       }
       case 'archive': {
         // Toggle archive status
-        const email = emails.find(e => e.id === emailId);
         if (email) {
           const newStatus = email.status === 'Archived' ? 'Unhandled' : 'Archived';
           updateEmailStatus(emailId, newStatus);
@@ -628,7 +629,6 @@ function App() {
       }
       case 'delete': {
         // Soft delete with undo option
-        const email = emails.find(e => e.id === emailId);
         if (email) {
           const previousStatus = email.status;
           // Immediately mark as Deleted so it disappears from the list

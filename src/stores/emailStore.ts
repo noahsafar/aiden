@@ -1070,9 +1070,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       // TODO: Implement backend update via OAuth server if needed
       console.log(`Updating email ${emailId} status to ${status}`);
 
-      // Update local state
+      // Update local state - both emails and sentEmails
       set((state) => ({
         emails: state.emails.map(email =>
+          email.id === emailId ? { ...email, status } : email
+        ),
+        sentEmails: state.sentEmails.map(email =>
           email.id === emailId ? { ...email, status } : email
         ),
         selectedEmail: state.selectedEmail?.id === emailId
