@@ -697,7 +697,7 @@ function App() {
       duration: 5000,
       undo: () => {
         // Restore previous statuses
-        for (const [emailId, previousStatus] of previousStatuss) {
+        for (const [emailId, previousStatus] of previousStatuses) {
           updateEmailStatus(emailId, previousStatus as 'Unhandled' | 'Saved' | 'Replied' | 'Archived' | 'Deleted');
         }
       },
