@@ -417,15 +417,12 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
       // Archive (a) - works on selected emails or focused email
       if (e.key === 'a' || e.key === 'A') {
-        console.log('[Keyboard] Archive key pressed', { key: e.key, isSelectMode, selectedCount: selectedEmailIds.size, selectedIds: Array.from(selectedEmailIds) });
         e.preventDefault();
         if (isSelectMode && selectedEmailIds.size > 0) {
-          // Archive all selected emails
-          console.log('[Keyboard] Archiving selected emails:', Array.from(selectedEmailIds));
-          Array.from(selectedEmailIds).forEach(id => onEmailAction(id, 'archive'));
+          // Archive all selected emails using bulk action
+          bulkArchive();
           clearSelection();
         } else if (focusedEmailId) {
-          console.log('[Keyboard] Archiving focused email:', focusedEmailId);
           if (e.shiftKey) {
             // Archive entire thread
             for (const [threadId, threadEmails] of threadGroups.entries()) {
@@ -444,15 +441,12 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
       // Save (s) - works on selected emails or focused email
       if (e.key === 's' || e.key === 'S') {
-        console.log('[Keyboard] Save key pressed', { key: e.key, isSelectMode, selectedCount: selectedEmailIds.size, selectedIds: Array.from(selectedEmailIds) });
         e.preventDefault();
         if (isSelectMode && selectedEmailIds.size > 0) {
-          // Save all selected emails
-          console.log('[Keyboard] Saving selected emails:', Array.from(selectedEmailIds));
-          Array.from(selectedEmailIds).forEach(id => onEmailAction(id, 'save'));
+          // Save all selected emails using bulk action
+          bulkSave();
           clearSelection();
         } else if (focusedEmailId) {
-          console.log('[Keyboard] Saving focused email:', focusedEmailId);
           if (e.shiftKey) {
             // Save entire thread
             for (const [threadId, threadEmails] of threadGroups.entries()) {
@@ -471,15 +465,12 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
       // Delete (d) - works on selected emails or focused email
       if (e.key === 'd' || e.key === 'D') {
-        console.log('[Keyboard] Delete key pressed', { key: e.key, isSelectMode, selectedCount: selectedEmailIds.size, selectedIds: Array.from(selectedEmailIds) });
         e.preventDefault();
         if (isSelectMode && selectedEmailIds.size > 0) {
-          // Delete all selected emails
-          console.log('[Keyboard] Deleting selected emails:', Array.from(selectedEmailIds));
-          Array.from(selectedEmailIds).forEach(id => onEmailAction(id, 'delete'));
+          // Delete all selected emails using bulk action
+          bulkDelete();
           clearSelection();
         } else if (focusedEmailId) {
-          console.log('[Keyboard] Deleting focused email:', focusedEmailId);
           if (e.shiftKey) {
             // Delete entire thread
             for (const [threadId, threadEmails] of threadGroups.entries()) {
@@ -512,7 +503,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSelectMode, selectedEmailIds, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView, isEmailSelected, selectMultipleEmails, deselectMultipleEmails]);
+  }, [isSelectMode, selectedEmailIds, focusedEmailId, clearSelection, selectAllVisible, toggleEmailSelection, navigateEmail, onEmailAction, toggleThreadExpanded, threadGroups, onEmailSelect, onOpenFocusedView, isEmailSelected, selectMultipleEmails, deselectMultipleEmails, bulkArchive, bulkSave, bulkDelete]);
 
   // Helper to format date
   const formatDate = (dateString: string) => {
