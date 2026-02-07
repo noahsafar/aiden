@@ -658,10 +658,14 @@ function App() {
 
     // Store previous statuses for undo
     const previousStatuses = new Map<string, string>();
+    const threadIds = new Set<string>();
     for (const emailId of idsToDelete) {
       const email = emails.find(e => e.id === emailId);
       if (email) {
         previousStatuses.set(emailId, email.status);
+        if (email.thread_id) {
+          threadIds.add(email.thread_id);
+        }
       }
     }
 
@@ -673,16 +677,28 @@ function App() {
     // Clear selection
     useEmailStore.getState().clearSelection();
 
+    // Determine if we're deleting threads or individual emails
+    // If multiple emails from the same thread are selected, count it as thread deletion
+    const threadCount = threadIds.size;
+    const isThreadDeletion = threadCount > 0 && threadCount < idsToDelete.length;
+
     // Show toast with undo option
     const toastId = `bulk-delete-${Date.now()}`;
+    let message: string;
+    if (isThreadDeletion) {
+      message = `${threadCount} thread${threadCount > 1 ? 's' : ''} deleted`;
+    } else {
+      message = `${idsToDelete.length} email${idsToDelete.length > 1 ? 's' : ''} deleted`;
+    }
+
     setToasts(prev => [...prev, {
       id: toastId,
-      message: `${idsToDelete.length} email${idsToDelete.length > 1 ? 's' : ''} deleted`,
+      message,
       duration: 5000,
       undo: () => {
         // Restore previous statuses
-        for (const [emailId, previousStatus] of previousStatuses) {
-          updateEmailStatus(emailId, previousStatus);
+        for (const [emailId, previousStatus] of previousStatuss) {
+          updateEmailStatus(emailId, previousStatus as 'Unhandled' | 'Saved' | 'Replied' | 'Archived' | 'Deleted');
         }
       },
     }]);
