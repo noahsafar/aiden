@@ -636,11 +636,23 @@ function App() {
           // Immediately mark as Deleted so it disappears from the list
           updateEmailStatus(emailId, 'Deleted');
 
+          // Check if this email is part of a thread
+          const threadId = email.thread_id || email.id;
+          // Count how many emails are in this thread
+          const allEmailsInThread = [...emails, ...sentEmails].filter(e =>
+            (e.thread_id || e.id) === threadId
+          );
+          const isThreadDeletion = allEmailsInThread.length > 1;
+
           // Show toast with undo option
           const toastId = `delete-${emailId}-${Date.now()}`;
+          const message = isThreadDeletion
+            ? '1 thread deleted'
+            : 'Email deleted';
+
           setToasts(prev => [...prev, {
             id: toastId,
-            message: 'Email deleted',
+            message,
             duration: 5000,
             undo: () => {
               // Restore previous status
