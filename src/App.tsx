@@ -219,7 +219,9 @@ function App() {
     let result: Email[] = [];
 
     if (currentFilter === 'sent') {
-      result = sentEmails.map(convertSentEmailToUI);
+      result = sentEmails
+        .filter(e => e.status !== 'Deleted')
+        .map(convertSentEmailToUI);
     } else if (currentFilter === 'inbox') {
       // For inbox: show ONLY OVERDUE waiting-on-reply emails at top, then regular unhandled emails
       const now = new Date();
