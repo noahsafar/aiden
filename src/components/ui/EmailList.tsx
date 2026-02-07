@@ -752,7 +752,7 @@ export const EmailList: React.FC<EmailListProps> = ({
                       {isWaitingEmail ? `To: ${email.recipients || 'Unknown'}` : (email.from?.name || email.from?.email || 'Unknown')}
                     </span>
                     {!isWaitingEmail && <ActionBadge emailId={email.id} />}
-                    {email.status === 'Saved' && <span className="text-blue-500" title="Saved">◆</span>}
+                    {email.status === 'Saved' && !email.labels?.some((l: any) => l.name === 'Sent') && <span className="text-blue-500" title="Saved">◆</span>}
                     {/* Thread indicator */}
                     {isReply && !isWaitingEmail && (
                       <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-0.5" title={`Thread (${threadCount} messages)`}>

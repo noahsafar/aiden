@@ -221,7 +221,7 @@ function App() {
 
     if (currentFilter === 'sent') {
       result = sentEmails
-        .filter(e => e.status !== 'Deleted')
+        .filter(e => e.status !== 'Deleted' && e.status !== 'Saved')
         .map(convertSentEmailToUI);
     } else if (currentFilter === 'inbox') {
       // For inbox: show ONLY OVERDUE waiting-on-reply emails at top, then regular unhandled emails
