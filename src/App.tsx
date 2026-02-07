@@ -683,7 +683,8 @@ function App() {
     const previousStatuses = new Map<string, string>();
     const threadIds = new Set<string>();
     for (const emailId of idsToDelete) {
-      const email = emails.find(e => e.id === emailId);
+      // Search in both emails and sentEmails arrays
+      const email = emails.find(e => e.id === emailId) || sentEmails.find(e => e.id === emailId);
       if (email) {
         previousStatuses.set(emailId, email.status);
         if (email.thread_id) {
