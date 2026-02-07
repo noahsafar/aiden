@@ -22,6 +22,7 @@ interface EmailListProps {
   onTriggerReply?: () => void;
   onTriggerArchive?: () => void;
   onOpenFocusedView?: () => void;  // Open email in focused/full-screen view
+  onBulkDelete?: (emailIds?: string[]) => void;  // Bulk delete with undo toast
 }
 
 // Helper function to get reply requirement data for an email
@@ -141,6 +142,7 @@ export const EmailList: React.FC<EmailListProps> = ({
   onTriggerReply = () => {},
   onTriggerArchive = () => {},
   onOpenFocusedView = () => {},
+  onBulkDelete,
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const [shortcutsCollapsed, setShortcutsCollapsed] = useState(true);
@@ -252,7 +254,14 @@ export const EmailList: React.FC<EmailListProps> = ({
         await bulkArchive();
         break;
       case 'delete':
-        await bulkDelete();
+        if (onBulkDelete) {
+          // Use custom bulk delete with undo toast
+          const selectedIds = Array.from(selectedEmailIds);
+          onBulkDelete(selectedIds);
+        } else {
+          // Fall back to regular bulk delete
+          await bulkDelete();
+        }
         break;
       case 'markRead':
         await bulkMarkAsRead();
@@ -261,7 +270,7 @@ export const EmailList: React.FC<EmailListProps> = ({
         bulkSave();
         break;
     }
-  }, [bulkArchive, bulkDelete, bulkMarkAsRead, bulkSave]);
+  }, [bulkArchive, bulkDelete, bulkMarkAsRead, bulkSave, onBulkDelete, selectedEmailIds]);
 
   // Get the index of the currently focused email
   const focusedIndex = emails.findIndex((email: any) => email.id === focusedEmailId);

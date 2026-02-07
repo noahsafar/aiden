@@ -642,13 +642,50 @@ function App() {
             duration: 5000,
             undo: () => {
               // Restore previous status
-              updateEmailStatus(emailId, previousStatus);
+              updateEmailStatus(emailId, previousStatus as 'Unhandled' | 'Saved' | 'Replied' | 'Archived' | 'Deleted');
             },
           }]);
         }
         break;
       }
     }
+  };
+
+  // Bulk action handlers with undo toast
+  const handleBulkDeleteWithUndo = async (emailIds: string[]) => {
+    const idsToDelete = emailIds.length > 0 ? emailIds : Array.from(useEmailStore.getState().selectedEmailIds);
+    if (idsToDelete.length === 0) return;
+
+    // Store previous statuses for undo
+    const previousStatuses = new Map<string, string>();
+    for (const emailId of idsToDelete) {
+      const email = emails.find(e => e.id === emailId);
+      if (email) {
+        previousStatuses.set(emailId, email.status);
+      }
+    }
+
+    // Immediately mark all as deleted
+    for (const emailId of idsToDelete) {
+      await updateEmailStatus(emailId, 'Deleted');
+    }
+
+    // Clear selection
+    useEmailStore.getState().clearSelection();
+
+    // Show toast with undo option
+    const toastId = `bulk-delete-${Date.now()}`;
+    setToasts(prev => [...prev, {
+      id: toastId,
+      message: `${idsToDelete.length} email${idsToDelete.length > 1 ? 's' : ''} deleted`,
+      duration: 5000,
+      undo: () => {
+        // Restore previous statuses
+        for (const [emailId, previousStatus] of previousStatuses) {
+          updateEmailStatus(emailId, previousStatus);
+        }
+      },
+    }]);
   };
 
   const dismissToast = (id: string) => {
@@ -992,6 +1029,7 @@ function App() {
                           onFocusEmail={setFocusedEmailId}
                           onOpenFocusedView={handleOpenFocusedView}
                           sortMode={sortMode}
+                          onBulkDelete={handleBulkDeleteWithUndo}
                         />
                       ) : (
                         <EmailList
@@ -1004,6 +1042,7 @@ function App() {
                           onEmailAction={handleEmailAction}
                           focusedEmailId={focusedEmailId}
                           onFocusEmail={setFocusedEmailId}
+                          onBulkDelete={handleBulkDeleteWithUndo}
                           onTriggerReply={() => {
                             // Select the email first if not selected
                             if (focusedEmailId && focusedEmailId !== selectedEmailId) {

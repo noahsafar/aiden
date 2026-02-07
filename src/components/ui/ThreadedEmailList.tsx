@@ -73,6 +73,7 @@ interface ThreadedEmailListProps {
   onFocusEmail: (id: string) => void;
   onOpenFocusedView?: () => void;
   sortMode?: 'date' | 'importance';
+  onBulkDelete?: (emailIds?: string[]) => void;
 }
 
 export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
@@ -84,6 +85,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
   onFocusEmail,
   onOpenFocusedView,
   sortMode = 'date',
+  onBulkDelete,
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const [shortcutsCollapsed, setShortcutsCollapsed] = useState(true);
@@ -254,13 +256,20 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         await bulkArchive();
         break;
       case 'delete':
-        await bulkDelete();
+        if (onBulkDelete) {
+          // Use custom bulk delete with undo toast
+          const selectedIds = Array.from(selectedEmailIds);
+          onBulkDelete(selectedIds);
+        } else {
+          // Fall back to regular bulk delete
+          await bulkDelete();
+        }
         break;
       case 'save':
         bulkSave();
         break;
     }
-  }, [bulkArchive, bulkDelete, bulkSave]);
+  }, [bulkArchive, bulkDelete, bulkSave, onBulkDelete, selectedEmailIds]);
 
   // Navigate to next/previous email (navigates through threads)
   const navigateEmail = useCallback((direction: 'next' | 'prev') => {
