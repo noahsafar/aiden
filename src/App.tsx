@@ -678,9 +678,9 @@ function App() {
     useEmailStore.getState().clearSelection();
 
     // Determine if we're deleting threads or individual emails
-    // If multiple emails from the same thread are selected, count it as thread deletion
     const threadCount = threadIds.size;
-    const isThreadDeletion = threadCount > 0 && threadCount < idsToDelete.length;
+    // If we have threads (threadCount > 0), show thread count instead of email count
+    const isThreadDeletion = threadCount > 0;
 
     // Show toast with undo option
     const toastId = `bulk-delete-${Date.now()}`;
