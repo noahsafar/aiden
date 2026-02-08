@@ -134,8 +134,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
       });
       // Combine: sent emails + received emails from the same threads
       allEmails = [...emails, ...receivedEmailsInThreads];
-    } else if (currentFilter === 'saved') {
-      // In saved view: don't add sent emails - saved sent emails are already included in emails array
+    } else if (currentFilter === 'saved' || currentFilter === 'archived') {
+      // In saved/archived view: don't add sent emails - saved/archived sent emails are already included in emails array
       allEmails = [...emails];
     } else {
       // In inbox view: add sent emails to received emails
@@ -722,7 +722,7 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                         {(mostRecent.from?.name || mostRecent.sender)}
                       </span>
                       <ActionBadge emailId={mostRecent.id} />
-                      {mostRecent.status === 'Saved' && (
+                      {mostRecent.status === 'Saved' && !mostRecent.labels?.some((l: any) => l.name === 'Sent') && !mostRecent.waiting_on_reply_since && !mostRecent.recipients && (
                         <Bookmark className="w-3 h-3 text-purple-500" />
                       )}
                       {mostRecent.is_starred && (
