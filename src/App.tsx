@@ -44,6 +44,7 @@ import {
   Target,
   PenSquare,
   Paperclip,
+  Send,
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -1197,14 +1198,41 @@ function App() {
                                         return (
                                           <div key={threadEmail.id} className={`border-l-4 ${isSent ? 'border-blue-400 bg-blue-50/30 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700'} pl-4 py-2`}>
                                             <div className="mb-2">
-                                              <div className="flex items-center gap-2 text-sm">
-                                                <span className={`font-medium ${isSent ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white'}`}>
-                                                  {isSent ? `To: ${emailData.recipients || threadEmail.recipients}` : `${emailData.from?.name || 'Unknown'} <${emailData.from?.email || ''}>`}
-                                                </span>
-                                                <span className="text-gray-500">•</span>
-                                                <span className="text-gray-500">{new Date(threadEmail.date || 0).toLocaleString()}</span>
+                                              <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2 text-sm">
+                                                  <span className={`font-medium ${isSent ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white'}`}>
+                                                    {isSent ? `To: ${emailData.recipients || threadEmail.recipients}` : `${emailData.from?.name || 'Unknown'} <${emailData.from?.email || ''}>`}
+                                                  </span>
+                                                  <span className="text-gray-500">•</span>
+                                                  <span className="text-gray-500">{new Date(threadEmail.date || 0).toLocaleString()}</span>
+                                                  {isSent && (
+                                                    <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded">Sent</span>
+                                                  )}
+                                                </div>
                                                 {isSent && (
-                                                  <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded">Sent</span>
+                                                  <div className="ml-4">
+                                                    <Button
+                                                      variant="outline"
+                                                      size="sm"
+                                                      onClick={() => {
+                                                        // Bump the thread by selecting this email and opening reply
+                                                        setSelectedEmailId(emailData.id);
+                                                        setFocusedEmailId(emailData.id);
+                                                        setShowResponseOptions(true);
+                                                        setTimeout(() => {
+                                                          const replyBox = document.querySelector('[data-reply-section] textarea') as HTMLTextAreaElement;
+                                                          if (replyBox) {
+                                                            replyBox.value = 'Bump';
+                                                            replyBox.focus();
+                                                          }
+                                                        }, 100);
+                                                      }}
+                                                      className="hover:bg-white dark:hover:bg-white/10 text-xs py-1 h-7"
+                                                    >
+                                                      <Send className="h-3 w-3 mr-1" />
+                                                      Bump
+                                                    </Button>
+                                                  </div>
                                                 )}
                                               </div>
                                             </div>
@@ -1299,6 +1327,28 @@ function App() {
                                           className={`w-5 h-5 ${emails.find(e => e.id === selectedEmail.id)?.status === 'Saved' ? 'fill-purple-500 text-purple-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
                                         />
                                       </button>
+                                      {/* Bump button - show for all sent emails */}
+                                      {selectedEmail.labels?.some((l: any) => l.name === 'Sent') && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            // Bump the thread by opening reply with "Bump" context
+                                            setShowResponseOptions(true);
+                                            setTimeout(() => {
+                                              const replyBox = document.querySelector('[data-reply-section] textarea') as HTMLTextAreaElement;
+                                              if (replyBox) {
+                                                replyBox.value = 'Bump';
+                                                replyBox.focus();
+                                              }
+                                            }, 100);
+                                          }}
+                                          className="hover:bg-white dark:hover:bg-white/10 text-xs py-1 h-7"
+                                        >
+                                          <Send className="h-3 w-3 mr-1" />
+                                          Bump
+                                        </Button>
+                                      )}
                                     </div>
                                   </div>
                                   <div className="flex items-center space-x-4 text-sm text-muted">
