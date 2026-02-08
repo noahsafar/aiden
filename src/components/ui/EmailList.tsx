@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
-import { Clock, BellOff, Send, ChevronDown } from 'lucide-react';
+import { Clock, BellOff, Send, ChevronDown, AlertTriangle } from 'lucide-react';
 
 interface EmailQuestionData {
   questions: string[];
@@ -94,6 +94,92 @@ function getWaitingEmailInfo(email: any, sentEmails: any[]): { daysWaiting: numb
   return { daysWaiting, isOverdue };
 }
 
+// Track dismissed attention flags (persists during session)
+if (!(window as any).dismissedAttentionEmails) {
+  (window as any).dismissedAttentionEmails = new Set<string>();
+}
+
+// Helper function to determine if an inbox email needs attention
+function getNeedsAttentionInfo(
+  email: any,
+  allEmails: any[],
+  sentEmails: any[],
+  sentReplyEmailIds: Set<string>
+): { reason: string; severity: 'urgent' | 'warning'; deadline?: string } | null {
+  // Skip dismissed emails
+  if ((window as any).dismissedAttentionEmails?.has(email.id)) return null;
+  // Skip sent emails / waiting-on-reply emails (they have their own banner)
+  if (email.waiting_on_reply_since) return null;
+  if (email.labels?.some((l: any) => l.name === 'Sent')) return null;
+  // Skip already handled emails
+  if (email.status === 'Replied' || email.status === 'Archived' || email.status === 'Saved' || email.status === 'Deleted') return null;
+
+  const now = new Date();
+  const emailDate = new Date(email.date || email.timestamp || 0);
+  const daysOld = Math.floor((now.getTime() - emailDate.getTime()) / (1000 * 60 * 60 * 24));
+
+  // Check if user already replied to this email
+  const hasReplied = sentReplyEmailIds.has(email.id);
+  if (hasReplied) return null;
+
+  // Check AI analysis data
+  const questionData = (window as any).emailQuestionData?.get(email.id);
+  const requiresReply = questionData?.loaded ? questionData.requiresReply : email.requires_reply;
+
+  // 1. Follow-up from sender: multiple emails in thread from same sender, no reply from user
+  if (email.thread_id) {
+    const threadEmails = allEmails.filter((e: any) =>
+      e.thread_id === email.thread_id && e.id !== email.id
+    );
+    const senderEmail = email.from?.email || email.sender || '';
+    const fromSameSender = threadEmails.filter((e: any) => {
+      const eSender = e.from?.email || e.sender || '';
+      return eSender === senderEmail;
+    });
+    // If sender sent multiple emails in this thread back-to-back and user hasn't replied
+    if (fromSameSender.length >= 2) {
+      const hasSentReplyInThread = sentEmails.some((se: any) =>
+        se.thread_id === email.thread_id || se.inReplyTo === email.id
+      );
+      if (!hasSentReplyInThread) {
+        return { reason: 'They followed up', severity: 'urgent' };
+      }
+    }
+  }
+
+  // 2. Upcoming deadline
+  if (questionData?.deadline) {
+    const deadlineStr = questionData.deadline;
+    const deadlineDate = new Date(deadlineStr);
+    const isValidDate = !isNaN(deadlineDate.getTime());
+    if (isValidDate) {
+      const daysUntil = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysUntil <= 7) {
+        const label = daysUntil <= 0 ? 'Overdue' : daysUntil === 1 ? 'Due tomorrow' : `Due in ${daysUntil} days`;
+        return { reason: `Upcoming deadline · ${label}`, severity: daysUntil <= 2 ? 'urgent' : 'warning', deadline: deadlineStr };
+      }
+    } else {
+      // Non-ISO deadline string (e.g. "next Friday") — still flag it
+      return { reason: `Upcoming deadline · ${deadlineStr}`, severity: 'warning', deadline: deadlineStr };
+    }
+  }
+
+  // 3. Urgent category
+  if (email.aiCategory === 'Urgent' || email.category === 'Urgent') {
+    return { reason: 'Urgent', severity: 'urgent' };
+  }
+
+  // 4. Unanswered too long (requires reply + old)
+  if (requiresReply && daysOld >= 2) {
+    return {
+      reason: `No response · ${daysOld} ${daysOld === 1 ? 'day' : 'days'}`,
+      severity: daysOld > 4 ? 'urgent' : 'warning',
+    };
+  }
+
+  return null;
+}
+
 // Component for the action badge - memoized for performance (defined outside to prevent re-creation)
 const ActionBadge = React.memo(({ emailId }: { emailId: string }) => {
   const data = getEmailReplyData(emailId);
@@ -149,6 +235,7 @@ export const EmailList: React.FC<EmailListProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
   const [shortcutsCollapsed, setShortcutsCollapsed] = useState(true);
   const [snoozeDropdownOpen, setSnoozeDropdownOpen] = useState<string | null>(null);
+  const [, setDismissCounter] = useState(0);
 
   // Bulk selection state from store
   const {
@@ -163,6 +250,7 @@ export const EmailList: React.FC<EmailListProps> = ({
     bulkSave,
     isEmailSelected,
     sentEmails,
+    sentReplyEmailIds,
     cancelReminder,
     snoozeReminder,
     currentFilter,
@@ -593,8 +681,11 @@ export const EmailList: React.FC<EmailListProps> = ({
           const isReply = isReplyEmail(email, emails);
           const threadCount = getThreadCount(email.id, emails);
 
-          // Check if this is a waiting-on-reply sent email that needs follow-up (AI determined)
-          const isWaitingEmail = !!email.waiting_on_reply_since && email.needs_follow_up === true;
+          // Check if this is a waiting-on-reply sent email that needs follow-up (AI determined, 1+ day old)
+          const isWaitingEmail = !!email.waiting_on_reply_since && email.needs_follow_up === true &&
+            (Math.floor((Date.now() - new Date(email.waiting_on_reply_since).getTime()) / (1000 * 60 * 60 * 24)) >= 1);
+          // Check if this inbox email needs attention
+          const needsAttention = !isWaitingEmail ? getNeedsAttentionInfo(email, emails, sentEmails, sentReplyEmailIds) : null;
           const isOverdue = email.waiting_on_reply_since ? (() => {
             const now = new Date();
             const waitingSince = new Date(email.waiting_on_reply_since);
@@ -631,14 +722,18 @@ export const EmailList: React.FC<EmailListProps> = ({
                       : (isOverdue?.isOverdue
                           ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 shadow-sm'
                           : 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700'))
-                  : (isSelected
+                  : needsAttention && !isSelected && !isFocused && selectedEmailId !== email.id
+                    ? (needsAttention.severity === 'urgent'
+                        ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 shadow-sm'
+                        : 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 shadow-sm')
+                    : (isSelected
                       ? 'border-purple-500 dark:border-purple-400 ring-2 ring-purple-200 dark:ring-purple-900 bg-purple-50/50 dark:bg-purple-900/20'
                       : (isFocused
                           ? 'border-blue-500 dark:border-blue-400'
                           : (selectedEmailId === email.id
                               ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-200 dark:ring-blue-900'
                               : 'bg-surface dark:bg-gray-800 border-border')))
-              } ${isFyi && !isWaitingEmail ? 'opacity-60' : ''}`}
+              } ${isFyi && !isWaitingEmail && !needsAttention ? 'opacity-60' : ''}`}
               onClick={() => handleEmailClick(email.id)}
             >
               {/* Selection sidebar strip */}
@@ -779,6 +874,41 @@ export const EmailList: React.FC<EmailListProps> = ({
                 </div>
               )}
 
+              {/* Needs attention banner for inbox emails */}
+              {needsAttention && !isWaitingEmail && (
+                <div className={`py-2 mb-3 flex items-center justify-between -mx-4 -mt-4 rounded-t-xl px-4 ${
+                  needsAttention.severity === 'urgent'
+                    ? 'bg-red-100 dark:bg-red-900/40'
+                    : 'bg-amber-100 dark:bg-amber-900/40'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className={`w-3.5 h-3.5 ${
+                      needsAttention.severity === 'urgent'
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-amber-600 dark:text-amber-400'
+                    }`} />
+                    <span className={`text-xs font-medium ${
+                      needsAttention.severity === 'urgent'
+                        ? 'text-red-700 dark:text-red-300'
+                        : 'text-amber-700 dark:text-amber-300'
+                    }`}>
+                      {needsAttention.reason}
+                    </span>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      (window as any).dismissedAttentionEmails?.add(email.id);
+                      setDismissCounter(c => c + 1);
+                    }}
+                    className="p-1 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    title="Dismiss"
+                  >
+                    <BellOff className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               <div className="flex items-start justify-between gap-2 pl-2">
                 <div className="flex-1 min-w-0">
                   {/* Top row: Sender, badges, indicators */}
@@ -795,6 +925,19 @@ export const EmailList: React.FC<EmailListProps> = ({
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                         </svg>
                         {threadCount > 1 && <span>{threadCount}</span>}
+                      </span>
+                    )}
+                    {/* Deadline indicator */}
+                    {needsAttention?.deadline && (
+                      <span className="text-xs font-medium text-red-600 dark:text-red-400 flex items-center gap-0.5">
+                        <Clock className="w-3 h-3" />
+                        {(() => {
+                          const d = new Date(needsAttention.deadline);
+                          if (!isNaN(d.getTime())) {
+                            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                          }
+                          return needsAttention.deadline;
+                        })()}
                       </span>
                     )}
                     {/* Attachment indicator */}

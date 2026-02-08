@@ -623,6 +623,7 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
         requiresReply: result.requires_reply,
         replyReasoning: result.reply_reasoning,
         meetingRequest: result.meeting_request || { is_meeting: false },
+        deadline: result.deadline || null,
         loaded: true,
       });
     } else {
@@ -1748,17 +1749,19 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
     const reminderDue = new Date(now.getTime() + reminderDelay * 24 * 60 * 60 * 1000);
 
-    // Update the sent email with reminder tracking
+    // Update the sent email with reminder tracking (only if follow-up is needed)
     const sentEmail = state.sentEmails.find(e => e.id === sentEmailId);
     if (sentEmail) {
       const updatedSentEmails = state.sentEmails.map(e =>
         e.id === sentEmailId
           ? {
               ...e,
-              waiting_on_reply_since: now.toISOString(),
-              reminder_due_date: reminderDue.toISOString(),
-              reminder_triggered: false,
-              reminder_count: 0,
+              ...(needsFollowUp ? {
+                waiting_on_reply_since: now.toISOString(),
+                reminder_due_date: reminderDue.toISOString(),
+                reminder_triggered: false,
+                reminder_count: 0,
+              } : {}),
               needs_follow_up: needsFollowUp,
             }
           : e
@@ -1787,6 +1790,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           : e
       );
       set({ emails: updatedEmails });
+
+      // Auto-dismiss any attention flag on the original email
+      (window as any).dismissedAttentionEmails?.add(originalEmailId);
 
       // Track that we've replied to this email
       const sentReplyEmailIds = new Set(state.sentReplyEmailIds);
@@ -2636,6 +2642,42 @@ TechCorp`,
         action_items: ['Send resume (PDF)', 'Send academic transcript', 'Send portfolio or GitHub link', 'Provide availability for interview'],
         requires_reply: true,
       },
+      // Deadline email - application with upcoming deadline
+      {
+        id: `sample-22`,
+        gmail_id: `sample-22`,
+        thread_id: `${baseThreadId}14`,
+        subject: 'Summer Research Fellowship - Application Deadline Approaching',
+        sender: 'Dr. Emily Chen <emily.chen@stanford.edu>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 60 * 24 * 2).toISOString(), // 2 days ago
+        body_text: `Hi,
+
+I wanted to follow up on our conversation about the Summer Research Fellowship in AI/ML at Stanford. The application portal is now open and I'd love for you to apply.
+
+Here are the key details:
+- Application deadline: ${new Date(Date.now() + 1000 * 60 * 60 * 24 * 4).toISOString().split('T')[0]} (4 days from now)
+- Duration: 10 weeks (June - August)
+- Stipend: $8,000 + housing
+- You'll need to submit a research proposal (2 pages max) and your CV
+
+I think you'd be a great fit given your background in machine learning. Let me know if you have any questions about the program or need a recommendation letter.
+
+Best,
+Dr. Emily Chen
+Associate Professor, Computer Science
+Stanford University`,
+        snippet: 'Summer Research Fellowship application deadline approaching...',
+        is_read: false,
+        is_starred: false,
+        has_attachments: false,
+        status: 'Unhandled',
+        category: 'Important',
+        summary: 'Dr. Chen is inviting you to apply for a Summer Research Fellowship at Stanford with a deadline in 4 days',
+        key_points: ['Summer Research Fellowship in AI/ML at Stanford', 'Application deadline in 4 days', 'Stipend: $8,000 + housing', 'Need research proposal (2 pages) and CV'],
+        action_items: ['Submit application before deadline', 'Prepare 2-page research proposal', 'Update CV', 'Consider asking for recommendation letter'],
+        requires_reply: true,
+      },
     ];
 
     // Set the sample emails in the store
@@ -2676,6 +2718,12 @@ TechCorp`,
           { type: 'choice', question: 'Should we also include your transcript and portfolio?', options: ['Yes, all documents', 'Resume and transcript only', 'I\'ll send portfolio separately'] },
           { type: 'text', question: 'What is your availability for an interview this week or next?', options: [] },
         ];
+      } else if (email.id === 'sample-22') {
+        // Deadline email - research fellowship
+        questions = [
+          { type: 'choice', question: 'Are you interested in applying for this fellowship?', options: ['Yes, I\'ll apply', 'Maybe, need more info', 'Not this time'] },
+          { type: 'choice', question: 'Do you need a recommendation letter from Dr. Chen?', options: ['Yes please', 'No, I have one already', 'I\'ll ask someone else'] },
+        ];
       } else {
         // Legacy emails - use action_items
         questions = email.action_items.map(a => ({ question: a, options: [], type: 'text' })) || [];
@@ -2698,6 +2746,10 @@ TechCorp`,
           { keyword: 'transcript', file_type: 'pdf', description: 'Please attach your academic transcript' },
           { keyword: 'portfolio', file_type: null, description: 'Please attach your portfolio or provide GitHub link' },
         ] : [],
+        // Add deadline for sample-22 (deadline test email)
+        deadline: email.id === 'sample-22'
+          ? new Date(Date.now() + 1000 * 60 * 60 * 24 * 4).toISOString().split('T')[0]
+          : null,
       });
     });
 
@@ -2710,6 +2762,7 @@ TechCorp`,
     console.log('  - Finance/invoices');
     console.log('  - Social notifications');
     console.log('  - Attachment request emails (resume, transcript, portfolio)');
+    console.log('  - Deadline email (Stanford research fellowship, due in 4 days)');
     console.log('  - QUESTION GENERATION TEST EMAILS:');
     console.log('    • "Team lunch this Friday" - Choice questions (4 restaurant options + yes/no)');
     console.log('    • "Shipping address for your gift" - Choice + text input questions');

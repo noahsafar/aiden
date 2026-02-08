@@ -35,6 +35,8 @@ export interface AnalyzeEmailResponse {
   mentioned_document_types: string[];
   // Separate attachment requests from questions (shown before Generate Reply)
   attachment_requests: AttachmentRequest[];
+  // Deadline extracted from email (e.g. "2025-02-15", "next Friday", "March 1st")
+  deadline?: string | null;
 }
 
 export interface AttachmentRequest {

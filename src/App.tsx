@@ -326,6 +326,49 @@ function App() {
       );
     }
 
+    // Shared helpers for sorting
+    const isWaitingAndReady = (e: any) => !!e.waiting_on_reply_since && e.needs_follow_up === true &&
+      Math.floor((Date.now() - new Date(e.waiting_on_reply_since).getTime()) / (1000 * 60 * 60 * 24)) >= 1;
+
+    const getNeedsAttentionScore = (email: any): number => {
+      if ((window as any).dismissedAttentionEmails?.has(email.id)) return 0;
+      if (email.waiting_on_reply_since) return 0; // handled separately
+      if (email.status === 'Replied' || email.status === 'Archived' || email.status === 'Saved') return 0;
+      if (email.labels?.some((l: any) => l.name === 'Sent')) return 0;
+      const sentReplyIds = useEmailStore.getState().sentReplyEmailIds;
+      if (sentReplyIds.has(email.id)) return 0;
+
+      const questionData = (window as any).emailQuestionData?.get(email.id);
+      const requiresReply = questionData?.loaded ? questionData.requiresReply : email.requires_reply;
+      const now = new Date();
+      const daysOld = Math.floor((now.getTime() - new Date(email.date || 0).getTime()) / (1000 * 60 * 60 * 24));
+
+      // Follow-up from sender
+      if (email.thread_id) {
+        const threadEmails = result.filter(e => e.thread_id === email.thread_id && e.id !== email.id);
+        const senderEmail = email.from?.email || '';
+        const fromSameSender = threadEmails.filter((e: any) => (e.from?.email || '') === senderEmail);
+        if (fromSameSender.length >= 2) {
+          const hasSentReplyInThread = sentEmails.some((se: any) => se.thread_id === email.thread_id || se.inReplyTo === email.id);
+          if (!hasSentReplyInThread) return 3; // highest priority
+        }
+      }
+      // Upcoming deadline
+      if (questionData?.deadline) {
+        const deadlineDate = new Date(questionData.deadline);
+        if (!isNaN(deadlineDate.getTime())) {
+          const daysUntil = Math.ceil((now.getTime() - deadlineDate.getTime()) / (1000 * 60 * 60 * 24) * -1);
+          if (daysUntil <= 2) return 3;
+          if (daysUntil <= 7) return 2;
+        } else {
+          return 2; // non-ISO deadline, treat as important
+        }
+      }
+      if (email.aiCategory === 'Urgent' || email.category === 'Urgent') return 2;
+      if (requiresReply && daysOld >= 2) return daysOld > 4 ? 2 : 1;
+      return 0;
+    };
+
     // Sort by selected mode
     if (sortMode === 'importance') {
       // Sort by category priority: Urgent > Important > Normal > Low
@@ -334,8 +377,8 @@ function App() {
       return result.sort((a, b) => {
         // For sent page: sort by how long waiting (oldest first = most important)
         if (currentFilter === 'sent') {
-          const aIsWaiting = !!a.waiting_on_reply_since;
-          const bIsWaiting = !!b.waiting_on_reply_since;
+          const aIsWaiting = isWaitingAndReady(a);
+          const bIsWaiting = isWaitingAndReady(b);
 
           // Waiting emails come first, sorted by how long they've been waiting
           if (aIsWaiting && bIsWaiting) {
@@ -351,8 +394,8 @@ function App() {
         }
 
         // For other pages (inbox, etc.): keep waiting emails at top
-        const aIsWaiting = !!a.waiting_on_reply_since;
-        const bIsWaiting = !!b.waiting_on_reply_since;
+        const aIsWaiting = isWaitingAndReady(a);
+        const bIsWaiting = isWaitingAndReady(b);
         if (aIsWaiting !== bIsWaiting) {
           return aIsWaiting ? -1 : 1;
         }
@@ -364,7 +407,14 @@ function App() {
           return aDays - bDays; // Oldest first (most overdue)
         }
 
-        // For regular emails, sort by category
+        // Needs-attention emails come next (same logic as date sort)
+        const aAttentionImp = getNeedsAttentionScore(a);
+        const bAttentionImp = getNeedsAttentionScore(b);
+        if (aAttentionImp !== bAttentionImp) {
+          return bAttentionImp - aAttentionImp;
+        }
+
+        // For regular emails, sort by category (Urgent naturally rises)
         const aCategory = a.aiCategory || 'Normal';
         const bCategory = b.aiCategory || 'Normal';
         const aOrder = categoryOrder[aCategory as keyof typeof categoryOrder] ?? 2;
@@ -384,11 +434,11 @@ function App() {
         });
       }
 
-      // For other pages: keep waiting emails at the top
+      // For other pages: keep waiting emails at top, then needs-attention, then regular
       return result.sort((a, b) => {
-        // Waiting emails always come first
-        const aIsWaiting = !!a.waiting_on_reply_since;
-        const bIsWaiting = !!b.waiting_on_reply_since;
+        // Waiting emails come first
+        const aIsWaiting = isWaitingAndReady(a);
+        const bIsWaiting = isWaitingAndReady(b);
         if (aIsWaiting !== bIsWaiting) {
           return aIsWaiting ? -1 : 1;
         }
@@ -398,6 +448,13 @@ function App() {
           const aDays = a.waiting_on_reply_since ? new Date(a.waiting_on_reply_since).getTime() : 0;
           const bDays = b.waiting_on_reply_since ? new Date(b.waiting_on_reply_since).getTime() : 0;
           return aDays - bDays; // Oldest first (most overdue)
+        }
+
+        // Needs-attention emails come next
+        const aAttention = getNeedsAttentionScore(a);
+        const bAttention = getNeedsAttentionScore(b);
+        if (aAttention !== bAttention) {
+          return bAttention - aAttention; // Higher score first
         }
 
         // For regular emails, sort by date (newest first)

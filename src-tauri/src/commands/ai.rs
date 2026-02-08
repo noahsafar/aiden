@@ -332,6 +332,8 @@ pub struct AnalyzeEmailResponse {
     pub mentioned_document_types: Vec<String>,
     // New field for attachment suggestions
     pub attachment_requests: Vec<AttachmentRequest>,
+    // Deadline extracted from email (e.g. "2025-02-15", "next Friday", "March 1st")
+    pub deadline: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -397,7 +399,8 @@ Respond in this exact JSON format:
   "attachment_requests": [
     {{"keyword": "resume", "file_type": "pdf", "description": "They want your resume"}},
     {{"keyword": "transcript", "file_type": null, "description": "They're asking for your transcript"}}
-  ]
+  ],
+  "deadline": null
 }}
 
 Guidelines:
@@ -411,6 +414,9 @@ Guidelines:
   * keyword: The main thing they're asking for (e.g., "resume", "portfolio", "transcript", "cover letter")
   * file_type: Specific format if mentioned (pdf, docx, xlsx, jpg), or null if not specified
   * description: Brief description of what they want
+
+- Deadline: Extract any deadline, due date, or time-sensitive date mentioned in the email. Use ISO format (YYYY-MM-DD) if possible, otherwise use the exact phrase from the email (e.g. "next Friday", "end of this week"). Set to null if no deadline is mentioned.
+  Examples: application deadlines, RSVP dates, submission due dates, expiration dates, event dates requiring action before them.
 
 IMPORTANT - Set requires_reply to FALSE for:
 - Newsletters, marketing emails, notifications, or automated emails
@@ -456,6 +462,9 @@ Set requires_reply to TRUE for:
         .and_then(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).ok())
         .unwrap_or_default();
 
+    let deadline = parsed["deadline"].as_str()
+        .map(|s| s.to_string());
+
     Ok(AnalyzeEmailResponse {
         questions,
         suggested_formality_score,
@@ -465,6 +474,7 @@ Set requires_reply to TRUE for:
         missing_attachment_warning,
         mentioned_document_types,
         attachment_requests,
+        deadline,
     })
 }
 
