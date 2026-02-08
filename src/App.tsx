@@ -1210,7 +1210,7 @@ function App() {
                                                   )}
                                                 </div>
                                                 {isSent && (
-                                                  <div className="ml-4">
+                                                  <div className="ml-4 pr-4">
                                                     <Button
                                                       variant="outline"
                                                       size="sm"
