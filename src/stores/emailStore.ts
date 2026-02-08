@@ -1578,6 +1578,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const idsToSave = emailIds || Array.from(state.selectedEmailIds);
     if (idsToSave.length === 0) return;
 
+    console.log('[bulkSave] === START BULK SAVE ===');
+    console.log('[bulkSave] emailIds parameter:', emailIds);
+    console.log('[bulkSave] selectedEmailIds:', Array.from(state.selectedEmailIds));
+    console.log('[bulkSave] idsToSave (final):', idsToSave);
+    console.log('[bulkSave] Current sentEmails statuses:', state.sentEmails.map(e => ({ id: e.id, subject: e.subject?.substring(0, 30), status: e.status })));
+
     // Save/unsaves each email by toggling its status in both arrays
     set((state) => ({
       emails: state.emails.map(email =>
@@ -1591,6 +1597,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           : email
       ),
     }));
+
+    console.log('[bulkSave] After save - sentEmails statuses:', get().sentEmails.map(e => ({ id: e.id, subject: e.subject?.substring(0, 30), status: e.status })));
+    console.log('[bulkSave] === END BULK SAVE ===');
 
     // Clear selection after bulk action
     get().clearSelection();
@@ -1663,6 +1672,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     threadMap.forEach(threadEmails => {
       threadEmails.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     });
+    // Debug logging
+    console.log('[groupEmailsByThread] Thread groups created:', Array.from(threadMap.entries()).map(([tid, emails]) => ({
+      threadId: tid,
+      count: emails.length,
+      emailIds: emails.map(e => ({ id: e.id, subject: e.subject?.substring(0, 30), thread_id: e.thread_id }))
+    })));
     return threadMap;
   },
 

@@ -338,6 +338,9 @@ export const EmailList: React.FC<EmailListProps> = ({
     handleBulkAction,
     selectedEmailIds,
     currentFilter,
+    emails,
+    sentEmails,
+    cancelReminder,
   });
 
   // Update refs when callbacks change
@@ -358,6 +361,9 @@ export const EmailList: React.FC<EmailListProps> = ({
       handleBulkAction,
       selectedEmailIds,
       currentFilter,
+      emails,
+      sentEmails,
+      cancelReminder,
     };
   });
 
@@ -471,6 +477,22 @@ export const EmailList: React.FC<EmailListProps> = ({
           break;
         case 'd':
           e.preventDefault();
+          // Check if focused email is a waiting-on-reply email in INBOX - if so, dismiss instead of delete
+          if (cb.focusedEmailId && cb.currentFilter !== 'sent') {
+            const focusedEmail = cb.emails?.find((e: any) => e.id === cb.focusedEmailId);
+            if (focusedEmail?.waiting_on_reply_since) {
+              // This is a waiting-on-reply email in inbox, dismiss the reminder
+              const sentEmail = cb.sentEmails?.find((se: any) =>
+                se.subject === focusedEmail.subject &&
+                Math.abs(new Date(se.date).getTime() - new Date(focusedEmail.date || 0).getTime()) < 1000
+              );
+              if (sentEmail?.id && cb.cancelReminder) {
+                cb.cancelReminder(sentEmail.id);
+              }
+              break;
+            }
+          }
+          // Regular email OR sent view - delete it
           cb.deleteEmail();
           break;
       }
@@ -569,8 +591,8 @@ export const EmailList: React.FC<EmailListProps> = ({
           const isReply = isReplyEmail(email, emails);
           const threadCount = getThreadCount(email.id, emails);
 
-          // Check if this is a waiting-on-reply sent email - check by the waiting field directly
-          const isWaitingEmail = !!email.waiting_on_reply_since;
+          // Check if this is a waiting-on-reply sent email that needs follow-up (AI determined)
+          const isWaitingEmail = !!email.waiting_on_reply_since && email.needs_follow_up === true;
           const isOverdue = email.waiting_on_reply_since ? (() => {
             const now = new Date();
             const waitingSince = new Date(email.waiting_on_reply_since);
@@ -643,7 +665,8 @@ export const EmailList: React.FC<EmailListProps> = ({
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
-                    {(isOverdue?.isOverdue || currentFilter === 'sent') && (
+                    {/* Show bump button for all sent emails (in sent view or waiting emails in inbox) */}
+                    {isWaitingEmail || email.labels?.some((l: any) => l.name === 'Sent') ? (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleEmailClick(email.id); }}
                         className={`p-1 bg-white dark:bg-gray-800 border rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
@@ -655,10 +678,12 @@ export const EmailList: React.FC<EmailListProps> = ({
                       >
                         <Send className="w-3.5 h-3.5" />
                       </button>
-                    )}
-                    {/* Only show snooze and dismiss in inbox, not in sent page */}
-                    {currentFilter !== 'sent' && (
+                    ) : null}
+                    {/* Snooze and dismiss buttons - snooze only in inbox, dismiss in both */}
+                    {isWaitingEmail && (
                       <>
+                        {/* Show snooze button: always in inbox, only for overdue emails in sent */}
+                        {currentFilter !== 'sent' || isOverdue?.isOverdue ? (
                         <div className="relative">
                           <button
                             onClick={(e) => {
@@ -731,6 +756,7 @@ export const EmailList: React.FC<EmailListProps> = ({
                             </div>
                           )}
                         </div>
+                        ) : null}
                         <button
                           onClick={handleDismiss}
                           className="p-1 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"

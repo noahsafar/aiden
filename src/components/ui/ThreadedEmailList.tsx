@@ -134,13 +134,22 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
       });
       // Combine: sent emails + received emails from the same threads
       allEmails = [...emails, ...receivedEmailsInThreads];
+    } else if (currentFilter === 'saved') {
+      // In saved view: don't add sent emails - saved sent emails are already included in emails array
+      allEmails = [...emails];
     } else {
       // In inbox view: add sent emails to received emails
-      allEmails = [...emails, ...sentEmails];
+      // BUT avoid duplicates - sent emails might already be in emails array (e.g., overdue sent emails shown in inbox)
+      const emailIds = new Set(emails.map((e: any) => e.id));
+      const uniqueSentEmails = sentEmails.filter((e: any) => !emailIds.has(e.id));
+      allEmails = [...emails, ...uniqueSentEmails];
     }
 
     const groups = groupEmailsByThread(allEmails);
-    console.log('[threadGroups] groups:', Array.from(groups.entries()).map(([tid, emails]) => [tid, emails.map((e: any) => ({ id: e.id, isSent: !!sentEmails.find(se => se.id === e.id) }))]));
+    console.log('[threadGroups] groups:', Array.from(groups.entries()).map(([tid, emails]) => [
+      tid,
+      emails.map((e: any) => ({ id: e.id, subject: e.subject?.substring(0, 30), isSent: !!sentEmails.find(se => se.id === e.id), status: (emails.find((em: any) => em.id === e.id) as any)?.status }))
+    ]));
     console.log('[threadGroups] alreadyIncludesSent:', alreadyIncludesSent, 'emails:', emails.length, 'emailsWithSentLabel:', emailsWithSentLabel.length, 'sentEmails:', sentEmails.length, 'allEmails:', allEmails.length);
     return groups;
   }, [emails, groupEmailsByThread, sentEmails, allStoreEmails]);
@@ -194,18 +203,31 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     const isThreadFocused = threadEmails.some((e: any) => e.id === focusedEmailId);
     const hasExistingSelection = currentSelection.size > 0;
 
+    console.log('[handleThreadHeaderClick] Thread clicked:', {
+      threadId,
+      emailId,
+      allSelected,
+      isThreadFocused,
+      hasExistingSelection,
+      threadEmailCount: threadEmails.length,
+      threadEmailIds: threadEmails.map((e: any) => ({ id: e.id, subject: e.subject?.substring(0, 30) }))
+    });
+
     if (allSelected) {
       // Thread is selected - deselect all emails in thread
+      console.log('[handleThreadHeaderClick] Deselecting all in thread');
       deselectMultipleEmails(threadEmails.map((e: any) => e.id));
       onEmailSelect(emailId);
       onFocusEmail(emailId);
     } else if (isThreadFocused || hasExistingSelection) {
       // Thread is focused OR there's already a selection - select all emails in thread
+      console.log('[handleThreadHeaderClick] Selecting all in thread');
       selectMultipleEmails(threadEmails.map((e: any) => e.id));
       onEmailSelect(emailId);
       onFocusEmail(emailId);
     } else {
       // Not focused and no existing selection - just focus it (don't select)
+      console.log('[handleThreadHeaderClick] Just focusing (no selection)');
       onEmailSelect(emailId);
       onFocusEmail(emailId);
     }
@@ -458,18 +480,21 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
         e.preventDefault();
         if (isSelectMode && selectedEmailIds.size > 0) {
           // Save all selected emails using bulk action
+          console.log('[ThreadedEmailList] Saving selected emails:', Array.from(selectedEmailIds));
           handleBulkAction('save');
         } else if (focusedEmailId) {
           if (e.shiftKey) {
             // Save entire thread
             for (const [threadId, threadEmails] of threadGroups.entries()) {
               if (threadEmails.some((email: any) => email.id === focusedEmailId)) {
+                console.log('[ThreadedEmailList] Saving entire thread:', { threadId, emailCount: threadEmails.length, emailIds: threadEmails.map((e: any) => e.id) });
                 threadEmails.forEach((email: any) => onEmailAction(email.id, 'save'));
                 break;
               }
             }
           } else {
             // Save just focused email
+            console.log('[ThreadedEmailList] Saving focused email:', focusedEmailId);
             onEmailAction(focusedEmailId, 'save');
           }
         }

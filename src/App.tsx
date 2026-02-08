@@ -229,6 +229,8 @@ function App() {
       const overdueEmails = sentEmails
         .filter(e => {
           if (!e.waiting_on_reply_since || !e.needs_follow_up) return false;
+          // Exclude saved emails from inbox
+          if (e.status === 'Saved') return false;
           // Only show if reminder is due/overdue
           if (!e.reminder_due_date) return false;
           return new Date(e.reminder_due_date) <= now;
@@ -300,6 +302,9 @@ function App() {
         const savedSentEmails = sentEmails
           .filter(e => e.status === 'Saved')
           .map(convertSentEmailToUI);
+        // Debug logging
+        console.log('[App] Saved filter - savedSentEmails:', savedSentEmails.map(e => ({ id: e.id, subject: e.subject, status: (sentEmails as any).find((se: any) => se.id === e.id)?.status })));
+        console.log('[App] Saved filter - All sentEmails with their statuses:', sentEmails.map((e: any) => ({ id: e.id, subject: e.subject, status: e.status })));
         result = [...result, ...savedSentEmails];
       }
     }
@@ -626,6 +631,7 @@ function App() {
         // Toggle save status
         if (email) {
           const newStatus = email.status === 'Saved' ? 'Unhandled' : 'Saved';
+          console.log('[handleEmailAction] Saving email:', { emailId, currentStatus: email.status, newStatus, subject: email.subject });
           updateEmailStatus(emailId, newStatus);
         }
         break;
@@ -639,35 +645,50 @@ function App() {
         break;
       }
       case 'delete': {
-        // Soft delete with undo option
+        // For waiting-on-reply emails in inbox: dismiss (cancel reminder)
+        // For waiting-on-reply emails in sent view: delete normally
+        // For regular emails: delete
         if (email) {
-          const previousStatus = email.status;
-          // Immediately mark as Deleted so it disappears from the list
-          updateEmailStatus(emailId, 'Deleted');
+          if (email.waiting_on_reply_since && currentFilter === 'inbox') {
+            // This is a waiting-on-reply email in inbox - dismiss the reminder
+            const { cancelReminder } = useEmailStore.getState();
+            cancelReminder(emailId);
 
-          // Check if this email is part of a thread
-          const threadId = email.thread_id || email.id;
-          // Count how many emails are in this thread
-          const allEmailsInThread = [...emails, ...sentEmails].filter(e =>
-            (e.thread_id || e.id) === threadId
-          );
-          const isThreadDeletion = allEmailsInThread.length > 1;
+            // Show toast
+            const toastId = `dismiss-${emailId}-${Date.now()}`;
+            setToasts(prev => [...prev, {
+              id: toastId,
+              message: 'Undo',
+              duration: 3000,
+            }]);
+          } else {
+            // Regular email OR waiting email in sent view - delete with undo
+            const previousStatus = email.status;
+            // Immediately mark as Deleted so it disappears from the list
+            updateEmailStatus(emailId, 'Deleted');
 
-          // Show toast with undo option
-          const toastId = `delete-${emailId}-${Date.now()}`;
-          const message = isThreadDeletion
-            ? '1 thread deleted'
-            : 'Email deleted';
+            // Check if this email is part of a thread
+            const threadId = email.thread_id || email.id;
+            // Count how many emails are in this thread
+            const allEmailsInThread = [...emails, ...sentEmails].filter(e =>
+              (e.thread_id || e.id) === threadId
+            );
+            const isThreadDeletion = allEmailsInThread.length > 1;
 
-          setToasts(prev => [...prev, {
-            id: toastId,
-            message,
-            duration: 5000,
-            undo: () => {
-              // Restore previous status
-              updateEmailStatus(emailId, previousStatus as 'Unhandled' | 'Saved' | 'Replied' | 'Archived' | 'Deleted');
-            },
-          }]);
+            // Show toast with undo option
+            const toastId = `delete-${emailId}-${Date.now()}`;
+            const message = 'Undo';
+
+            setToasts(prev => [...prev, {
+              id: toastId,
+              message,
+              duration: 5000,
+              undo: () => {
+                // Restore previous status
+                updateEmailStatus(emailId, previousStatus as 'Unhandled' | 'Saved' | 'Replied' | 'Archived' | 'Deleted');
+              },
+            }]);
+          }
         }
         break;
       }
@@ -679,11 +700,25 @@ function App() {
     const idsToDelete = emailIds.length > 0 ? emailIds : Array.from(useEmailStore.getState().selectedEmailIds);
     if (idsToDelete.length === 0) return;
 
-    // Store previous statuses for undo
+    // Separate waiting-on-reply emails in inbox (to be dismissed) from emails to be deleted
+    const waitingEmailIdsToDismiss: string[] = [];
+    const regularEmailIds: string[] = [];
+
+    for (const emailId of idsToDelete) {
+      const email = emails.find(e => e.id === emailId) || sentEmails.find(e => e.id === emailId);
+      // Only dismiss waiting emails in inbox, not in sent view
+      if (email?.waiting_on_reply_since && currentFilter === 'inbox') {
+        waitingEmailIdsToDismiss.push(emailId);
+      } else {
+        regularEmailIds.push(emailId);
+      }
+    }
+
+    // Store previous statuses for undo (only for emails being deleted)
     const previousStatuses = new Map<string, string>();
     const threadIds = new Set<string>();
-    for (const emailId of idsToDelete) {
-      // Search in both emails and sentEmails arrays
+
+    for (const emailId of regularEmailIds) {
       const email = emails.find(e => e.id === emailId) || sentEmails.find(e => e.id === emailId);
       if (email) {
         previousStatuses.set(emailId, email.status);
@@ -693,8 +728,14 @@ function App() {
       }
     }
 
-    // Immediately mark all as deleted
-    for (const emailId of idsToDelete) {
+    // Cancel reminders for waiting-on-reply emails in inbox (dismiss, don't delete)
+    const { cancelReminder } = useEmailStore.getState();
+    for (const emailId of waitingEmailIdsToDismiss) {
+      cancelReminder(emailId);
+    }
+
+    // Mark regular emails (and waiting emails in sent view) as deleted
+    for (const emailId of regularEmailIds) {
       await updateEmailStatus(emailId, 'Deleted');
     }
 
@@ -703,29 +744,24 @@ function App() {
 
     // Determine if we're deleting threads or individual emails
     const threadCount = threadIds.size;
-    // If we have threads (threadCount > 0), show thread count instead of email count
     const isThreadDeletion = threadCount > 0;
 
     // Show toast with undo option
     const toastId = `bulk-delete-${Date.now()}`;
-    let message: string;
-    if (isThreadDeletion) {
-      message = `${threadCount} thread${threadCount > 1 ? 's' : ''} deleted`;
-    } else {
-      message = `${idsToDelete.length} email${idsToDelete.length > 1 ? 's' : ''} deleted`;
-    }
+    const message = 'Undo';
 
     setToasts(prev => [...prev, {
       id: toastId,
       message,
       duration: 5000,
       undo: () => {
-        // Restore previous statuses
+        // Restore previous statuses for deleted regular emails (undo dismiss for waiting emails is not supported)
         for (const [emailId, previousStatus] of previousStatuses) {
           updateEmailStatus(emailId, previousStatus as 'Unhandled' | 'Saved' | 'Replied' | 'Archived' | 'Deleted');
         }
       },
     }]);
+
   };
 
   const dismissToast = (id: string) => {
