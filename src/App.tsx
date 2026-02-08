@@ -1185,6 +1185,21 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                             }, 100);
                           }}
                           onOpenFocusedView={handleOpenFocusedView}
+                          onBump={(emailId) => {
+                            // Select the email and trigger bump
+                            setSelectedEmailId(emailId);
+                            setFocusedEmailId(emailId);
+                            // Find the sent email and its thread to trigger bump
+                            const sentEmail = sentEmails.find(e => e.id === emailId);
+                            if (!sentEmail) return;
+                            const threadId = sentEmail.thread_id || sentEmail.id;
+                            const allThreadEmails = [
+                              ...emails.filter(e => e.thread_id === threadId || e.id === threadId),
+                              ...sentEmails.filter(e => e.thread_id === threadId || e.id === threadId)
+                            ].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+                            const emailData = convertSentEmailToUI(sentEmail);
+                            handleBump(emailData, allThreadEmails, sentEmail);
+                          }}
                         />
                       )}
                     </div>

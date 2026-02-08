@@ -23,6 +23,7 @@ interface EmailListProps {
   onTriggerArchive?: () => void;
   onOpenFocusedView?: () => void;  // Open email in focused/full-screen view
   onBulkDelete?: (emailIds?: string[]) => void;  // Bulk delete with undo toast
+  onBump?: (emailId: string) => void;  // Trigger AI bump for a sent email
 }
 
 // Helper function to get reply requirement data for an email
@@ -143,6 +144,7 @@ export const EmailList: React.FC<EmailListProps> = ({
   onTriggerArchive = () => {},
   onOpenFocusedView = () => {},
   onBulkDelete,
+  onBump,
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const [shortcutsCollapsed, setShortcutsCollapsed] = useState(true);
@@ -668,7 +670,14 @@ export const EmailList: React.FC<EmailListProps> = ({
                     {/* Show bump button for all sent emails (in sent view or waiting emails in inbox) */}
                     {isWaitingEmail || email.labels?.some((l: any) => l.name === 'Sent') ? (
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleEmailClick(email.id); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onBump) {
+                            onBump(email.id);
+                          } else {
+                            handleEmailClick(email.id);
+                          }
+                        }}
                         className={`p-1 bg-white dark:bg-gray-800 border rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
                           isOverdue?.isOverdue
                             ? 'text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/30'
