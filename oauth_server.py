@@ -1960,6 +1960,12 @@ Return ONLY valid JSON."""
             if additional_context:
                 additional_context_section = f"\n\nADDITIONAL CONTEXT/INSTRUCTIONS FROM USER:\n{additional_context}\n"
 
+            # Build sender tone section if available
+            sender_tone = data.get('sender_tone', None)
+            sender_tone_section = ""
+            if sender_tone:
+                sender_tone_section = f"\n\nSENDER'S TONE: {sender_tone} — Adapt your reply tone accordingly. For example, if frustrated/angry, be empathetic and solution-oriented. If excited, match their enthusiasm. If formal, stay formal.\n"
+
             # Determine style instruction based on user's chosen formality level
             if formality_level == 'formal':
                 style_instruction = "Use a formal, respectful tone appropriate for academic or professional contexts. Use proper salutations (e.g., 'Dear [Name]') and sign-offs (e.g., 'Best regards' or 'Sincerely')."
@@ -1983,7 +1989,7 @@ INCOMING EMAIL:
 {sender} wrote: {subject}
 
 {body_text[:1500]}
-{user_answers_context}{additional_context_section}
+{user_answers_context}{additional_context_section}{sender_tone_section}{sender_tone_section}
 YOUR PAST EMAILS TO THIS PERSON (your writing style - study tone and format):
 {examples}
 
@@ -2008,7 +2014,7 @@ Email from {sender}:
 Subject: {subject}
 
 {body_text[:1000]}
-{user_answers_context}{additional_context_section}
+{user_answers_context}{additional_context_section}{sender_tone_section}
 
 CRITICAL: {"If user choices are provided above, USE THEM! State your choice clearly like 'I would like [choice]' or 'I'll go with [choice]'." if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Ask them to clarify or say you're flexible."}
 {"IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above." if additional_context else ""}
@@ -2021,7 +2027,7 @@ Email from {sender}:
 Subject: {subject}
 
 {body_text[:1000]}
-{user_answers_context}{additional_context_section}
+{user_answers_context}{additional_context_section}{sender_tone_section}
 
 CRITICAL: {"If user choices are provided above, USE THEM! State your choice clearly like 'I would like [choice]' or 'I'll go with [choice]'." if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Ask them to clarify or say you're flexible."}
 {"IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above." if additional_context else ""}

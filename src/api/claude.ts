@@ -37,6 +37,8 @@ export interface AnalyzeEmailResponse {
   attachment_requests: AttachmentRequest[];
   // Deadline extracted from email (e.g. "2025-02-15", "next Friday", "March 1st")
   deadline?: string | null;
+  // Detected tone of the sender (e.g. "frustrated", "friendly", "neutral")
+  sender_tone?: string | null;
 }
 
 export interface AttachmentRequest {
@@ -106,6 +108,8 @@ export interface GenerateReplyRequest {
   learned_writing_style?: RecipientWritingStyle;
   // User's name for sign-off - prevents placeholder like "[Your Name]"
   user_name?: string;
+  // Detected tone of the sender's email (from analysis) - used to adapt reply
+  sender_tone?: string;
 }
 
 export interface GenerateReplyResponse {

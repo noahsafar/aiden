@@ -624,6 +624,7 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
         replyReasoning: result.reply_reasoning,
         meetingRequest: result.meeting_request || { is_meeting: false },
         deadline: result.deadline || null,
+        senderTone: result.sender_tone || null,
         loaded: true,
       });
     } else {
@@ -661,7 +662,11 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
     const authStore = useAuthStore.getState();
     const userName = authStore.user?.name || 'Your Name';
 
-    console.log(`[AI Processing] Calling reply API for ${emailId}`);
+    // Get sender tone from AI analysis if available
+    const questionData = (window as any).emailQuestionData?.get(emailId);
+    const senderTone = questionData?.senderTone || null;
+
+    console.log(`[AI Processing] Calling reply API for ${emailId}`, senderTone ? `(sender tone: ${senderTone})` : '');
     const baseURL = await serverURL();
     const response = await fetchWithTimeout(`${baseURL}/generate-reply`, {
       method: 'POST',
@@ -671,6 +676,7 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
         subject: email.subject,
         body_text: email.body_text,
         user_name: userName,
+        sender_tone: senderTone,
       }),
     }, 90000);
 
