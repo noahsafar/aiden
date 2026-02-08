@@ -13,6 +13,7 @@ import { Settings as SettingsPage } from '@/pages/Settings';
 import { Calendar } from '@/pages/Calendar';
 import { Crm } from '@/pages/Crm';
 import { AIComposeModal } from '@/components/email/AIComposeModal';
+import { editReply } from '@/api/claude';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ToastContainer, ToastData } from '@/components/ui/Toast';
@@ -113,6 +114,9 @@ function App() {
   const [emailPanelTopPosition, setEmailPanelTopPosition] = useState<number | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const [showResponseOptions, setShowResponseOptions] = useState(false);
+  const [bumpGenerating, setBumpGenerating] = useState<string | null>(null);
+  const [bumpDraft, setBumpDraft] = useState<{ emailId: string; threadId: string; recipient: string; subject: string; body: string } | null>(null);
+  const [bumpInstruction, setBumpInstruction] = useState('');
   const analysisPanelRef = React.useRef<HTMLDivElement>(null);
 
   // Convert email store format to UI format - use useCallback to avoid recreating on every render
@@ -788,6 +792,52 @@ function App() {
     // Start voice recognition for composing
   };
 
+  const handleBump = async (emailData: any, allThreadEmails: any[], threadEmail: any, instruction?: string) => {
+    const emailId = emailData.id;
+    setBumpGenerating(emailId);
+    try {
+      // Build thread context for AI
+      const threadContext = allThreadEmails.map((te: any) => {
+        const isSent = sentEmails.find(e => e.id === te.id);
+        const data = isSent ? convertSentEmailToUI(te) : convertToUIEmail(te);
+        return `${isSent ? 'You' : data.from?.name || 'Them'} (${new Date(te.date || 0).toLocaleDateString()}):\n${te.body_text || te.content || data.content || '(no content)'}`;
+      }).join('\n\n---\n\n');
+
+      const recipient = emailData.recipients || threadEmail.recipients || '';
+      const subject = emailData.subject || threadEmail.subject || '';
+
+      const prompt = `You are writing a short, friendly follow-up email. The user sent an email and hasn't received a response yet. Based on the thread below, write a brief follow-up that politely bumps the conversation.
+
+Thread context:
+${threadContext}
+
+Subject: ${subject}
+Recipient: ${recipient}
+
+Rules:
+- Keep it short (2-4 sentences)
+- Be polite and professional but not overly formal
+- Reference the original email naturally
+- Don't be pushy
+- Return ONLY the email body text, no subject line or greeting/sign-off headers
+${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
+
+      const generated = await editReply('', prompt);
+      setBumpDraft({
+        emailId,
+        threadId: threadEmail.thread_id || threadEmail.id,
+        recipient,
+        subject: subject.startsWith('Re: ') ? subject : `Re: ${subject}`,
+        body: generated,
+      });
+    } catch (error) {
+      console.error('Failed to generate bump:', error);
+      alert('Failed to generate follow-up. Please try again.');
+    } finally {
+      setBumpGenerating(null);
+    }
+  };
+
   const handleOpenFocusedView = () => {
     if (focusedEmailId || selectedEmailId) {
       // Clear any locked position when opening
@@ -1214,23 +1264,21 @@ function App() {
                                                     <Button
                                                       variant="outline"
                                                       size="sm"
-                                                      onClick={() => {
-                                                        // Bump the thread by selecting this email and opening reply
-                                                        setSelectedEmailId(emailData.id);
-                                                        setFocusedEmailId(emailData.id);
-                                                        setShowResponseOptions(true);
-                                                        setTimeout(() => {
-                                                          const replyBox = document.querySelector('[data-reply-section] textarea') as HTMLTextAreaElement;
-                                                          if (replyBox) {
-                                                            replyBox.value = 'Bump';
-                                                            replyBox.focus();
-                                                          }
-                                                        }, 100);
-                                                      }}
+                                                      disabled={bumpGenerating === emailData.id}
+                                                      onClick={() => handleBump(emailData, allThreadEmails, threadEmail)}
                                                       className="hover:bg-white dark:hover:bg-white/10 text-xs py-1 h-7"
                                                     >
-                                                      <Send className="h-3 w-3 mr-1" />
-                                                      Bump
+                                                      {bumpGenerating === emailData.id ? (
+                                                        <>
+                                                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-1" />
+                                                          Generating...
+                                                        </>
+                                                      ) : (
+                                                        <>
+                                                          <Send className="h-3 w-3 mr-1" />
+                                                          Bump
+                                                        </>
+                                                      )}
                                                     </Button>
                                                   </div>
                                                 )}
@@ -1275,6 +1323,109 @@ function App() {
                                     </div>
                                   );
                                 })()}
+                                {/* Bump draft review */}
+                                {bumpDraft && sentEmails.find(e => e.id === selectedEmail.id) && (
+                                  <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <span className="text-sm font-medium text-blue-700 dark:text-blue-300">AI Follow-Up Draft</span>
+                                      <button
+                                        onClick={() => setBumpDraft(null)}
+                                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </button>
+                                    </div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                                      To: {bumpDraft.recipient} &middot; {bumpDraft.subject}
+                                    </div>
+                                    <textarea
+                                      value={bumpDraft.body}
+                                      onChange={(e) => setBumpDraft({ ...bumpDraft, body: e.target.value })}
+                                      className="w-full min-h-[100px] p-3 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800/50 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y mb-3"
+                                    />
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        size="sm"
+                                        onClick={async () => {
+                                          try {
+                                            await useEmailStore.getState().sendEmail(
+                                              bumpDraft.recipient,
+                                              bumpDraft.subject,
+                                              bumpDraft.body,
+                                              bumpDraft.emailId,
+                                            );
+                                            setBumpDraft(null);
+                                          } catch (error) {
+                                            console.error('Failed to send bump:', error);
+                                            alert('Failed to send follow-up.');
+                                          }
+                                        }}
+                                      >
+                                        <Send className="h-3 w-3 mr-1" />
+                                        Send
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => setBumpDraft(null)}
+                                      >
+                                        Cancel
+                                      </Button>
+                                      <input
+                                        type="text"
+                                        value={bumpInstruction}
+                                        onChange={(e) => setBumpInstruction(e.target.value)}
+                                        placeholder="Instructions for regeneration..."
+                                        className="flex-1 min-w-0 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400"
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' && !bumpGenerating) {
+                                            const threadId = selectedEmail.thread_id;
+                                            if (!threadId) return;
+                                            const te = [
+                                              ...emails.filter(em => em.thread_id === threadId || em.id === threadId),
+                                              ...sentEmails.filter(em => em.thread_id === threadId || em.id === threadId)
+                                            ].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+                                            const lastSent = [...te].reverse().find(em => sentEmails.find(se => se.id === em.id));
+                                            if (lastSent) {
+                                              handleBump(convertSentEmailToUI(lastSent), te, lastSent, bumpInstruction || undefined);
+                                              setBumpInstruction('');
+                                            }
+                                          }
+                                        }}
+                                      />
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={bumpGenerating !== null}
+                                        onClick={() => {
+                                          const threadId = selectedEmail.thread_id;
+                                          if (!threadId) return;
+                                          const te = [
+                                            ...emails.filter(em => em.thread_id === threadId || em.id === threadId),
+                                            ...sentEmails.filter(em => em.thread_id === threadId || em.id === threadId)
+                                          ].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+                                          const lastSent = [...te].reverse().find(em => sentEmails.find(se => se.id === em.id));
+                                          if (lastSent) {
+                                            handleBump(convertSentEmailToUI(lastSent), te, lastSent, bumpInstruction || undefined);
+                                            setBumpInstruction('');
+                                          }
+                                        }}
+                                      >
+                                        {bumpGenerating ? (
+                                          <>
+                                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-1" />
+                                            Regenerating...
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Sparkles className="h-3 w-3 mr-1" />
+                                            Regenerate
+                                          </>
+                                        )}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
                               </>
                             ) : (
                               <>

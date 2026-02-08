@@ -1242,9 +1242,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
       console.log('Email sent successfully');
 
-      // Find the original email to get its thread_id
+      // Find the original email to get its thread_id (check both inbox and sent)
       const state = get();
-      const originalEmail = inReplyTo ? state.emails.find(e => e.id === inReplyTo) : null;
+      const originalEmail = inReplyTo
+        ? state.emails.find(e => e.id === inReplyTo) || state.sentEmails.find(e => e.id === inReplyTo)
+        : null;
       const originalThreadId = originalEmail?.thread_id || originalEmail?.id || inReplyTo;
 
       // Add to sent emails with reference to original email
