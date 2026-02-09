@@ -1107,7 +1107,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
               </div>
 
               {/* Main Content Area */}
-              <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden relative" id="main-content-area">
+              <div className={`flex h-[calc(100vh-3.5rem)] overflow-hidden relative transition-all duration-300 ease-in-out ${isChatOpen ? 'mr-[400px]' : ''}`} id="main-content-area">
                 {/* Sidebar */}
                 <div className={`h-full flex-shrink-0 transition-all duration-500 ease-in-out overflow-hidden ${
                   animationPhase === 'idle' ? '' :
