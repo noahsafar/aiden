@@ -12,8 +12,10 @@ import { TestPage } from '@/components/TestPage';
 import { Settings as SettingsPage } from '@/pages/Settings';
 import { Calendar } from '@/pages/Calendar';
 import { Crm } from '@/pages/Crm';
+import { Scheduling } from '@/pages/Scheduling';
 import { AIComposeModal } from '@/components/email/AIComposeModal';
 import { ChatPanel } from '@/components/chat/ChatPanel';
+import { ChatTrigger } from '@/components/chat/ChatTrigger';
 import { useChatStore } from '@/stores/chatStore';
 import { editReply } from '@/api/claude';
 import { Button } from '@/components/ui/Button';
@@ -31,6 +33,7 @@ import {
   LogOut,
   Settings as SettingsIcon,
   Calendar as CalendarIcon,
+  Clock,
   Bookmark,
   File,
   Image,
@@ -686,7 +689,7 @@ function App() {
     };
   }, [selectedEmail, animationPhase]);
 
-  // Chat keyboard shortcut (Cmd+J)
+  // Keyboard shortcuts (Cmd+J for chat, r for respond)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd+J or Ctrl+J to toggle chat
@@ -697,12 +700,35 @@ function App() {
         } else {
           openChatPanel();
         }
+        return;
+      }
+
+      // r to trigger Respond button (inbox only, not sent)
+      if (e.key === 'r' && selectedEmail && !showResponseOptions && currentFilter !== 'sent') {
+        // Only trigger when not typing in an input field
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+          return;
+        }
+
+        // Check if this is a sent email (can't respond to sent emails)
+        const isSentEmail = sentEmails.find(e => e.id === selectedEmailId);
+        if (isSentEmail) {
+          return;
+        }
+
+        e.preventDefault();
+        // Find and click the Respond button
+        const respondButton = document.querySelector('[data-respond-button]') as HTMLButtonElement;
+        if (respondButton) {
+          respondButton.click();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isChatOpen, openChatPanel, closeChatPanel]);
+  }, [isChatOpen, openChatPanel, closeChatPanel, selectedEmail, selectedEmailId, sentEmails, currentFilter, showResponseOptions]);
 
   // Handle chat compose data to open AIComposeModal with pre-filled data
   useEffect(() => {
@@ -1042,10 +1068,12 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                     alt="Aiden Logo"
                     className="h-8 w-8 flex-shrink-0"
                   />
-                  <h1 className="text-lg font-bold text-gray-900 dark:text-white truncate">Aiden</h1>
-                  <span className="ml-2 text-sm text-gray-500 hidden sm:block truncate">
-                    {user ? user.email : 'Not logged in'}
-                  </span>
+                  <div className="flex items-center">
+                    <h1 className="text-lg font-bold text-gray-900 dark:text-white truncate leading-none">Aiden</h1>
+                    <span className="ml-2 text-sm text-gray-500 hidden sm:block truncate leading-tight pt-0.5">
+                      {user ? user.email : 'Not logged in'}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="flex-1 max-w-xl mx-4 hidden md:flex items-center gap-3">
@@ -1079,18 +1107,14 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                 </div>
 
                 <div className="flex items-center space-x-1 flex-shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    title="AI Assistant (Cmd+J)"
-                    onClick={isChatOpen ? closeChatPanel : openChatPanel}
-                  >
-                    <MessageSquare className={`h-4 w-4 ${isChatOpen ? 'text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-400'}`} />
-                  </Button>
                   <Link to="/crm">
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="Relationship Intelligence">
                       <Users className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                    </Button>
+                  </Link>
+                  <Link to="/scheduling">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Scheduling">
+                      <Clock className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                     </Button>
                   </Link>
                   <Link to="/calendar">
@@ -1265,19 +1289,6 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                           focusedEmailId={focusedEmailId}
                           onFocusEmail={setFocusedEmailId}
                           onBulkDelete={handleBulkDeleteWithUndo}
-                          onTriggerReply={() => {
-                            // Select the email first if not selected
-                            if (focusedEmailId && focusedEmailId !== selectedEmailId) {
-                              setSelectedEmailId(focusedEmailId);
-                            }
-                            // Scroll to the reply section
-                            setTimeout(() => {
-                              const replySection = document.querySelector('[data-reply-section]') as HTMLElement;
-                              if (replySection) {
-                                replySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                              }
-                            }, 100);
-                          }}
                           onOpenFocusedView={handleOpenFocusedView}
                           onBump={(emailId) => {
                             // Select the email and trigger bump
@@ -1548,7 +1559,8 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                         <button
                                           onClick={() => setShowResponseOptions(true)}
                                           className="flex-shrink-0"
-                                          title="Respond to this email"
+                                          title="Respond to this email (r)"
+                                          data-respond-button
                                         >
                                           <MessageSquare className="w-5 h-5 text-gray-400 hover:text-gray-600 transition-colors" />
                                         </button>
@@ -1604,6 +1616,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                             }, 100);
                                           }}
                                           className="hover:bg-white dark:hover:bg-white/10 text-xs py-1 h-7"
+                                          data-bump-button
                                         >
                                           <Send className="h-3 w-3 mr-1" />
                                           Bump
@@ -1836,6 +1849,18 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
         }
       />
 
+      {/* Scheduling route - protected */}
+      <Route
+        path="/scheduling"
+        element={
+          isAuthenticated ? (
+            <Scheduling />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+
       {/* Catch-all route - redirect to login if not authenticated, dashboard if authenticated */}
       <Route
         path="*"
@@ -1855,6 +1880,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
         initialSubject={chatComposeData?.subject}
         initialBody={chatComposeData?.body}
       />
+      <ChatTrigger />
       <ChatPanel />
     </OAuthHandler>
   );

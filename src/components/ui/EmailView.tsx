@@ -1718,6 +1718,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
               onClick={generateReply}
               variant="outline"
               className="w-full text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 py-2 text-sm"
+              data-generate-reply-button
             >
               Generate Reply
             </Button>

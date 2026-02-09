@@ -933,6 +933,9 @@ class OAuthHandler(BaseHTTPRequestHandler):
             # Root endpoint with simple status
             self.end_headers()
             self.wfile.write(b'OAuth server is running')
+        elif self.path.startswith('/book/'):
+            # Public booking page
+            self.handle_booking_page()
         else:
             self.send_error(404)
 
@@ -961,6 +964,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_calendar()
         elif self.path.startswith('/execute-command'):
             self.handle_execute_command()
+        elif self.path.startswith('/scheduling'):
+            self.handle_scheduling()
         else:
             self.send_error(404)
 
@@ -2967,6 +2972,1059 @@ Provide only the summary, no preamble."""
             self.end_headers()
             response = {'success': False, 'error': f'Calendar error: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
+
+    def handle_scheduling(self):
+        """Handle scheduling link operations - create, list, get, availability, book"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            action = data.get('action', '')
+            creds = get_stored_credentials()
+
+            if not creds:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': 'Not authenticated. Please sign in first.'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Build Calendar service
+            try:
+                calendar_service = build('calendar', 'v3', credentials=creds)
+            except Exception as e:
+                print(f"Error building calendar service: {e}")
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': f'Calendar service error: {str(e)}'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Import required modules
+            import uuid
+            from datetime import datetime, timedelta, timezone
+            import pytz
+
+            if action == 'create_link':
+                # Create a new scheduling link
+                title = data.get('title', 'Meeting')
+                duration = data.get('duration', 30)
+                description = data.get('description', '')
+                availability_config = data.get('availability', {})
+                user_timezone = data.get('timezone', 'America/New_York')
+
+                # Generate unique link ID
+                link_id = str(uuid.uuid4())[:8]
+
+                # Store scheduling link as a special calendar event
+                link_config = {
+                    'title': title,
+                    'duration': duration,
+                    'description': description,
+                    'timezone': user_timezone,
+                    'availability': availability_config,
+                    'created_at': datetime.now(timezone.utc).isoformat()
+                }
+
+                event_body = {
+                    'summary': f'SCHEDULING_LINK: {title}',
+                    'description': json.dumps(link_config),
+                    'start': {'date': '2999-01-01'},
+                    'end': {'date': '2999-01-02'},
+                    'transparency': 'transparent',
+                    'extendedProperties': {
+                        'private': {
+                            'link_id': link_id,
+                            'is_scheduling_link': 'true',
+                            'created_at': datetime.now(timezone.utc).isoformat()
+                        }
+                    }
+                }
+
+                created_event = calendar_service.events().insert(
+                    calendarId='primary',
+                    body=event_body
+                ).execute()
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'link_id': link_id,
+                    'event_id': created_event.get('id'),
+                    'public_url': f'/book/{link_id}'
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'list_links':
+                # List all scheduling links for the user
+                # Search for events with SCHEDULING_LINK prefix
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    q='SCHEDULING_LINK:',
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                events = events_result.get('items', [])
+                links = []
+
+                for event in events:
+                    summary = event.get('summary', '')
+                    if summary.startswith('SCHEDULING_LINK:'):
+                        try:
+                            config_json = event.get('description', '{}')
+                            config = json.loads(config_json)
+                            extended_props = event.get('extendedProperties', {})
+                            private_props = extended_props.get('private', {})
+                            link_id = private_props.get('link_id', '')
+
+                            links.append({
+                                'id': link_id,
+                                'event_id': event.get('id'),
+                                'title': config.get('title', 'Meeting'),
+                                'duration': config.get('duration', 30),
+                                'description': config.get('description', ''),
+                                'timezone': config.get('timezone', 'America/New_York'),
+                                'availability': config.get('availability', {}),
+                                'created_at': config.get('created_at', ''),
+                                'public_url': f'/book/{link_id}'
+                            })
+                        except json.JSONDecodeError:
+                            continue
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'links': links
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'get_link':
+                # Get scheduling link details by link_id
+                link_id = data.get('link_id')
+
+                if not link_id:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Missing link_id'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Search for the scheduling link event
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    q='SCHEDULING_LINK:',
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                events = events_result.get('items', [])
+                link_data = None
+
+                for event in events:
+                    extended_props = event.get('extendedProperties', {})
+                    private_props = extended_props.get('private', {})
+                    if private_props.get('link_id') == link_id:
+                        try:
+                            config_json = event.get('description', '{}')
+                            config = json.loads(config_json)
+                            link_data = {
+                                'id': link_id,
+                                'event_id': event.get('id'),
+                                'title': config.get('title', 'Meeting'),
+                                'duration': config.get('duration', 30),
+                                'description': config.get('description', ''),
+                                'timezone': config.get('timezone', 'America/New_York'),
+                                'availability': config.get('availability', {}),
+                                'created_at': config.get('created_at', ''),
+                                'public_url': f'/book/{link_id}'
+                            }
+                            break
+                        except json.JSONDecodeError:
+                            continue
+
+                if link_data:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': True, 'link': link_data}
+                    self.wfile.write(json.dumps(response).encode())
+                else:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Scheduling link not found'}
+                    self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'get_availability':
+                # Get available time slots for a scheduling link
+                link_id = data.get('link_id')
+
+                if not link_id:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Missing link_id'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # First, get the link configuration
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    q='SCHEDULING_LINK:',
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                events = events_result.get('items', [])
+                link_config = None
+
+                for event in events:
+                    extended_props = event.get('extendedProperties', {})
+                    private_props = extended_props.get('private', {})
+                    if private_props.get('link_id') == link_id:
+                        try:
+                            config_json = event.get('description', '{}')
+                            link_config = json.loads(config_json)
+                            break
+                        except json.JSONDecodeError:
+                            continue
+
+                if not link_config:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Scheduling link not found'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Get availability settings
+                availability = link_config.get('availability', {})
+                duration = link_config.get('duration', 30)
+                user_timezone = link_config.get('timezone', 'America/New_York')
+
+                days = availability.get('days', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+                start_hour = availability.get('start_hour', 9)
+                end_hour = availability.get('end_hour', 17)
+
+                # Day name to weekday mapping (0=Monday, 6=Sunday)
+                day_map = {
+                    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+                    'friday': 4, 'saturday': 5, 'sunday': 6
+                }
+                allowed_weekdays = [day_map.get(d.lower(), 0) for d in days]
+
+                user_tz = pytz.timezone(user_timezone)
+                utc_now = datetime.now(timezone.utc)
+                now_user = utc_now.astimezone(user_tz)
+
+                # Look for slots starting from tomorrow
+                start_date = now_user + timedelta(days=1)
+                start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+
+                # Look for the next 14 days
+                free_slots = []
+                current_date = start_date
+                search_end = start_date + timedelta(days=14)
+
+                # Get existing events to check for conflicts
+                existing_events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    timeMin=start_date.isoformat(),
+                    timeMax=search_end.isoformat(),
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                existing_events = existing_events_result.get('items', [])
+
+                while current_date < search_end:
+                    # Check if this day is allowed
+                    if current_date.weekday() not in allowed_weekdays:
+                        current_date += timedelta(days=1)
+                        continue
+
+                    # Generate time slots for this day
+                    slot_start = current_date.replace(hour=start_hour, minute=0)
+                    day_end = current_date.replace(hour=end_hour, minute=0)
+
+                    while slot_start + timedelta(minutes=duration) <= day_end:
+                        slot_end = slot_start + timedelta(minutes=duration)
+
+                        # Check for conflicts with existing events
+                        has_conflict = False
+                        for event in existing_events:
+                            event_start_str = event.get('start', {}).get('dateTime')
+                            event_end_str = event.get('end', {}).get('dateTime')
+
+                            if event_start_str and event_end_str:
+                                from dateutil import parser as date_parser
+                                event_start = date_parser.parse(event_start_str)
+                                event_end = date_parser.parse(event_end_str)
+
+                                if event_start.tzinfo is None:
+                                    event_start = user_tz.localize(event_start)
+                                else:
+                                    event_start = event_start.astimezone(user_tz)
+
+                                if event_end.tzinfo is None:
+                                    event_end = user_tz.localize(event_end)
+                                else:
+                                    event_end = event_end.astimezone(user_tz)
+
+                                # Check for overlap
+                                if not (event_end <= slot_start or event_start >= slot_end):
+                                    has_conflict = True
+                                    break
+
+                        if not has_conflict:
+                            free_slots.append({
+                                'date': slot_start.strftime('%Y-%m-%d'),
+                                'date_display': slot_start.strftime('%A, %B %d'),
+                                'time': slot_start.strftime('%I:%M %p').lstrip('0'),
+                                'start': slot_start.isoformat(),
+                                'end': slot_end.isoformat()
+                            })
+
+                        # Move to next slot (30-minute intervals)
+                        slot_start += timedelta(minutes=30)
+
+                    current_date += timedelta(days=1)
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'link_config': {
+                        'title': link_config.get('title', 'Meeting'),
+                        'duration': duration,
+                        'description': link_config.get('description', ''),
+                        'timezone': user_timezone
+                    },
+                    'available_slots': free_slots[:20]  # Limit to 20 slots
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'book_slot':
+                # Book a time slot
+                link_id = data.get('link_id')
+                name = data.get('name', '')
+                email = data.get('email', '')
+                message = data.get('message', '')
+                selected_slot = data.get('selected_slot')  # ISO datetime string
+
+                if not all([link_id, name, email, selected_slot]):
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Missing required fields'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Get the link configuration
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    q='SCHEDULING_LINK:',
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                events = events_result.get('items', [])
+                link_config = None
+
+                for event in events:
+                    extended_props = event.get('extendedProperties', {})
+                    private_props = extended_props.get('private', {})
+                    if private_props.get('link_id') == link_id:
+                        try:
+                            config_json = event.get('description', '{}')
+                            link_config = json.loads(config_json)
+                            break
+                        except json.JSONDecodeError:
+                            continue
+
+                if not link_config:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Scheduling link not found'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Parse the selected slot time
+                from dateutil import parser as date_parser
+                slot_start = date_parser.parse(selected_slot)
+                duration = link_config.get('duration', 30)
+                slot_end = slot_start + timedelta(minutes=duration)
+
+                # Get user info for the owner
+                owner_email = None
+                try:
+                    userinfo_service = build('oauth2', 'v2', credentials=creds)
+                    user_info = userinfo_service.userinfo().get().execute()
+                    owner_email = user_info.get('email')
+                    owner_name = user_info.get('name', '')
+                except:
+                    owner_email = 'me'
+                    owner_name = ''
+
+                # Create the calendar event
+                title = link_config.get('title', 'Meeting')
+                event_summary = f"{title} with {name}"
+
+                # Build description
+                event_description = f"Booked via Aiden Scheduling\n\n"
+                event_description += f"Attendee: {name} ({email})\n"
+                if message:
+                    event_description += f"\nMessage:\n{message}\n"
+
+                event_body = {
+                    'summary': event_summary,
+                    'description': event_description,
+                    'start': {
+                        'dateTime': slot_start.isoformat(),
+                    },
+                    'end': {
+                        'dateTime': slot_end.isoformat(),
+                    },
+                    'attendees': [
+                        {'email': email, 'displayName': name}
+                    ],
+                    'extendedProperties': {
+                        'private': {
+                            'booked_via_link': link_id,
+                            'booked_by_name': name,
+                            'booked_by_email': email
+                        }
+                    }
+                }
+
+                created_event = calendar_service.events().insert(
+                    calendarId='primary',
+                    body=event_body,
+                    sendUpdates='all'
+                ).execute()
+
+                # Send confirmation emails
+                try:
+                    self.send_booking_confirmation_emails(
+                        name, email, owner_email, owner_name,
+                        title, slot_start, slot_end, link_config.get('timezone', 'America/New_York'),
+                        message, created_event.get('htmlLink')
+                    )
+                except Exception as e:
+                    print(f"Error sending booking confirmation emails: {e}")
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'event_id': created_event.get('id'),
+                    'html_link': created_event.get('htmlLink')
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'delete_link':
+                # Delete a scheduling link
+                link_id = data.get('link_id')
+                event_id = data.get('event_id')
+
+                if not link_id or not event_id:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Missing link_id or event_id'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Delete the scheduling link event
+                calendar_service.events().delete(
+                    calendarId='primary',
+                    eventId=event_id
+                ).execute()
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': True}
+                self.wfile.write(json.dumps(response).encode())
+
+            else:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': f'Unknown action: {action}'}
+                self.wfile.write(json.dumps(response).encode())
+
+        except Exception as e:
+            print(f"Error in scheduling handler: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {'success': False, 'error': f'Scheduling error: {str(e)}'}
+            self.wfile.write(json.dumps(response).encode())
+
+    def send_booking_confirmation_emails(self, attendee_name, attendee_email, owner_email, owner_name,
+                                         meeting_title, slot_start, slot_end, timezone, message, event_link):
+        """Send booking confirmation emails to both attendee and owner"""
+        import pytz
+        from datetime import datetime, timezone as dt_timezone
+
+        user_tz = pytz.timezone(timezone)
+
+        # Format times for display
+        date_display = slot_start.strftime('%A, %B %d, %Y')
+        time_display = slot_start.strftime('%I:%M %p').lstrip('0') + ' - ' + slot_end.strftime('%I:%M %p').lstrip('0')
+
+        # Email to attendee
+        attendee_subject = f"Confirmed: {meeting_title} on {date_display}"
+        attendee_body = f"""Hi {attendee_name},
+
+Your meeting has been scheduled!
+
+Meeting: {meeting_title}
+Date: {date_display}
+Time: {time_display} ({timezone})
+
+"""
+
+        if owner_name:
+            attendee_body += f"with {owner_name}\n\n"
+
+        if message:
+            attendee_body += f"Your message: {message}\n\n"
+
+        attendee_body += f"""You can view the event details here:
+{event_link}
+
+If you need to reschedule or cancel, please reply to this email.
+
+See you soon!"""
+
+        # Email to owner
+        owner_subject = f"New Booking: {meeting_title} with {attendee_name}"
+        owner_body = f"""You have a new booking!
+
+Meeting: {meeting_title}
+Date: {date_display}
+Time: {time_display} ({timezone})
+Attendee: {attendee_name} ({attendee_email})
+"""
+
+        if message:
+            owner_body += f"\nMessage from attendee:\n{message}\n"
+
+        owner_body += f"""
+View event details:
+{event_link}"""
+
+        # Send emails using Gmail API
+        try:
+            creds = get_stored_credentials()
+            if creds:
+                gmail_service = build('gmail', 'v1', credentials=creds)
+
+                # Send to attendee
+                import base64
+                from email.message import EmailMessage
+
+                attendee_msg = EmailMessage()
+                attendee_msg.set_content(attendee_body)
+                attendee_msg.set_to(attendee_email)
+                attendee_msg.set_subject(attendee_subject)
+                attendee_msg.set_from(owner_email)
+
+                raw_attendee = base64.urlsafe_b64encode(attendee_msg.as_bytes()).decode()
+                gmail_service.users().messages().send(
+                    userId='me',
+                    body={'raw': raw_attendee}
+                ).execute()
+
+                # Send to owner
+                owner_msg = EmailMessage()
+                owner_msg.set_content(owner_body)
+                owner_msg.set_to(owner_email)
+                owner_msg.set_subject(owner_subject)
+                owner_msg.set_from(owner_email)
+
+                raw_owner = base64.urlsafe_b64encode(owner_msg.as_bytes()).decode()
+                gmail_service.users().messages().send(
+                    userId='me',
+                    body={'raw': raw_owner}
+                ).execute()
+
+                print(f"Sent booking confirmation emails to {attendee_email} and {owner_email}")
+        except Exception as e:
+            print(f"Error sending booking confirmation emails: {e}")
+            raise
+
+    def handle_booking_page(self):
+        """Serve the public booking page"""
+        try:
+            # Extract link_id from path
+            parts = self.path.split('/')
+            if len(parts) < 3:
+                self.send_error(404)
+                return
+
+            link_id = parts[2]
+
+            # Read the booking page template
+            template_path = Path(__file__).parent / 'templates' / 'booking_page.html'
+
+            if not template_path.exists():
+                # Create templates directory if it doesn't exist
+                template_path.parent.mkdir(exist_ok=True)
+
+                # Create a basic booking page template
+                template_content = self.generate_booking_page_template()
+
+                with open(template_path, 'w') as f:
+                    f.write(template_content)
+
+            with open(template_path, 'r') as f:
+                template = f.read()
+
+            # Replace placeholders
+            template = template.replace('{{LINK_ID}}', link_id)
+
+            # Get the server URL for API calls
+            import socket
+            server_host = self.server.server_address[0]
+            server_port = self.server.server_address[1]
+            api_base = f'http://{server_host}:{server_port}'
+
+            template = template.replace('{{API_BASE}}', api_base)
+
+            # Serve the page
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(template.encode('utf-8'))
+
+        except Exception as e:
+            print(f"Error serving booking page: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_error(500)
+
+    def generate_booking_page_template(self):
+        """Generate the booking page HTML template"""
+        return '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book a Meeting</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus,
+        input[type="email"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .slots-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .time-slot {
+            padding: 12px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+            font-size: 13px;
+        }
+
+        .time-slot:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .time-slot.selected {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .time-slot.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .date-header {
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            padding: 8px 0;
+            grid-column: 1 / -1;
+        }
+
+        .button {
+            width: 100%;
+            padding: 14px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .button:hover {
+            background: #5568d3;
+        }
+
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .success {
+            background: #efe;
+            color: #3c3;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .success h2 {
+            margin-bottom: 10px;
+            color: #3c3;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .details {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            color: #666;
+            font-size: 13px;
+        }
+
+        .detail-value {
+            font-weight: 500;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading available times...</p>
+        </div>
+
+        <div id="error" class="error hidden"></div>
+
+        <div id="booking-form" class="hidden">
+            <div class="header">
+                <h1 id="meeting-title">Book a Meeting</h1>
+                <p id="meeting-description"></p>
+            </div>
+
+            <div class="details">
+                <div class="detail-row">
+                    <span class="detail-label">Duration</span>
+                    <span class="detail-value" id="duration-display">30 min</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Timezone</span>
+                    <span class="detail-value" id="timezone-display">America/New_York</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Select a time slot</label>
+                <div id="slots-container" class="slots-grid"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="name">Name *</label>
+                <input type="text" id="name" required placeholder="Your name">
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email *</label>
+                <input type="email" id="email" required placeholder="your@email.com">
+            </div>
+
+            <div class="form-group">
+                <label for="message">Message (optional)</label>
+                <textarea id="message" placeholder="Any details for the meeting..."></textarea>
+            </div>
+
+            <button class="button" id="book-button" disabled>Book Meeting</button>
+        </div>
+
+        <div id="success" class="success hidden">
+            <h2>&#10003; Booking Confirmed!</h2>
+            <p>Your meeting has been scheduled.</p>
+            <p style="margin-top: 10px; font-size: 14px; color: #666;">
+                A calendar invitation has been sent to your email.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        const LINK_ID = '{{LINK_ID}}';
+        const API_BASE = '{{API_BASE}}';
+        let selectedSlot = null;
+        let linkConfig = null;
+
+        async function loadAvailability() {
+            try {
+                const response = await fetch(`${API_BASE}/scheduling`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'get_availability',
+                        link_id: LINK_ID
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    showError(data.error || 'Failed to load availability');
+                    return;
+                }
+
+                linkConfig = data.link_config;
+                document.getElementById('meeting-title').textContent = linkConfig.title;
+                document.getElementById('meeting-description').textContent = linkConfig.description || '';
+                document.getElementById('duration-display').textContent = `${linkConfig.duration} min`;
+                document.getElementById('timezone-display').textContent = linkConfig.timezone;
+
+                renderSlots(data.available_slots);
+
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('booking-form').classList.remove('hidden');
+
+            } catch (error) {
+                showError('Failed to load availability. Please try again.');
+                console.error(error);
+            }
+        }
+
+        function renderSlots(slots) {
+            const container = document.getElementById('slots-container');
+            container.innerHTML = '';
+
+            let currentDate = '';
+
+            slots.forEach((slot, index) => {
+                if (slot.date !== currentDate) {
+                    currentDate = slot.date;
+                    const dateHeader = document.createElement('div');
+                    dateHeader.className = 'date-header';
+                    dateHeader.textContent = slot.date_display;
+                    container.appendChild(dateHeader);
+                }
+
+                const slotEl = document.createElement('div');
+                slotEl.className = 'time-slot';
+                slotEl.textContent = slot.time;
+                slotEl.dataset.index = index;
+                slotEl.dataset.slot = JSON.stringify(slot);
+
+                slotEl.addEventListener('click', () => selectSlot(slotEl, slot));
+
+                container.appendChild(slotEl);
+            });
+        }
+
+        function selectSlot(element, slot) {
+            document.querySelectorAll('.time-slot').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+            selectedSlot = slot;
+            document.getElementById('book-button').disabled = false;
+        }
+
+        function showError(message) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error').textContent = message;
+            document.getElementById('error').classList.remove('hidden');
+        }
+
+        async function bookMeeting() {
+            const name = document.getElementById('name').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const message = document.getElementById('message').value.trim();
+
+            if (!name || !email || !selectedSlot) {
+                alert('Please fill in all required fields');
+                return;
+            }
+
+            const button = document.getElementById('book-button');
+            button.disabled = true;
+            button.textContent = 'Booking...';
+
+            try {
+                const response = await fetch(`${API_BASE}/scheduling`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'book_slot',
+                        link_id: LINK_ID,
+                        name,
+                        email,
+                        message,
+                        selected_slot: selectedSlot.start
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('booking-form').classList.add('hidden');
+                    document.getElementById('success').classList.remove('hidden');
+                } else {
+                    showError(data.error || 'Failed to book meeting');
+                    button.disabled = false;
+                    button.textContent = 'Book Meeting';
+                }
+            } catch (error) {
+                showError('Failed to book meeting. Please try again.');
+                button.disabled = false;
+                button.textContent = 'Book Meeting';
+                console.error(error);
+            }
+        }
+
+        document.getElementById('book-button').addEventListener('click', bookMeeting);
+
+        // Load availability on page load
+        loadAvailability();
+    </script>
+</body>
+</html>'''
 
     def log_message(self, format_str, *args):
         """Suppress server log messages"""

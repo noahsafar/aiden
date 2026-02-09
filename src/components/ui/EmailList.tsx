@@ -19,7 +19,6 @@ interface EmailListProps {
   // New props for keyboard navigation
   focusedEmailId?: string | null;
   onFocusEmail?: (id: string) => void;
-  onTriggerReply?: () => void;
   onTriggerArchive?: () => void;
   onOpenFocusedView?: () => void;  // Open email in focused/full-screen view
   onBulkDelete?: (emailIds?: string[]) => void;  // Bulk delete with undo toast
@@ -549,10 +548,6 @@ export const EmailList: React.FC<EmailListProps> = ({
             cb.onOpenFocusedView();
           }
           break;
-        case 'r':
-          e.preventDefault();
-          cb.onTriggerReply();
-          break;
         case 'a':
           e.preventDefault();
           // Skip archiving in sent view
@@ -657,7 +652,10 @@ export const EmailList: React.FC<EmailListProps> = ({
               <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">j</kbd> <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">k</kbd> navigate</span>
               <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Enter</kbd> focused view</span>
               <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">Space</kbd> select</span>
-              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">A</kbd> select all</span>
+              <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono text-xs">⌘</kbd><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">J</kbd> AI chat</span>
+              {currentFilter !== 'sent' && (
+                <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">r</kbd> respond</span>
+              )}
               <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">s</kbd> save</span>
               {currentFilter !== 'sent' && (
                 <span><kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-gray-700 dark:text-gray-300 font-mono">a</kbd> archive</span>

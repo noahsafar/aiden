@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Bell, Moon, Users, Zap, Check, LogOut, ArrowLeft, Palette, Eye, Clock } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
+import { useChatStore } from '@/stores/chatStore';
 import logo from '/aiden-logo.png';
 
 interface AppSettings {
@@ -102,6 +103,7 @@ export function Settings() {
   const navigate = useNavigate();
   const { signOut, user } = useAuthStore();
   const { setTheme, setThemeWithoutSave, themeMode: currentThemeMode } = useThemeStore();
+  const { isOpen: isChatOpen } = useChatStore();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -237,25 +239,28 @@ export function Settings() {
             alt="Aiden Logo"
             className="h-8 w-8"
           />
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white ml-2">Aiden</h1>
-          <span className="ml-4 text-sm text-gray-500">
-            {user ? `${user.email}` : 'Not logged in'}
-          </span>
+          <div className="flex items-center">
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-white leading-none">Aiden</h1>
+            <span className="text-sm text-gray-500 leading-tight pt-0.5 ml-1.5">/ Settings</span>
+          </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-500 hidden sm:block">
+            {user ? user.email : 'Not logged in'}
+          </span>
           <button
             onClick={signOut}
-            className="px-3 py-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg font-medium text-sm transition-colors flex items-center gap-1"
+            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+            title="Sign out"
           >
             <LogOut className="h-4 w-4" />
-            <span>Sign Out</span>
           </button>
         </div>
       </header>
 
       {/* Content */}
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className={`max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 transition-all duration-300 ease-in-out ${isChatOpen ? 'mr-[400px]' : ''}`}>
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h2>

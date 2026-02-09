@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Loader2, List, Calendar as CalendarView, Columns } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Loader2, List, Calendar as CalendarView, Columns, LogOut } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { invoke } from '@tauri-apps/api/core';
 import { fetchEvents, CalendarEvent } from '@/api/calendar';
+import { useChatStore } from '@/stores/chatStore';
 import logo from '/aiden-logo.png';
-import { LogOut } from 'lucide-react';
 
 type ViewMode = 'list' | 'month' | 'week';
 
@@ -20,6 +20,7 @@ interface AppSettings {
 export function Calendar() {
   const navigate = useNavigate();
   const { signOut, user } = useAuthStore();
+  const { isOpen: isChatOpen } = useChatStore();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewDate, setViewDate] = useState(new Date());
@@ -405,7 +406,7 @@ export function Calendar() {
       {/* Header */}
       <header className="h-14 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 z-10">
         <div className="flex items-center gap-0">
-          <Link to="/dashboard" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors mr-2" title="Back to Dashboard">
+          <Link to="/dashboard" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors mr-2">
             <ChevronLeft className="h-4 w-4 text-gray-600 dark:text-gray-400" />
           </Link>
           <img
@@ -413,25 +414,28 @@ export function Calendar() {
             alt="Aiden Logo"
             className="h-8 w-8"
           />
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white ml-2">Aiden</h1>
-          <span className="ml-4 text-sm text-gray-500">
-            {user ? `${user.email}` : 'Not logged in'}
-          </span>
+          <div className="flex items-center">
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-white leading-none">Aiden</h1>
+            <span className="text-sm text-gray-500 leading-tight pt-0.5 ml-1.5">/ Calendar</span>
+          </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-500 hidden sm:block">
+            {user ? user.email : 'Not logged in'}
+          </span>
           <button
             onClick={signOut}
-            className="px-3 py-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg font-medium text-sm transition-colors flex items-center gap-1"
+            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+            title="Sign out"
           >
             <LogOut className="h-4 w-4" />
-            <span>Sign Out</span>
           </button>
         </div>
       </header>
 
       {/* Content */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className={`max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 transition-all duration-300 ease-in-out ${isChatOpen ? 'mr-[400px]' : ''}`}>
         {/* Header with title and navigation */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">

@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useCrmStore, Contact } from '@/stores/crmStore';
+import { useAuthStore } from '@/stores/authStore';
+import { useChatStore } from '@/stores/chatStore';
 import {
   Users,
   Network,
@@ -11,6 +13,7 @@ import {
   Search,
   Filter,
   ArrowLeft,
+  LogOut,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ContactList } from '@/components/crm/ContactList';
@@ -21,10 +24,13 @@ import { NetworkGraph } from '@/components/crm/NetworkGraph';
 import { StaleContacts } from '@/components/crm/StaleContacts';
 import { ComposeModal } from '@/components/crm/ComposeModal';
 import { Button } from '@/components/ui/Button';
+import logo from '/aiden-logo.png';
 
 type CrmView = 'all' | 'top' | 'stale' | 'heatmap' | 'response' | 'network' | 'profile';
 
 export const Crm: React.FC = () => {
+  const { signOut, user } = useAuthStore();
+  const { isOpen: isChatOpen } = useChatStore();
   const {
     contacts,
     selectedContact,
@@ -92,33 +98,42 @@ export const Crm: React.FC = () => {
     <div className="h-screen bg-background flex flex-col">
       {/* Header */}
       <div className="h-14 bg-surface border-b border-border flex items-center justify-between px-4 flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <Link to="/dashboard">
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
+        <div className="flex items-center gap-0">
+          <Link to="/dashboard" className="p-2 rounded-lg hover:bg-muted transition-colors mr-2">
+            <ArrowLeft className="h-4 w-4 text-muted-foreground" />
           </Link>
-          <div className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-primary-500" />
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white">Relationship Intelligence</h1>
+          <img src={logo} alt="Aiden" className="w-8 h-8" />
+          <div className="flex items-center">
+            <h1 className="text-lg font-semibold text-foreground leading-none">Aiden</h1>
+            <span className="text-sm text-gray-500 leading-tight pt-0.5 ml-1.5">/ CRM</span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
+            className="h-8 w-8"
             onClick={handleRefresh}
             disabled={isLoading}
-            className="h-8"
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
+          <span className="text-sm text-gray-500 hidden sm:block">
+            {user ? user.email : 'Not logged in'}
+          </span>
+          <button
+            onClick={() => signOut()}
+            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className={`flex-1 flex overflow-hidden transition-all duration-300 ease-in-out ${isChatOpen ? 'mr-[400px]' : ''}`}>
         {/* Sidebar - View Navigation */}
         <div className="w-56 bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="p-3">
