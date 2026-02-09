@@ -1079,6 +1079,15 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                 </div>
 
                 <div className="flex items-center space-x-1 flex-shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    title="AI Assistant (Cmd+J)"
+                    onClick={isChatOpen ? closeChatPanel : openChatPanel}
+                  >
+                    <MessageSquare className={`h-4 w-4 ${isChatOpen ? 'text-purple-600 dark:text-purple-400' : 'text-gray-600 dark:text-gray-400'}`} />
+                  </Button>
                   <Link to="/crm">
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="Relationship Intelligence">
                       <Users className="h-4 w-4 text-gray-600 dark:text-gray-400" />
