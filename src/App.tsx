@@ -1396,7 +1396,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                                       ) : (
                                                         <>
                                                           <Send className="h-3 w-3 mr-1" />
-                                                          Bump
+                                                          {!isChatOpen && <span>Bump</span>}
                                                         </>
                                                       )}
                                                     </Button>
@@ -1618,8 +1618,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                           className="hover:bg-white dark:hover:bg-white/10 text-xs py-1 h-7"
                                           data-bump-button
                                         >
-                                          <Send className="h-3 w-3 mr-1" />
-                                          Bump
+                                          <Send className="h-3 w-3" />
                                         </Button>
                                       )}
                                     </div>
