@@ -27,19 +27,19 @@ export function ChatPanel() {
       {/* Chat Panel - slides in from right */}
       <div className="fixed inset-y-0 right-0 w-[400px] bg-white dark:bg-gray-800 shadow-2xl z-50 flex flex-col border-l border-gray-200 dark:border-gray-700 transform transition-transform duration-300 ease-in-out translate-x-0">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-purple-500 to-blue-500">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
               <span className="text-white text-sm font-semibold">AI</span>
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-white">Aiden Assistant</h2>
-              <p className="text-xs text-white/80">Ask me anything about your emails</p>
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Aiden Assistant</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Ask me anything about your emails</p>
             </div>
           </div>
           <button
             onClick={closeChat}
-            className="p-1 rounded-lg hover:bg-white/10 transition-colors text-white"
+            className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors text-gray-500 dark:text-gray-400"
           >
             <XMarkIcon className="h-5 w-5" />
           </button>
