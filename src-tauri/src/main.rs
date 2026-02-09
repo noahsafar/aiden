@@ -6,7 +6,7 @@ mod models;
 mod services;
 mod utils;
 
-use commands::{auth, gmail, ai, database, settings, fs, crm};
+use commands::{auth, gmail, ai, database, settings, fs, crm, chatbot};
 use services::storage::TokenStorage;
 
 fn main() {
@@ -69,6 +69,13 @@ fn main() {
             crm::get_network_data,
             crm::get_stale_contacts,
             crm::get_top_contacts,
+            // Chatbot commands
+            chatbot::process_chat_message,
+            chatbot::save_reminder,
+            chatbot::get_reminders,
+            chatbot::delete_reminder,
+            chatbot::get_due_reminders,
+            chatbot::mark_reminder_triggered,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

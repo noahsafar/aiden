@@ -15,6 +15,9 @@ import { editReply } from '@/api/claude';
 interface AIComposeModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTo?: string;
+  initialSubject?: string;
+  initialBody?: string;
 }
 
 interface EmailTemplate {
@@ -70,7 +73,7 @@ const TONE_OPTIONS = [
   { id: 'concise', name: 'Concise', description: 'Brief and to the point' },
 ];
 
-export function AIComposeModal({ isOpen, onClose }: AIComposeModalProps) {
+export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, initialBody }: AIComposeModalProps) {
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
@@ -135,6 +138,18 @@ export function AIComposeModal({ isOpen, onClose }: AIComposeModalProps) {
       }, 200);
     }
   }, [isOpen]);
+
+  // Handle initial values from chat (when composeData is set)
+  useEffect(() => {
+    if (isOpen && (initialTo || initialSubject || initialBody)) {
+      if (initialTo) setTo(initialTo);
+      if (initialSubject) setSubject(initialSubject);
+      if (initialBody) {
+        setBody(initialBody);
+        setShowAIPanel(false); // Skip AI panel if we have pre-filled content
+      }
+    }
+  }, [isOpen, initialTo, initialSubject, initialBody]);
 
   const handleSelectContact = (contact: Contact) => {
     setTo(contact.email_address);

@@ -13,6 +13,8 @@ import { Settings as SettingsPage } from '@/pages/Settings';
 import { Calendar } from '@/pages/Calendar';
 import { Crm } from '@/pages/Crm';
 import { AIComposeModal } from '@/components/email/AIComposeModal';
+import { ChatPanel } from '@/components/chat/ChatPanel';
+import { useChatStore } from '@/stores/chatStore';
 import { editReply } from '@/api/claude';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -101,8 +103,9 @@ function App() {
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
   const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
-  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode, searchQuery, setSearchQuery, getFilteredEmails } = useEmailStore();
+  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode, searchQuery, setSearchQuery, getFilteredEmails, setSelectedEmail } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
+  const { isOpen: isChatOpen, openChat: openChatPanel, closeChat: closeChatPanel, composeData: chatComposeData, clearComposeData } = useChatStore();
 
   // Animation state for focused view
   const [isAnimatingToFocused, setIsAnimatingToFocused] = useState(false);
@@ -682,6 +685,31 @@ function App() {
       resizeObserver.disconnect();
     };
   }, [selectedEmail, animationPhase]);
+
+  // Chat keyboard shortcut (Cmd+J)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+J or Ctrl+J to toggle chat
+      if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
+        e.preventDefault();
+        if (isChatOpen) {
+          closeChatPanel();
+        } else {
+          openChatPanel();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isChatOpen, openChatPanel, closeChatPanel]);
+
+  // Handle chat compose data to open AIComposeModal with pre-filled data
+  useEffect(() => {
+    if (chatComposeData) {
+      setIsComposeModalOpen(true);
+    }
+  }, [chatComposeData]);
 
   const handleEmailAction = (emailId: string, action: string) => {
     console.log(`Email ${emailId}: ${action}`);
@@ -1810,8 +1838,15 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <AIComposeModal
         isOpen={isComposeModalOpen}
-        onClose={() => setIsComposeModalOpen(false)}
+        onClose={() => {
+          setIsComposeModalOpen(false);
+          clearComposeData();
+        }}
+        initialTo={chatComposeData?.to}
+        initialSubject={chatComposeData?.subject}
+        initialBody={chatComposeData?.body}
       />
+      <ChatPanel />
     </OAuthHandler>
   );
 }

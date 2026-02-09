@@ -1,5 +1,6 @@
 import React from 'react';
 import { useEmailStore } from '@/stores/emailStore';
+import { useChatStore } from '@/stores/chatStore';
 import { Clock } from 'lucide-react';
 import {
   InboxIcon,
@@ -7,6 +8,7 @@ import {
   BookmarkIcon,
   ArchiveBoxIcon,
   SparklesIcon as SparklesIconHero,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
 
 interface SidebarProps {
@@ -21,6 +23,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   inboxCount
 }) => {
   const { currentFilter, setCurrentFilter, emails, sentEmails } = useEmailStore();
+  const { isOpen: isChatOpen, openChat, closeChat } = useChatStore();
 
   const filters = [
     { id: 'inbox', label: 'Inbox', icon: InboxIcon },
@@ -89,6 +92,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             );
           })}
+
+          {/* Chat Assistant Button */}
+          <button
+            onClick={isChatOpen ? closeChat : openChat}
+            className={`w-full flex items-center justify-between px-2 sm:px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+              isChatOpen
+                ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}
+            title="AI Assistant (Cmd+J)"
+          >
+            <div className="flex items-center gap-2 sm:gap-3">
+              <ChatBubbleLeftRightIcon className="h-4 w-4 flex-shrink-0" />
+              <span className="hidden sm:inline">AI Assistant</span>
+            </div>
+          </button>
         </nav>
       </div>
       {children}

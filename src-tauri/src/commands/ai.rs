@@ -52,36 +52,36 @@ fn init_writing_styles() {
 
 // Claude API request/response structures
 #[derive(Debug, Serialize)]
-struct ClaudeRequest {
-    model: String,
-    max_tokens: u32,
-    messages: Vec<ClaudeMessage>,
-    system: Option<String>,
+pub struct ClaudeRequest {
+    pub model: String,
+    pub max_tokens: u32,
+    pub messages: Vec<ClaudeMessage>,
+    pub system: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
-enum ClaudeMessageContent {
+pub enum ClaudeMessageContent {
     Text(String),
     Array(Vec<serde_json::Value>),
 }
 
 #[derive(Debug, Serialize)]
-struct ClaudeMessage {
-    role: String,
-    content: ClaudeMessageContent,
+pub struct ClaudeMessage {
+    pub role: String,
+    pub content: ClaudeMessageContent,
 }
 
 #[derive(Debug, Deserialize)]
-struct ClaudeResponse {
-    content: Vec<ClaudeContent>,
+pub struct ClaudeResponse {
+    pub content: Vec<ClaudeContent>,
 }
 
 #[derive(Debug, Deserialize)]
-struct ClaudeContent {
+pub struct ClaudeContent {
     #[serde(rename = "type")]
-    content_type: String,
-    text: String,
+    pub content_type: String,
+    pub text: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -143,7 +143,7 @@ pub struct ConversationContext {
 }
 
 // Helper function to get API key from settings or environment
-async fn get_api_key() -> Result<String, String> {
+pub(crate) async fn get_api_key() -> Result<String, String> {
     // Try loading from .env file in project directory FIRST (before env var check)
     let project_dir = std::path::PathBuf::from("/Users/noahsafar/Projects/aiden");
     let env_file = project_dir.join(".env");
@@ -200,7 +200,7 @@ async fn call_claude_api(prompt: String) -> Result<String, String> {
     call_claude_api_with_system(prompt, None).await
 }
 
-async fn call_claude_api_with_system(prompt: String, system: Option<String>) -> Result<String, String> {
+pub(crate) async fn call_claude_api_with_system(prompt: String, system: Option<String>) -> Result<String, String> {
     let api_key = get_api_key().await?;
     eprintln!("DEBUG: Using API key with length: {}, starts with: {}", api_key.len(), &api_key[..8.min(api_key.len())]);
 
