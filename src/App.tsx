@@ -689,11 +689,11 @@ function App() {
     };
   }, [selectedEmail, animationPhase]);
 
-  // Keyboard shortcuts (Cmd+K for chat, r for respond)
+  // Keyboard shortcuts (Cmd+I for chat, r for respond)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd+K or Ctrl+K to toggle chat
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      // Cmd+I or Ctrl+I to toggle chat
+      if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
         e.preventDefault();
         if (isChatOpen) {
           closeChatPanel();

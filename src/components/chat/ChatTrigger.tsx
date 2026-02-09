@@ -24,10 +24,10 @@ export function ChatTrigger() {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  // Also show on Cmd+K keyboard shortcut
+  // Also show on Cmd+I keyboard shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
         setIsVisible(true);
         // Hide after a delay if it was opened via keyboard
         setTimeout(() => {
@@ -70,7 +70,7 @@ export function ChatTrigger() {
           style={{
             width: isHovered || isOpen ? '48px' : '8px',
           }}
-          title={`AI Assistant (${isOpen ? 'Cmd+K to close' : 'Cmd+K to open'})`}
+          title={`AI Assistant (${isOpen ? 'Cmd+I to close' : 'Cmd+I to open'})`}
         >
           {isHovered || isOpen ? (
             isOpen ? (
@@ -84,7 +84,7 @@ export function ChatTrigger() {
         {/* Tooltip */}
         {isHovered && !isOpen && (
           <div className="absolute right-full top-1/2 -translate-y-1/2 mr-2 px-2 py-1 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded whitespace-nowrap">
-            AI Assistant (Cmd+K)
+            AI Assistant (Cmd+I)
           </div>
         )}
       </div>
