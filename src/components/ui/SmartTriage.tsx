@@ -289,7 +289,7 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
 
   if (sortedGroups.length === 0) {
     return (
-      <div className="p-6 text-center">
+      <div className="flex flex-col items-center justify-center h-full p-8 text-center">
         <Sparkles className="w-12 h-12 text-gray-400 mx-auto mb-4" />
         <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
           No groups found

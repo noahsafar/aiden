@@ -880,28 +880,21 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // Handle initial vs subsequent fetches
         const state = get();
         if (!state.hasInitialized) {
-          // First fetch - track existing emails and process only RECENT ones without replies
+          // First fetch - track existing emails and process UNREAD emails (with strict limit)
           const initialIds = new Set(emails.map((e: Email) => e.id));
           set({ initialEmailIds: initialIds, hasInitialized: true });
           console.log(`[AI Processing] Initial fetch, found ${emails.length} emails`);
 
-          // Only process emails received after app started (recent emails)
-          const recentEmails = emails.filter(e => {
-            const emailTime = new Date(e.date).getTime();
-            return emailTime >= state.appStartTime;
-          });
-
-          // Process only recent emails that don't have summaries or replies yet
-          // Limit to 5 most recent to reduce load
-          const emailsNeedingProcessing = recentEmails
+          // Process unread emails that don't have summaries yet - STRICTLY LIMITED to avoid overload
+          const unreadEmails = emails.filter(e => !e.is_read);
+          const emailsNeedingProcessing = unreadEmails
             .filter(e => !e.summary || !e.ai_generated_reply)
-            .slice(0, 10); // Increased to 10 - using z.ai API
-          console.log(`[AI Processing] Recent emails needing processing: ${emailsNeedingProcessing.length} (skipping ${emails.length - recentEmails.length} older emails)`);
+            .slice(0, 5); // STRICT LIMIT: Only process 5 most recent unread emails
+          console.log(`[AI Processing] Unread emails needing processing: ${emailsNeedingProcessing.length} of ${unreadEmails.length} unread (limited to 5)`);
           if (emailsNeedingProcessing.length > 0) {
-            // Minimal delay - process quickly with API
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 1000); // 1 second delay before starting
+            }, 2000); // Longer delay to let UI settle
           }
         } else {
           // Subsequent fetches - process truly NEW emails
@@ -914,17 +907,15 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
           set({ initialEmailIds: updatedInitialIds });
 
-          // Process only new emails (not all emails without replies)
-          // Increased limit - using z.ai API
+          // Process only new emails - STRICT LIMIT to prevent overload
           const emailsNeedingProcessing = emails
             .filter(e => newEmailIds.includes(e.id))
-            .slice(0, 10); // Increased to 10 - using z.ai API
-          console.log(`[AI Processing] New emails to process: ${emailsNeedingProcessing.length}`);
+            .slice(0, 3); // STRICT LIMIT: Only 3 new emails per poll
+          console.log(`[AI Processing] New emails to process: ${emailsNeedingProcessing.length} (limited to 3)`);
           if (emailsNeedingProcessing.length > 0) {
-            // Small delay to avoid blocking UI
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 500); // 500ms delay - much faster with API
+            }, 1000); // Longer delay
           }
         }
       } catch (pythonError) {
@@ -955,22 +946,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           const initialIds = new Set(emails.map((e: Email) => e.id));
           set({ initialEmailIds: initialIds, hasInitialized: true });
 
-          // Only process emails received after app started
-          const recentEmails = emails.filter(e => {
-            const emailTime = new Date(e.date).getTime();
-            return emailTime >= state.appStartTime;
-          });
-
-          // Limit to 5 most recent to reduce load
-          const emailsNeedingProcessing = recentEmails
+          // Process unread emails with STRICT LIMIT
+          const unreadEmails = emails.filter(e => !e.is_read);
+          const emailsNeedingProcessing = unreadEmails
             .filter(e => !e.summary || !e.ai_generated_reply)
-            .slice(0, 2); // Limit to 2 most recent (reduced from 5 for performance)
-          console.log(`[AI Processing] Gmail API - Recent emails needing processing: ${emailsNeedingProcessing.length}`);
+            .slice(0, 5); // STRICT LIMIT
+          console.log(`[AI Processing] Gmail API - Unread emails needing processing: ${emailsNeedingProcessing.length} of ${unreadEmails.length} unread (limited to 5)`);
           if (emailsNeedingProcessing.length > 0) {
-            // Minimal delay - process quickly with API
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 1000); // 1 second delay before starting
+            }, 2000);
           }
         } else {
           const currentIds = new Set(emails.map((e: Email) => e.id));
@@ -978,17 +963,15 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
           set({ initialEmailIds: updatedInitialIds });
 
-          // Process only new emails
-          // Limit to 5 most recent to reduce load
+          // Process only new emails - STRICT LIMIT
           const emailsNeedingProcessing = emails
             .filter(e => newEmailIds.includes(e.id))
-            .slice(0, 2); // Limit to 2 most recent (reduced from 5 for performance)
-          console.log(`[AI Processing] Gmail API - New emails to process: ${emailsNeedingProcessing.length}`);
+            .slice(0, 3); // Even stricter for polling
+          console.log(`[AI Processing] Gmail API - New emails to process: ${emailsNeedingProcessing.length} (limited to 3)`);
           if (emailsNeedingProcessing.length > 0) {
-            // Small delay to avoid blocking UI
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 500); // 500ms delay - much faster with API
+            }, 1000);
           }
         }
       }
@@ -2791,20 +2774,22 @@ Stanford University`,
   };
 
   // Auto-load sample emails immediately (DEV MODE - always load for now)
-  setTimeout(() => {
-    console.log('DEV MODE: Loading sample data for testing...');
-    (window as any).loadSampleEmails();
-  }, 100);
+  // DISABLED: Using real emails now
+  // setTimeout(() => {
+  //   console.log('DEV MODE: Loading sample data for testing...');
+  //   (window as any).loadSampleEmails();
+  // }, 100);
 
   // Also make the sample emails available to the global window object for easier debugging
   // and to ensure they populate the inbox properly
-  (window as any).ensureSampleEmailsInInbox = () => {
-    const currentEmails = useEmailStore.getState().emails;
-    if (currentEmails.length === 0) {
-      console.log('No emails found, loading sample emails...');
-      (window as any).loadSampleEmails();
-    } else {
-      console.log(`Already have ${currentEmails.length} emails in store`);
-    }
-  };
+  // DISABLED: Using real emails now
+  // (window as any).ensureSampleEmailsInInbox = () => {
+  //   const currentEmails = useEmailStore.getState().emails;
+  //   if (currentEmails.length === 0) {
+  //     console.log('No emails found, loading sample emails...');
+  //     (window as any).loadSampleEmails();
+  //   } else {
+  //     console.log(`Already have ${currentEmails.length} emails in store`);
+  //   }
+  // };
 }

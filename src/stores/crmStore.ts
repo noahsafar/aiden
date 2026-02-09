@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 // Use mock data for development
-const USE_MOCK_DATA = true;
+const USE_MOCK_DATA = false; // DISABLED: Using real data now
 
 export interface Contact {
   id: string;

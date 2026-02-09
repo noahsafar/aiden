@@ -536,8 +536,9 @@ function App() {
         initializeReminderChecker();
 
         // Load mock waiting-on-reply emails for testing
-        console.log('[App] Loading mock waiting emails...');
-        loadMockWaitingEmails();
+        // DISABLED: Using real data now
+        // console.log('[App] Loading mock waiting emails...');
+        // loadMockWaitingEmails();
       }
     };
 
@@ -545,8 +546,6 @@ function App() {
   }, [initialize, isAuthenticated, loadThemeFromSettings]);
 
   // Set up polling for new emails - only poll when window is focused to reduce load
-  // DEV MODE: disabled to use mock data
-  /*
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -556,7 +555,7 @@ function App() {
       if (interval) clearInterval(interval);
       interval = setInterval(() => {
         fetchEmails();
-      }, 30000); // Poll every 30 seconds
+      }, 60000); // Poll every 60 seconds (reduced from 30 to reduce load)
     };
 
     const stopPolling = () => {
@@ -593,7 +592,6 @@ function App() {
       }
     };
   }, [isAuthenticated, fetchEmails]);
-  */
 
   // Cleanup reminder checker on unmount
   useEffect(() => {
