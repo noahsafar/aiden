@@ -1,0 +1,16 @@
+{
+  "events": {
+    "exists": true,
+    "total_lines": 890,
+    "valid_lines": 890,
+    "corrupt_lines": 0,
+    "corrupt_examples": []
+  },
+  "exposures": {
+    "exists": true,
+    "total_lines": 890,
+    "valid_lines": 890,
+    "corrupt_lines": 0,
+    "corrupt_examples": []
+  }
+}

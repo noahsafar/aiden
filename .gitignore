@@ -62,6 +62,10 @@ src-tauri/target/
 .mcp.json
 .mcp.zai.json
 
+# Python
+__pycache__/
+*.pyc
+
 # OAuth credentials
 gmail_credentials.json
 credentials.json
