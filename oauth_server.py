@@ -20,6 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 load_dotenv()
 
+from ab_testing import ab_test_assign, ab_test_log, event_logger
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -917,6 +919,10 @@ class OAuthHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
+        # A/B testing middleware: assign variations and log exposure
+        ab_test_assign(self)
+        ab_test_log(self)
+
         if self.path == '/health' or self.path == '/health/':
             # Health check endpoint
             self.end_headers()
@@ -946,7 +952,13 @@ class OAuthHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
-        if self.path.startswith('/send-email'):
+        # A/B testing middleware: assign variations and log exposure
+        ab_test_assign(self)
+        ab_test_log(self)
+
+        if self.path.startswith('/log-event'):
+            self.handle_log_event()
+        elif self.path.startswith('/send-email'):
             self.handle_send_email()
         elif self.path.startswith('/analyze-email'):
             self.handle_analyze_email()
@@ -968,6 +980,37 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_scheduling()
         else:
             self.send_error(404)
+
+    def handle_log_event(self):
+        """Handle frontend event logging for A/B tests.
+
+        Expects a JSON body with:
+          - event: str   (the event name, e.g. "reply_button_click")
+          - metadata: dict (optional extra data)
+        """
+        try:
+            self.send_header('Content-type', 'application/json')
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+
+            event_name = data.get('event', 'unknown')
+            metadata = data.get('metadata', {})
+
+            event_logger(self, event_name=event_name, metadata=metadata)
+
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'success': True,
+                'event': event_name,
+                'ab_assignments': getattr(self, 'ab_assignments', {}),
+            }).encode())
+        except Exception as e:
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'success': False,
+                'error': str(e),
+            }).encode())
 
     def do_OPTIONS(self):
         # Handle preflight requests
@@ -2050,6 +2093,11 @@ Write a concise reply (under 100 words). Be professional and helpful. Start with
                 # Clean up the reply - remove any repeated subject line at the beginning
                 reply = clean_reply(reply)
                 print(f"AI reply generated successfully!")
+
+                # A/B test: log that a reply was generated (target event)
+                event_logger(self, event_name="reply_button_click",
+                             metadata={"subject": subject[:50]})
+
                 resp = {'success': True, 'reply': reply}
                 self.wfile.write(json.dumps(resp).encode())
             else:
@@ -4030,22 +4078,29 @@ View event details:
         """Suppress server log messages"""
         pass
 
+_token_lock = threading.Lock()
+
 def get_stored_credentials():
-    """Get stored credentials if they exist and are valid"""
-    if TOKEN_FILE.exists():
-        with open(TOKEN_FILE, 'rb') as token:
-            creds = pickle.load(token)
-            if creds.valid and not creds.expired:
-                return creds
-            elif creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(Request())
-                    with open(TOKEN_FILE, 'wb') as token_file:
-                        pickle.dump(creds, token_file)
+    """Get stored credentials if they exist and are valid.
+
+    Uses a lock to prevent concurrent token refresh race conditions
+    when multiple threads find the token expired simultaneously.
+    """
+    with _token_lock:
+        if TOKEN_FILE.exists():
+            with open(TOKEN_FILE, 'rb') as token:
+                creds = pickle.load(token)
+                if creds.valid and not creds.expired:
                     return creds
-                except Exception as e:
-                    print(f"Error refreshing token: {e}")
-    return None
+                elif creds.expired and creds.refresh_token:
+                    try:
+                        creds.refresh(Request())
+                        with open(TOKEN_FILE, 'wb') as token_file:
+                            pickle.dump(creds, token_file)
+                        return creds
+                    except Exception as e:
+                        print(f"Error refreshing token: {e}")
+        return None
 
 def start_oauth_server():
     """Start the OAuth server in a separate thread"""

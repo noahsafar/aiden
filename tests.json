@@ -1,0 +1,22 @@
+{
+  "tests": [
+    {
+      "id": "email_reply_button",
+      "name": "Email Reply Button Style",
+      "description": "Test whether a prominent reply button leads to more user replies",
+      "variations": ["A", "B"],
+      "target_event": "reply_button_click",
+      "active": true,
+      "routes": ["/emails", "/generate-reply", "/log-event"]
+    },
+    {
+      "id": "ai_summary_placement",
+      "name": "AI Summary Placement",
+      "description": "Test whether showing AI summary above vs below the email body leads to more engagement",
+      "variations": ["A", "B"],
+      "target_event": "summary_interaction",
+      "active": false,
+      "routes": ["/emails", "/summarize"]
+    }
+  ]
+}
