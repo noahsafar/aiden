@@ -263,16 +263,11 @@ export const AttachmentSuggestions: React.FC<AttachmentSuggestionsProps> = ({
                             onClick={() => selectFile(suggestionIndex, file)}
                             className="flex-1 text-left"
                           >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <FileIcon className="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                                <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-                                  {file.name}
-                                </span>
-                              </div>
-                              {suggestion.selectedFile?.path === file.path && (
-                                <Check className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                              )}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileIcon className="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                              <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                                {file.name}
+                              </span>
                             </div>
                             <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                               <span>{file.folder_name}</span>
@@ -280,6 +275,9 @@ export const AttachmentSuggestions: React.FC<AttachmentSuggestionsProps> = ({
                               <span>{formatDate(file.modified)}</span>
                             </div>
                           </button>
+                          {suggestion.selectedFile?.path === file.path && (
+                            <Check className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                          )}
                           <button
                             onClick={(e) => handlePreview(file, e)}
                             disabled={previewingFile === file.path}
