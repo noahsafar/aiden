@@ -675,7 +675,7 @@ Email:
 Respond ONLY in the format above, no other text."""
 
         messages = [{"role": "user", "content": prompt}]
-        result, error = call_openai_with_retry(messages, max_tokens=500, temperature=0.3, timeout=30)
+        result, error = call_anthropic_with_retry(messages, max_tokens=500, temperature=0.3, timeout=30)
 
         if result:
             # Parse the structured response
@@ -1940,7 +1940,7 @@ Return ONLY valid JSON."""
             self.wfile.write(json.dumps({'success': False, 'error': f'Failed to analyze email: {str(e)}'}).encode())
 
     def handle_generate_reply(self):
-        """Generate email reply using OpenAI API"""
+        """Generate email reply using Anthropic API"""
         try:
             # Get request body FIRST before sending any response
             content_length = int(self.headers.get('Content-Length', 0))
@@ -1954,10 +1954,10 @@ Return ONLY valid JSON."""
             formality_level = data.get('formality_level', 'neutral')  # User's chosen formality level: casual, neutral, or formal
             additional_context = data.get('additional_context', '')  # Additional context/instructions from user
 
-            if not OPENAI_API_KEY:
+            if not os.getenv('ANTHROPIC_API_KEY'):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
+                response = {'success': False, 'error': 'ANTHROPIC_API_KEY not configured'}
                 self.wfile.write(json.dumps(response).encode())
                 return
 
@@ -2129,10 +2129,10 @@ Write a concise reply (under 100 words). Be professional and helpful. Start with
             current_reply = data.get('current_reply', '')
             edit_prompt = data.get('edit_prompt', '')
 
-            if not OPENAI_API_KEY:
+            if not os.getenv('ANTHROPIC_API_KEY'):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
+                response = {'success': False, 'error': 'ANTHROPIC_API_KEY not configured'}
                 self.wfile.write(json.dumps(response).encode())
                 return
 
@@ -2419,7 +2419,7 @@ Document content:
 Provide only the summary, no preamble."""
 
             messages = [{"role": "user", "content": prompt}]
-            summary, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.3, timeout=15)
+            summary, error = call_anthropic_with_retry(messages, max_tokens=300, temperature=0.3, timeout=30)
 
             self.send_header('Content-type', 'application/json')
             self.end_headers()

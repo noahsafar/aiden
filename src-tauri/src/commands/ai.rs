@@ -757,9 +757,12 @@ Focus on the most important information and action items."#,
 
     let response = call_claude_api(prompt).await?;
 
-    // Try to parse as JSON
-    let parsed: serde_json::Value = serde_json::from_str(&response)
-        .map_err(|_| "Invalid JSON response from Claude".to_string())?;
+    // Extract JSON (handles markdown-wrapped responses)
+    let json_str = extract_json_from_response(&response)
+        .map_err(|_| format!("Invalid JSON response from Claude: {}", &response[..200.min(response.len())]))?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|_| "Failed to parse extracted JSON".to_string())?;
 
     let summary = parsed["summary"].as_str()
         .ok_or("Missing summary in response".to_string())?
@@ -809,8 +812,11 @@ Consider:
 
     let response = call_claude_api(prompt).await?;
 
-    let parsed: serde_json::Value = serde_json::from_str(&response)
-        .map_err(|_| "Invalid JSON response from Claude".to_string())?;
+    let json_str = extract_json_from_response(&response)
+        .map_err(|_| format!("Invalid JSON response from Claude: {}", &response[..200.min(response.len())]))?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|_| "Failed to parse extracted JSON".to_string())?;
 
     let category = parsed["category"].as_str()
         .ok_or("Missing category in response".to_string())?
@@ -905,8 +911,11 @@ Analyze:
 
     let response = call_claude_api(prompt).await?;
 
-    let parsed: serde_json::Value = serde_json::from_str(&response)
-        .map_err(|_| "Invalid JSON response from Claude".to_string())?;
+    let json_str = extract_json_from_response(&response)
+        .map_err(|_| format!("Invalid JSON response from Claude: {}", &response[..200.min(response.len())]))?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|_| "Failed to parse extracted JSON".to_string())?;
 
     let tone = parsed["tone"].as_str()
         .ok_or("Missing tone in response".to_string())?
@@ -1312,4 +1321,101 @@ pub async fn get_conversation_context_from_emails(
         previous_emails: conversation_emails,
         total_conversation_count: total_count,
     })
+}
+
+// ==================== CONTACT CLASSIFICATION ====================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ContactClassifyInput {
+    pub email_address: String,
+    pub name: Option<String>,
+    pub domain: Option<String>,
+    pub emails_received: i64,
+    pub emails_sent: i64,
+    pub sample_subjects: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ContactClassifyResult {
+    pub email_address: String,
+    pub category: String,
+}
+
+#[command]
+pub async fn classify_contacts_batch(contacts: Vec<ContactClassifyInput>) -> Result<Vec<ContactClassifyResult>, String> {
+    if contacts.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Build a concise summary of each contact for classification
+    let mut contacts_text = String::new();
+    for (i, contact) in contacts.iter().enumerate() {
+        contacts_text.push_str(&format!(
+            "{}. {} ({})\n   Domain: {}\n   Emails received: {}, sent: {}\n   Sample subjects: {}\n\n",
+            i + 1,
+            contact.name.as_deref().unwrap_or("Unknown"),
+            contact.email_address,
+            contact.domain.as_deref().unwrap_or("unknown"),
+            contact.emails_received,
+            contact.emails_sent,
+            if contact.sample_subjects.is_empty() {
+                "none".to_string()
+            } else {
+                contact.sample_subjects.join(" | ")
+            }
+        ));
+    }
+
+    let prompt = format!(
+        r#"Classify each contact into exactly ONE category based on their email address, domain, name, communication pattern, and email subjects.
+
+Categories:
+- Colleague (coworker, classmate, team member, professor, university staff)
+- Client (customer, someone you provide services to)
+- Vendor (service provider, company you buy from, subscriptions)
+- Friend (personal contact, non-work relationship)
+- Family (family member)
+- Other (newsletters, automated emails, unknown)
+
+Contacts to classify:
+{}
+
+Respond with valid JSON only - an array of objects with "email_address" and "category":
+[
+  {{"email_address": "example@domain.com", "category": "Colleague"}},
+  ...
+]
+
+Rules:
+- .edu domains are likely Colleague unless clearly a newsletter
+- Automated/newsletter senders are Other
+- If unsure, use Other
+- Only use the exact category names listed above"#,
+        contacts_text
+    );
+
+    let response = call_claude_api(prompt).await?;
+
+    let json_str = extract_json_from_response(&response)
+        .map_err(|_| format!("Failed to extract JSON from classification response"))?;
+
+    // Try parsing as array directly
+    if let Ok(results) = serde_json::from_str::<Vec<ContactClassifyResult>>(&json_str) {
+        return Ok(results);
+    }
+
+    // Try parsing as a wrapper object with a results array
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+        // Look for any array in the response
+        if let Some(arr) = val.as_array() {
+            let results: Vec<ContactClassifyResult> = arr.iter()
+                .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                .collect();
+            if !results.is_empty() {
+                return Ok(results);
+            }
+        }
+    }
+
+    Err("Failed to parse classification response".to_string())
 }

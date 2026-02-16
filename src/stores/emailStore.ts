@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { fetchGmailEmails, convertGmailEmailToApp } from '@/api/gmail';
 import { useAuthStore } from '@/stores/authStore';
 import { serverURL } from '@/api/emails';
-import { analyzeEmail as analyzeEmailClaude } from '@/api/claude';
+import { analyzeEmail as analyzeEmailClaude, summarizeEmail as summarizeEmailClaude } from '@/api/claude';
 
 // Check if running in Tauri
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
@@ -313,6 +313,8 @@ export interface EmailAttachment {
   filename: string;
   mimeType: string;
   size: number;
+  // Base64-encoded attachment data (stored for sent emails so we can analyze without re-downloading)
+  base64Data?: string;
   // Store AI analysis results for this attachment
   aiSummary?: string;
   aiKeyPoints?: string[];
@@ -412,6 +414,9 @@ export interface EmailState {
   loadMockWaitingEmails: () => void;
 }
 
+// Guard against overlapping fetchEmails calls
+let isFetchingEmails = false;
+
 // Track which emails are being processed (for both summary and reply)
 let processingEmails = new Set<string>();
 // Process only one email at a time for better control
@@ -442,8 +447,10 @@ async function processAIQueue() {
   }
 }
 
-// Generate summary for a single email (fire and forget - updates store directly)
-async function generateSummaryForEmail(emailId: string): Promise<void> {
+// Generate summary for a single email via Tauri/Claude (bypasses Python server)
+const MAX_SUMMARY_RETRIES = 2;
+
+async function generateSummaryForEmail(emailId: string, attempt = 0): Promise<void> {
   if (processingEmails.has(`${emailId}-summary`)) {
     return;
   }
@@ -452,88 +459,63 @@ async function generateSummaryForEmail(emailId: string): Promise<void> {
   try {
     const store = useEmailStore.getState();
     const email = store.emails.find(e => e.id === emailId);
-    if (!email) {
-      return;
-    }
-    if (email.summary) {
+    if (!email || email.summary) {
       return;
     }
 
-    const baseURL = await serverURL();
-    const response = await fetchWithTimeout(`${baseURL}/summarize`, {
-      method: 'POST',
-      mode: 'cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sender: email.sender,
-        subject: email.subject,
-        body_text: email.body_text,
-        snippet: email.snippet,
-      })
-    }, 90000);
+    const emailContent = `From: ${email.sender}\nSubject: ${email.subject}\n\n${email.body_text || email.snippet || ''}`;
+    const result = await summarizeEmailClaude(emailContent);
 
-    if (response.ok) {
-      const result = await response.json();
-      if (result.success && result.summary) {
-        // Update store with summary, key_points, and action_items
-        useEmailStore.setState((state) => ({
-          emails: state.emails.map(e =>
-            e.id === emailId ? {
-              ...e,
-              summary: result.summary,
-              key_points: result.key_points || [],
-              action_items: result.action_items || []
-            } : e
-          ),
-        }));
+    if (result.summary) {
+      useEmailStore.setState((state) => ({
+        emails: state.emails.map(e =>
+          e.id === emailId ? {
+            ...e,
+            summary: result.summary,
+            key_points: result.key_points || [],
+          } : e
+        ),
+      }));
 
-        // Send notification for new emails with summary
-        // Only notify if we haven't notified before AND the email is recent (arrived after app start)
-        const store = useEmailStore.getState();
-        const emailTime = new Date(email.date).getTime();
-        const shouldNotify = !store.notifiedEmailIds.has(emailId) &&
-          (emailTime >= store.appStartTime);
+      // Send notification for new emails with summary
+      const currentStore = useEmailStore.getState();
+      const emailTime = new Date(email.date).getTime();
+      const shouldNotify = !currentStore.notifiedEmailIds.has(emailId) &&
+        (emailTime >= currentStore.appStartTime);
 
-        if (shouldNotify) {
-          const senderName = email.sender.split('<')[0].trim() || email.sender;
-          // Truncate summary if too long for notification
-          const summaryText = result.summary.length > 150
-            ? result.summary.substring(0, 147) + '...'
-            : result.summary;
+      if (shouldNotify) {
+        const senderName = email.sender.split('<')[0].trim() || email.sender;
+        const summaryText = result.summary.length > 150
+          ? result.summary.substring(0, 147) + '...'
+          : result.summary;
 
-          // Check smart notification settings
-          const notifCheck = await shouldSendNotification(
-            email.sender,
-            email.subject,
-            email.category || 'Normal'
-          );
+        const notifCheck = await shouldSendNotification(
+          email.sender,
+          email.subject,
+          email.category || 'Normal'
+        );
 
-          console.log(`[Smart Notifications] Check result:`, notifCheck);
-
-          if (notifCheck.should_notify) {
-            sendNotification(`New email from ${senderName}`, summaryText);
-            useEmailStore.setState((state) => ({
-              notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
-            }));
-          } else if (notifCheck.should_batch) {
-            // Queue for batch notification
-            queueNotification(emailId, senderName, email.subject, summaryText);
-            console.log(`[Smart Notifications] Queued for batching: ${emailId}`);
-          } else {
-            console.log(`[Smart Notifications] Notification suppressed: ${notifCheck.reason}`);
-          }
+        if (notifCheck.should_notify) {
+          sendNotification(`New email from ${senderName}`, summaryText);
+          useEmailStore.setState((state) => ({
+            notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
+          }));
+        } else if (notifCheck.should_batch) {
+          queueNotification(emailId, senderName, email.subject, summaryText);
         }
-      } else {
-        console.log(`[AI Processing] Summary API returned no summary for ${emailId}:`, result);
       }
-    } else {
-      console.log(`[AI Processing] Summary API failed for ${emailId}:`, response.status);
     }
   } catch (e) {
-    console.error('[AI Processing] Failed to generate summary:', e);
+    console.error(`[AI Processing] Failed to generate summary (attempt ${attempt + 1}/${MAX_SUMMARY_RETRIES + 1}):`, e);
+    // Auto-retry with backoff
+    if (attempt < MAX_SUMMARY_RETRIES) {
+      const delay = (attempt + 1) * 3000; // 3s, 6s
+      processingEmails.delete(`${emailId}-summary`);
+      await new Promise(r => setTimeout(r, delay));
+      return generateSummaryForEmail(emailId, attempt + 1);
+    }
   } finally {
     processingEmails.delete(`${emailId}-summary`);
-    // Remove from generatingSummaries set
     useEmailStore.setState((state) => {
       const newSet = new Set(state.generatingSummaries);
       newSet.delete(emailId);
@@ -560,45 +542,21 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
       return;
     }
 
-    // Try Claude API first (through Tauri), fall back to Python server
-    let result: any;
-    try {
-      console.log(`[AI Processing] Trying Claude API for ${emailId}...`);
-      const claudeResponse = await analyzeEmailClaude({
-        sender: email.sender,
-        subject: email.subject,
-        body_text: email.body_text,
-        has_attachments: email.has_attachments || false,
-      });
+    // Use Claude API directly through Tauri (bypasses Python server)
+    const claudeResponse = await analyzeEmailClaude({
+      sender: email.sender,
+      subject: email.subject,
+      body_text: email.body_text,
+      has_attachments: email.has_attachments || false,
+    });
 
-      result = {
-        success: true,
-        questions: claudeResponse.questions,
-        suggested_formality_score: claudeResponse.suggested_formality_score,
-        meeting_request: claudeResponse.meeting_request,
-        missing_attachment_warning: claudeResponse.missing_attachment_warning,
-      };
-      console.log(`[AI Processing] Claude API response for ${emailId}`);
-    } catch (claudeError) {
-      console.log(`[AI Processing] Claude API failed for ${emailId}, falling back to Python server:`, claudeError);
-      // Fall back to Python server
-      const baseURL = await serverURL();
-      const response = await fetchWithTimeout(`${baseURL}/analyze-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sender: email.sender,
-          subject: email.subject,
-          body_text: email.body_text,
-        })
-      }, 90000);
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      result = await response.json();
-    }
+    const result = {
+      success: true,
+      questions: claudeResponse.questions,
+      suggested_formality_score: claudeResponse.suggested_formality_score,
+      meeting_request: claudeResponse.meeting_request,
+      missing_attachment_warning: claudeResponse.missing_attachment_warning,
+    };
 
     if (result.success) {
       console.log(`[AI Processing] Questions generated for ${emailId}:`, result.questions);
@@ -722,7 +680,7 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
 
 // Process an email completely (summary + questions) - does the actual work, should be queued
 async function processEmailCore(emailId: string) {
-  // Generate summary first, then questions after summary completes
+  // Mark as generating (removed in generateSummaryForEmail's finally block)
   useEmailStore.setState((state) => ({
     generatingSummaries: new Set(state.generatingSummaries).add(emailId)
   }));
@@ -730,13 +688,6 @@ async function processEmailCore(emailId: string) {
   await generateSummaryForEmail(emailId);
   // After summary completes, process questions
   await generateQuestionsForEmail(emailId);
-
-  // Remove from generating summaries
-  useEmailStore.setState((state) => {
-    const newSet = new Set(state.generatingSummaries);
-    newSet.delete(emailId);
-    return { generatingSummaries: newSet };
-  });
 }
 
 // Process an email with queuing (for immediate processing)
@@ -793,6 +744,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   reminderCheckInterval: null,
 
   fetchEmails: async () => {
+    // Prevent overlapping fetch calls (polling + focus events can overlap)
+    if (isFetchingEmails) {
+      console.log('[fetchEmails] Skipping - already in flight');
+      return;
+    }
+    isFetchingEmails = true;
     try {
       // Don't set isLoading for background refreshes - keeps UI stable
       set({ error: null });
@@ -816,7 +773,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       // Use Python OAuth server to fetch emails
       try {
         const baseURL = await serverURL();
-        const response = await fetch(`${baseURL}/emails`, {
+        // Only fetch emails that arrived after the app was opened
+        const afterEpoch = Math.floor(get().appStartTime / 1000);
+        const response = await fetch(`${baseURL}/emails?q=${encodeURIComponent(`in:inbox after:${afterEpoch}`)}`, {
           method: 'GET',
           mode: 'cors',
           headers: {
@@ -889,8 +848,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           const unreadEmails = emails.filter(e => !e.is_read);
           const emailsNeedingProcessing = unreadEmails
             .filter(e => !e.summary || !e.ai_generated_reply)
-            .slice(0, 5); // STRICT LIMIT: Only process 5 most recent unread emails
-          console.log(`[AI Processing] Unread emails needing processing: ${emailsNeedingProcessing.length} of ${unreadEmails.length} unread (limited to 5)`);
+            .slice(0, 3); // STRICT LIMIT: Only process 3 most recent unread emails
+          console.log(`[AI Processing] Unread emails needing processing: ${emailsNeedingProcessing.length} of ${unreadEmails.length} unread (limited to 3)`);
           if (emailsNeedingProcessing.length > 0) {
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
@@ -929,7 +888,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         console.warn('Falling back to frontend Gmail API...');
 
         // Fetch emails directly from Gmail API
-        const emailResponse = await fetchGmailEmails(accessToken, 10, 'in:inbox');
+        const afterEpochFallback = Math.floor(get().appStartTime / 1000);
+        const emailResponse = await fetchGmailEmails(accessToken, 10, `in:inbox after:${afterEpochFallback}`);
 
         if (!emailResponse.success) {
           throw new Error(emailResponse.error || 'Failed to fetch emails');
@@ -950,8 +910,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           const unreadEmails = emails.filter(e => !e.is_read);
           const emailsNeedingProcessing = unreadEmails
             .filter(e => !e.summary || !e.ai_generated_reply)
-            .slice(0, 5); // STRICT LIMIT
-          console.log(`[AI Processing] Gmail API - Unread emails needing processing: ${emailsNeedingProcessing.length} of ${unreadEmails.length} unread (limited to 5)`);
+            .slice(0, 3); // STRICT LIMIT
+          console.log(`[AI Processing] Gmail API - Unread emails needing processing: ${emailsNeedingProcessing.length} of ${unreadEmails.length} unread (limited to 3)`);
           if (emailsNeedingProcessing.length > 0) {
             setTimeout(() => {
               processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
@@ -981,6 +941,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         error: error instanceof Error ? error.message : 'Failed to fetch emails',
         isLoading: false
       });
+    } finally {
+      isFetchingEmails = false;
     }
   },
 
@@ -1258,6 +1220,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           filename: att.name,
           mimeType: 'application/pdf', // Default to PDF, ideally should detect from file
           size: att.base64.length * 3 / 4, // Approximate size from base64
+          base64Data: att.base64, // Store data so we can analyze without re-downloading from Gmail
         })),
         status: 'Replied',
         category: 'Normal',
@@ -2774,7 +2737,7 @@ Stanford University`,
   };
 
   // Auto-load sample emails immediately (DEV MODE - always load for now)
-  // DISABLED: Using real emails now
+  // DISABLED: Using real data now
   // setTimeout(() => {
   //   console.log('DEV MODE: Loading sample data for testing...');
   //   (window as any).loadSampleEmails();
@@ -2782,7 +2745,7 @@ Stanford University`,
 
   // Also make the sample emails available to the global window object for easier debugging
   // and to ensure they populate the inbox properly
-  // DISABLED: Using real emails now
+  // DISABLED: Using real data now
   // (window as any).ensureSampleEmailsInInbox = () => {
   //   const currentEmails = useEmailStore.getState().emails;
   //   if (currentEmails.length === 0) {

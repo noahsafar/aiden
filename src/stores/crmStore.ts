@@ -1,7 +1,44 @@
 import { create } from 'zustand';
+import { useEmailStore } from './emailStore';
 
 // Use mock data for development
-const USE_MOCK_DATA = false; // DISABLED: Using real data now
+const USE_MOCK_DATA = false;
+
+// Helper: extract email address from "Name <email@example.com>" or plain email
+function extractEmailAddress(sender: string): string {
+  const match = sender.match(/<([^>]+)>/);
+  if (match) return match[1].toLowerCase().trim();
+  if (sender.includes('@')) return sender.trim().toLowerCase();
+  return sender.toLowerCase();
+}
+
+// Helper: extract name from "Name <email@example.com>"
+function extractName(sender: string): string | undefined {
+  const match = sender.match(/^(.+?)\s*</);
+  if (match) {
+    const name = match[1].trim().replace(/^["']|["']$/g, '');
+    if (name) return name;
+  }
+  return undefined;
+}
+
+// Helper: extract domain from email address
+function extractDomain(email: string): string | undefined {
+  const atIndex = email.indexOf('@');
+  if (atIndex >= 0) return email.substring(atIndex + 1);
+  return undefined;
+}
+
+// Skip automated/noreply addresses
+function shouldSkipEmail(email: string): boolean {
+  const lower = email.toLowerCase();
+  return lower.includes('noreply') ||
+    lower.includes('no-reply') ||
+    lower.includes('mailer-daemon') ||
+    lower.includes('postmaster@') ||
+    lower.includes('notifications@') ||
+    lower.includes('donotreply');
+}
 
 export interface Contact {
   id: string;
@@ -113,6 +150,67 @@ export interface CrmState {
   removeManualConnection: (sourceId: string, targetId: string) => void;
 }
 
+// AI-classify contacts in background, updating store as results come in
+async function classifyContactsInBackground(contacts: Contact[], allEmails: any[]) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  // Build sample subjects per contact for context
+  const subjectsByContact = new Map<string, string[]>();
+  for (const email of allEmails) {
+    const senderAddr = extractEmailAddress(email.sender);
+    if (!subjectsByContact.has(senderAddr)) {
+      subjectsByContact.set(senderAddr, []);
+    }
+    const subjects = subjectsByContact.get(senderAddr)!;
+    if (subjects.length < 5 && email.subject) {
+      subjects.push(email.subject);
+    }
+  }
+
+  // Only classify contacts that are still "Other"
+  const toClassify = contacts.filter(c => c.category === 'Other');
+  if (toClassify.length === 0) return;
+
+  // Batch into groups of 20
+  const BATCH_SIZE = 20;
+  for (let i = 0; i < toClassify.length; i += BATCH_SIZE) {
+    const batch = toClassify.slice(i, i + BATCH_SIZE);
+
+    const classifyInputs = batch.map(c => ({
+      email_address: c.email_address,
+      name: c.name || null,
+      domain: c.domain || null,
+      emails_received: c.total_emails_received,
+      emails_sent: c.total_emails_sent,
+      sample_subjects: subjectsByContact.get(c.email_address) || [],
+    }));
+
+    try {
+      const results = await invoke<{ email_address: string; category: string }[]>(
+        'classify_contacts_batch',
+        { contacts: classifyInputs }
+      );
+
+      // Update contacts in store with classified categories
+      const categoryMap = new Map(results.map(r => [r.email_address, r.category]));
+      const validCategories = new Set(['Colleague', 'Client', 'Vendor', 'Friend', 'Family', 'Other']);
+
+      useCrmStore.setState((state) => ({
+        contacts: state.contacts.map(c => {
+          const newCategory = categoryMap.get(c.email_address);
+          if (newCategory && validCategories.has(newCategory)) {
+            return { ...c, category: newCategory as Contact['category'] };
+          }
+          return c;
+        }),
+      }));
+    } catch (error) {
+      console.error(`[CRM] Failed to classify contacts batch ${i / BATCH_SIZE + 1}:`, error);
+      // Continue with next batch even if one fails
+    }
+  }
+}
+
 export const useCrmStore = create<CrmState>((set, get) => ({
   // Initial state
   contacts: [],
@@ -128,7 +226,6 @@ export const useCrmStore = create<CrmState>((set, get) => ({
 
   extractContacts: async () => {
     if (USE_MOCK_DATA) {
-      // Use mock data for development
       set({
         contacts: mockContacts,
         hasExtractedContacts: true,
@@ -139,9 +236,128 @@ export const useCrmStore = create<CrmState>((set, get) => ({
 
     try {
       set({ isLoading: true, error: null });
-      const { invoke } = await import('@tauri-apps/api/core');
-      const contacts = await invoke<Contact[]>('extract_contacts_from_emails');
+
+      // Extract contacts directly from in-memory email store
+      const emailStore = useEmailStore.getState();
+      const allEmails = [...emailStore.emails, ...emailStore.sentEmails];
+      const now = Date.now();
+
+      // Get user's own email to skip self
+      const { useAuthStore } = await import('./authStore');
+      const userEmail = useAuthStore.getState().user?.email?.toLowerCase() || '';
+
+      const contactsMap = new Map<string, Contact>();
+
+      for (const email of allEmails) {
+        const senderAddr = extractEmailAddress(email.sender);
+        const senderName = extractName(email.sender);
+        const emailDate = new Date(email.date).getTime();
+
+        // Process sender (incoming emails)
+        if (senderAddr && senderAddr !== userEmail && !shouldSkipEmail(senderAddr)) {
+          const existing = contactsMap.get(senderAddr);
+          if (existing) {
+            existing.total_emails_received += 1;
+            existing.last_contacted = Math.max(existing.last_contacted || 0, emailDate);
+            if (emailDate < existing.first_seen) existing.first_seen = emailDate;
+            if (senderName && !existing.name) existing.name = senderName;
+          } else {
+            contactsMap.set(senderAddr, {
+              id: `crm_${senderAddr.replace(/[^a-z0-9]/g, '_')}`,
+              email_address: senderAddr,
+              name: senderName,
+              domain: extractDomain(senderAddr),
+              first_seen: emailDate,
+              last_contacted: emailDate,
+              total_emails_received: 1,
+              total_emails_sent: 0,
+              total_threads: 0,
+              relationship_score: 0,
+              category: 'Other',
+              is_vip: false,
+            });
+          }
+        }
+
+        // Process recipients (outgoing emails)
+        if (email.recipients) {
+          // recipients can be a JSON array string or comma-separated
+          let recipientList: string[] = [];
+          try {
+            recipientList = JSON.parse(email.recipients);
+          } catch {
+            recipientList = email.recipients.split(',').map(r => r.trim()).filter(Boolean);
+          }
+
+          for (const recipient of recipientList) {
+            const recipientAddr = extractEmailAddress(recipient);
+            const recipientName = extractName(recipient);
+
+            if (recipientAddr && recipientAddr !== userEmail && !shouldSkipEmail(recipientAddr)) {
+              const existing = contactsMap.get(recipientAddr);
+              if (existing) {
+                existing.total_emails_sent += 1;
+                existing.last_contacted = Math.max(existing.last_contacted || 0, emailDate);
+                if (emailDate < existing.first_seen) existing.first_seen = emailDate;
+                if (recipientName && !existing.name) existing.name = recipientName;
+              } else {
+                contactsMap.set(recipientAddr, {
+                  id: `crm_${recipientAddr.replace(/[^a-z0-9]/g, '_')}`,
+                  email_address: recipientAddr,
+                  name: recipientName,
+                  domain: extractDomain(recipientAddr),
+                  first_seen: emailDate,
+                  last_contacted: emailDate,
+                  total_emails_received: 0,
+                  total_emails_sent: 1,
+                  total_threads: 0,
+                  relationship_score: 0,
+                  category: 'Other',
+                  is_vip: false,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Calculate relationship scores and days since contact
+      const contacts: Contact[] = Array.from(contactsMap.values()).map(contact => {
+        const totalEmails = contact.total_emails_sent + contact.total_emails_received;
+        const daysSince = contact.last_contacted
+          ? Math.floor((now - contact.last_contacted) / (1000 * 60 * 60 * 24))
+          : undefined;
+
+        // Recency score (40%)
+        const recencyScore = contact.last_contacted
+          ? Math.min(100, 100 / (1 + (now - contact.last_contacted) / (1000 * 60 * 60 * 24 * 30)))
+          : 0;
+
+        // Frequency score (30%)
+        const frequencyScore = totalEmails > 0 ? Math.min(100, Math.log10(totalEmails) * 40) : 0;
+
+        // Mutuality score (30%)
+        const sent = contact.total_emails_sent;
+        const received = contact.total_emails_received;
+        const mutualityScore = (sent + received > 0)
+          ? (sent > received ? received / sent : sent / received) * 100
+          : 0;
+
+        return {
+          ...contact,
+          relationship_score: Math.min(100, recencyScore * 0.4 + frequencyScore * 0.3 + mutualityScore * 0.3),
+          days_since_contact: daysSince,
+        };
+      });
+
+      // Sort by relationship score
+      contacts.sort((a, b) => b.relationship_score - a.relationship_score);
+
+      // Set contacts immediately so UI renders, then classify in background
       set({ contacts, hasExtractedContacts: true, isLoading: false });
+
+      // AI-classify contacts in background (non-blocking)
+      classifyContactsInBackground(contacts, allEmails);
     } catch (error) {
       console.error('Failed to extract contacts:', error);
       set({
@@ -151,49 +367,18 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     }
   },
 
-  fetchContacts: async (limit = 100, offset = 0) => {
-    if (USE_MOCK_DATA) {
-      // Use mock data for development
-      set({
-        contacts: mockContacts.slice(offset, offset + limit),
-        isLoading: false
-      });
-      return;
-    }
-
-    try {
-      set({ isLoading: true, error: null });
-      const { invoke } = await import('@tauri-apps/api/core');
-      const contacts = await invoke<Contact[]>('get_contacts', { limit, offset });
-      set({ contacts, isLoading: false });
-    } catch (error) {
-      console.error('Failed to fetch contacts:', error);
-      set({
-        error: error instanceof Error ? error.message : 'Failed to fetch contacts',
-        isLoading: false
-      });
+  fetchContacts: async (limit = 100, _offset = 0) => {
+    // Contacts are already in memory from extractContacts - just re-extract if empty
+    const { contacts, hasExtractedContacts } = get();
+    if (!hasExtractedContacts || contacts.length === 0) {
+      await get().extractContacts();
     }
   },
 
   fetchContact: async (contactId: string) => {
-    if (USE_MOCK_DATA) {
-      const contact = mockContacts.find(c => c.id === contactId) || null;
-      set({ selectedContact: contact });
-      return;
-    }
-
-    try {
-      set({ isLoading: true, error: null });
-      const { invoke } = await import('@tauri-apps/api/core');
-      const contact = await invoke<Contact | null>('get_contact', { contactId });
-      set({ selectedContact: contact, isLoading: false });
-    } catch (error) {
-      console.error('Failed to fetch contact:', error);
-      set({
-        error: error instanceof Error ? error.message : 'Failed to fetch contact',
-        isLoading: false
-      });
-    }
+    const { contacts } = get();
+    const contact = contacts.find(c => c.id === contactId) || null;
+    set({ selectedContact: contact });
   },
 
   setSelectedContact: (contact: Contact | null) => {
@@ -201,217 +386,160 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   },
 
   updateContactVIP: async (contactId: string, isVIP: boolean) => {
-    if (USE_MOCK_DATA) {
-      // Update local state for mock data
-      set((state) => ({
-        contacts: state.contacts.map(c =>
-          c.id === contactId ? { ...c, is_vip: isVIP } : c
-        ),
-        selectedContact: state.selectedContact?.id === contactId
-          ? { ...state.selectedContact, is_vip: isVIP }
-          : state.selectedContact
-      }));
-      return;
-    }
-
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('update_contact_vip_status', { contactId, isVip: isVIP });
-      set((state) => ({
-        contacts: state.contacts.map(c =>
-          c.id === contactId ? { ...c, is_vip: isVIP } : c
-        ),
-        selectedContact: state.selectedContact?.id === contactId
-          ? { ...state.selectedContact, is_vip: isVIP }
-          : state.selectedContact
-      }));
-    } catch (error) {
-      console.error('Failed to update VIP status:', error);
-      set({
-        error: error instanceof Error ? error.message : 'Failed to update VIP status'
-      });
-    }
+    set((state) => ({
+      contacts: state.contacts.map(c =>
+        c.id === contactId ? { ...c, is_vip: isVIP } : c
+      ),
+      selectedContact: state.selectedContact?.id === contactId
+        ? { ...state.selectedContact, is_vip: isVIP }
+        : state.selectedContact
+    }));
   },
 
   updateContactNotes: async (contactId: string, notes: string) => {
-    if (USE_MOCK_DATA) {
-      // Update local state for mock data
-      set((state) => ({
-        contacts: state.contacts.map(c =>
-          c.id === contactId ? { ...c, notes } : c
-        ),
-        selectedContact: state.selectedContact?.id === contactId
-          ? { ...state.selectedContact, notes }
-          : state.selectedContact
-      }));
-      return;
-    }
-
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('update_contact_notes', { contactId, notes });
-      set((state) => ({
-        contacts: state.contacts.map(c =>
-          c.id === contactId ? { ...c, notes } : c
-        ),
-        selectedContact: state.selectedContact?.id === contactId
-          ? { ...state.selectedContact, notes }
-          : state.selectedContact
-      }));
-    } catch (error) {
-      console.error('Failed to update notes:', error);
-      set({
-        error: error instanceof Error ? error.message : 'Failed to update notes'
-      });
-    }
+    set((state) => ({
+      contacts: state.contacts.map(c =>
+        c.id === contactId ? { ...c, notes } : c
+      ),
+      selectedContact: state.selectedContact?.id === contactId
+        ? { ...state.selectedContact, notes }
+        : state.selectedContact
+    }));
   },
 
   updateContactCategory: async (contactId: string, category: Contact['category']) => {
-    if (USE_MOCK_DATA) {
-      // Update local state for mock data
-      set((state) => ({
-        contacts: state.contacts.map(c =>
-          c.id === contactId ? { ...c, category } : c
-        ),
-        selectedContact: state.selectedContact?.id === contactId
-          ? { ...state.selectedContact, category }
-          : state.selectedContact
-      }));
-      return;
-    }
-
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('update_contact_category', { contactId, category });
-      set((state) => ({
-        contacts: state.contacts.map(c =>
-          c.id === contactId ? { ...c, category } : c
-        ),
-        selectedContact: state.selectedContact?.id === contactId
-          ? { ...state.selectedContact, category }
-          : state.selectedContact
-      }));
-    } catch (error) {
-      console.error('Failed to update category:', error);
-      set({
-        error: error instanceof Error ? error.message : 'Failed to update category'
-      });
-    }
+    set((state) => ({
+      contacts: state.contacts.map(c =>
+        c.id === contactId ? { ...c, category } : c
+      ),
+      selectedContact: state.selectedContact?.id === contactId
+        ? { ...state.selectedContact, category }
+        : state.selectedContact
+    }));
   },
 
   fetchContactAnalytics: async (contactId: string) => {
-    if (USE_MOCK_DATA) {
-      // Use mock analytics
-      const mockAnalytics: ContactAnalytics = {
-        contact_id: contactId,
-        email_address: mockContacts.find(c => c.id === contactId)?.email_address || '',
-        name: mockContacts.find(c => c.id === contactId)?.name,
-        total_emails: 45,
-        emails_sent: 23,
-        emails_received: 22,
-        first_contact: Date.now() - 90 * 24 * 60 * 60 * 1000,
-        last_contact: Date.now() - 2 * 24 * 60 * 60 * 1000,
-        avg_response_time_minutes: 120,
-        response_times: [15, 30, 45, 60, 120, 180, 240, 300, 480, 960],
-        interaction_frequency: generateMockFrequencyData(),
-        relationship_score: 75
-      };
-      set({ analytics: mockAnalytics });
-      return;
+    const { contacts } = get();
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return;
+
+    // Build interaction frequency from emails
+    const emailStore = useEmailStore.getState();
+    const allEmails = [...emailStore.emails, ...emailStore.sentEmails];
+    const contactEmails = allEmails.filter(e => {
+      const senderAddr = extractEmailAddress(e.sender);
+      return senderAddr === contact.email_address ||
+        (e.recipients && e.recipients.toLowerCase().includes(contact.email_address));
+    });
+
+    // Group by date for frequency
+    const freqMap = new Map<string, { sent: number; received: number }>();
+    for (const e of contactEmails) {
+      const dateStr = new Date(e.date).toISOString().split('T')[0];
+      const existing = freqMap.get(dateStr) || { sent: 0, received: 0 };
+      const senderAddr = extractEmailAddress(e.sender);
+      if (senderAddr === contact.email_address) {
+        existing.received++;
+      } else {
+        existing.sent++;
+      }
+      freqMap.set(dateStr, existing);
     }
 
-    try {
-      set({ isLoading: true, error: null });
-      const { invoke } = await import('@tauri-apps/api/core');
-      const analytics = await invoke<ContactAnalytics>('get_contact_analytics', { contactId });
-      set({ analytics, isLoading: false });
-    } catch (error) {
-      console.error('Failed to fetch contact analytics:', error);
-      set({
-        error: error instanceof Error ? error.message : 'Failed to fetch analytics',
-        isLoading: false
-      });
-    }
+    const interaction_frequency: InteractionFrequency[] = Array.from(freqMap.entries())
+      .map(([date, { sent, received }]) => ({ date, count: sent + received, sent, received }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    const analytics: ContactAnalytics = {
+      contact_id: contactId,
+      email_address: contact.email_address,
+      name: contact.name,
+      total_emails: contact.total_emails_sent + contact.total_emails_received,
+      emails_sent: contact.total_emails_sent,
+      emails_received: contact.total_emails_received,
+      first_contact: contact.first_seen,
+      last_contact: contact.last_contacted || Date.now(),
+      avg_response_time_minutes: contact.avg_response_time_minutes,
+      response_times: [],
+      interaction_frequency,
+      relationship_score: contact.relationship_score,
+    };
+
+    set({ analytics });
   },
 
   fetchNetworkData: async (minEmails = 3, limit = 50) => {
-    if (USE_MOCK_DATA) {
-      // Filter mock network data by minEmails
-      const filteredNodes = mockNetworkData.nodes.filter(n => n.value >= minEmails);
-      const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
-      const filteredLinks = mockNetworkData.links.filter(
-        l => filteredNodeIds.has(l.source) && filteredNodeIds.has(l.target)
-      );
+    const { contacts } = get();
 
-      set({
-        networkData: {
-          nodes: filteredNodes.slice(0, limit),
-          links: filteredLinks
+    // Build nodes from contacts meeting threshold
+    const filteredContacts = contacts
+      .filter(c => (c.total_emails_sent + c.total_emails_received) >= minEmails)
+      .slice(0, limit);
+
+    const nodes: NetworkNode[] = filteredContacts.map(c => ({
+      id: c.id,
+      label: c.name || c.email_address.split('@')[0],
+      value: c.total_emails_sent + c.total_emails_received,
+      category: c.category,
+      score: c.relationship_score,
+    }));
+
+    // Build links from shared threads
+    const emailStore = useEmailStore.getState();
+    const allEmails = [...emailStore.emails, ...emailStore.sentEmails];
+    const contactIds = new Set(filteredContacts.map(c => c.email_address));
+    const threadParticipants = new Map<string, Set<string>>();
+
+    for (const email of allEmails) {
+      if (!email.thread_id) continue;
+      const participants = threadParticipants.get(email.thread_id) || new Set();
+      const senderAddr = extractEmailAddress(email.sender);
+      if (contactIds.has(senderAddr)) participants.add(senderAddr);
+      threadParticipants.set(email.thread_id, participants);
+    }
+
+    // Count shared threads between pairs
+    const linkMap = new Map<string, number>();
+    for (const participants of threadParticipants.values()) {
+      const arr = Array.from(participants);
+      for (let i = 0; i < arr.length; i++) {
+        for (let j = i + 1; j < arr.length; j++) {
+          const key = [arr[i], arr[j]].sort().join('|');
+          linkMap.set(key, (linkMap.get(key) || 0) + 1);
         }
-      });
-      return;
+      }
     }
 
-    try {
-      set({ isLoading: true, error: null });
-      const { invoke } = await import('@tauri-apps/api/core');
-      const networkData = await invoke<NetworkData>('get_network_data', { minEmails, limit });
-      set({ networkData, isLoading: false });
-    } catch (error) {
-      console.error('Failed to fetch network data:', error);
-      set({
-        error: error instanceof Error ? error.message : 'Failed to fetch network data',
-        isLoading: false
+    const contactByEmail = new Map(filteredContacts.map(c => [c.email_address, c]));
+    const links: NetworkLink[] = Array.from(linkMap.entries())
+      .filter(([_, count]) => count >= 2)
+      .map(([key, count]) => {
+        const [a, b] = key.split('|');
+        return {
+          source: contactByEmail.get(a)?.id || a,
+          target: contactByEmail.get(b)?.id || b,
+          value: count,
+          strength: Math.log10(count) * 10,
+        };
       });
-    }
+
+    set({ networkData: { nodes, links } });
   },
 
   fetchStaleContacts: async (daysThreshold = 30) => {
-    if (USE_MOCK_DATA) {
-      // Use mock stale contacts
-      const stale = mockContacts.filter(c =>
-        c.days_since_contact && c.days_since_contact > daysThreshold
-      );
-      set({ staleContacts: stale });
-      return;
-    }
-
-    try {
-      set({ isLoading: true, error: null });
-      const { invoke } = await import('@tauri-apps/api/core');
-      const contacts = await invoke<Contact[]>('get_stale_contacts', { daysThreshold });
-      set({ staleContacts: contacts, isLoading: false });
-    } catch (error) {
-      console.error('Failed to fetch stale contacts:', error);
-      set({
-        error: error instanceof Error ? error.message : 'Failed to fetch stale contacts',
-        isLoading: false
-      });
-    }
+    const { contacts } = get();
+    const stale = contacts.filter(c =>
+      c.days_since_contact !== undefined && c.days_since_contact > daysThreshold
+    );
+    set({ staleContacts: stale });
   },
 
   fetchTopContacts: async (limit = 10) => {
-    if (USE_MOCK_DATA) {
-      // Use mock top contacts
-      const top = [...mockContacts]
-        .sort((a, b) => b.relationship_score - a.relationship_score)
-        .slice(0, limit);
-      set({ topContacts: top });
-      return;
-    }
-
-    try {
-      set({ isLoading: true, error: null });
-      const { invoke } = await import('@tauri-apps/api/core');
-      const contacts = await invoke<Contact[]>('get_top_contacts', { limit });
-      set({ topContacts: contacts, isLoading: false });
-    } catch (error) {
-      console.error('Failed to fetch top contacts:', error);
-      set({
-        error: error instanceof Error ? error.message : 'Failed to fetch top contacts',
-        isLoading: false
-      });
-    }
+    const { contacts } = get();
+    const top = [...contacts]
+      .sort((a, b) => b.relationship_score - a.relationship_score)
+      .slice(0, limit);
+    set({ topContacts: top });
   },
 
   generateHeatmapData: async () => {

@@ -138,6 +138,17 @@ export interface AnalyzedAttachment {
 // ==================== FUNCTIONS ====================
 
 /**
+ * Summarize an email using Claude API (via Tauri)
+ */
+export async function summarizeEmail(emailContent: string): Promise<{ summary: string; key_points: string[] }> {
+  const response = await invoke<{ summary: string; key_points: string[] }>('summarize_email', {
+    emailContent,
+    styleContext: null,
+  });
+  return response;
+}
+
+/**
  * Analyze an email using Claude API
  * Extracts questions, detects meeting requests, suggests formality
  */

@@ -116,11 +116,25 @@ pub async fn process_chat_message(request: ChatRequest) -> Result<ChatResponse, 
     use crate::commands::ai::{ClaudeRequest, ClaudeMessage, ClaudeMessageContent};
 
     // Build conversation history for Claude
+    // Wrap assistant messages back into JSON format so Claude maintains JSON output consistency
     let mut claude_messages: Vec<ClaudeMessage> = request.conversation_history
         .into_iter()
-        .map(|msg| ClaudeMessage {
-            role: msg.role,
-            content: ClaudeMessageContent::Text(msg.content),
+        .map(|msg| {
+            let content = if msg.role == "assistant" {
+                // Re-wrap plain text reply_message into expected JSON format
+                // This prevents Claude from seeing plain text responses and following that pattern
+                let json_wrapped = serde_json::json!({
+                    "reply_message": msg.content,
+                    "action": { "type": "none", "data": {} }
+                });
+                json_wrapped.to_string()
+            } else {
+                msg.content
+            };
+            ClaudeMessage {
+                role: msg.role,
+                content: ClaudeMessageContent::Text(content),
+            }
         })
         .collect();
 
@@ -170,37 +184,46 @@ pub async fn process_chat_message(request: ChatRequest) -> Result<ChatResponse, 
     let response_text = claude_response.content[0].text.clone();
 
     // Try to extract JSON from the response
-    let json_str = extract_json_from_response(&response_text)?;
+    match extract_json_from_response(&response_text) {
+        Ok(json_str) => {
+            let parsed: serde_json::Value = serde_json::from_str(&json_str)
+                .map_err(|e| format!("Failed to parse JSON response: {}. Response was: {}", e, response_text))?;
 
-    let parsed: serde_json::Value = serde_json::from_str(&json_str)
-        .map_err(|e| format!("Failed to parse JSON response: {}. Response was: {}", e, response_text))?;
+            let reply_message = parsed["reply_message"].as_str()
+                .unwrap_or(&response_text)
+                .to_string();
 
-    let reply_message = parsed["reply_message"].as_str()
-        .unwrap_or(&response_text)
-        .to_string();
+            let action = if let Some(action_obj) = parsed.get("action").and_then(|v| v.as_object()) {
+                let action_type = action_obj.get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("none")
+                    .to_string();
 
-    let action = if let Some(action_obj) = parsed.get("action").and_then(|v| v.as_object()) {
-        let action_type = action_obj.get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("none")
-            .to_string();
+                let data = action_obj.get("data")
+                    .cloned()
+                    .unwrap_or(serde_json::json!({}));
 
-        let data = action_obj.get("data")
-            .cloned()
-            .unwrap_or(serde_json::json!({}));
+                Some(ChatAction {
+                    action_type,
+                    data,
+                })
+            } else {
+                None
+            };
 
-        Some(ChatAction {
-            action_type,
-            data,
-        })
-    } else {
-        None
-    };
-
-    Ok(ChatResponse {
-        reply_message,
-        action,
-    })
+            Ok(ChatResponse {
+                reply_message,
+                action,
+            })
+        }
+        Err(_) => {
+            // Claude responded with plain text instead of JSON - use it directly
+            Ok(ChatResponse {
+                reply_message: response_text,
+                action: None,
+            })
+        }
+    }
 }
 
 fn build_system_prompt(context: &ChatContext) -> String {
@@ -292,7 +315,8 @@ Guidelines:
 - For compose, include a complete email with subject and body
 - For reminders, parse natural language dates like "tomorrow", "in 2 days", "next Friday" into ISO 8601 format
 - If unsure about something, ask for clarification in reply_message
-- Current year is 2025, current month is February"#);
+- CRITICAL: You MUST always respond with valid JSON. Never respond with plain text.
+- Even for casual conversation, wrap your response in the JSON format above."#);
 
     prompt
 }

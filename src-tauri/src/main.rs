@@ -6,7 +6,7 @@ mod models;
 mod services;
 mod utils;
 
-use commands::{auth, gmail, ai, database, settings, fs, crm, chatbot};
+use commands::{auth, gmail, ai, database, settings, fs, crm, chatbot, email_storage};
 use services::storage::TokenStorage;
 
 fn main() {
@@ -35,6 +35,12 @@ fn main() {
             ai::get_recipient_writing_style,
             ai::analyze_and_save_writing_style,
             ai::get_conversation_context_from_emails,
+            ai::classify_contacts_batch,
+            // Email persistence
+            email_storage::persist_emails,
+            email_storage::persist_sent_emails,
+            email_storage::load_persisted_emails,
+            email_storage::load_persisted_sent_emails,
             // Database commands
             database::save_email,
             database::get_emails,

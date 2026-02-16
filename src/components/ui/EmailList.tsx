@@ -33,12 +33,6 @@ function getEmailReplyData(emailId: string): EmailQuestionData | undefined {
   return undefined;
 }
 
-// Helper function to get summary for an email from store
-function getEmailSummary(emailId: string, emailStore: any): string | undefined {
-  const email = emailStore.emails.find((e: any) => e.id === emailId);
-  return email?.summary;
-}
-
 // Helper function to get attachment count
 function getAttachmentCount(email: any): number {
   if (email.attachments && Array.isArray(email.attachments)) {
@@ -47,38 +41,9 @@ function getAttachmentCount(email: any): number {
   return email.hasAttachments ? 1 : 0;
 }
 
-// Helper function to check if email is a reply (thread indicator)
-function isReplyEmail(email: any, allEmails: any[]): boolean {
-  const subject = email.subject || '';
-  const subjectLower = subject.toLowerCase();
-
-  // Check for common reply/forward prefixes
-  if (subjectLower.startsWith('re:') || subjectLower.startsWith('fwd:') || subjectLower.startsWith('fw:')) {
-    return true;
-  }
-
-  // Only show thread indicator if there are multiple emails with the same thread ID
-  if (email.threadId) {
-    const threadCount = allEmails.filter((e: any) => e.threadId === email.threadId).length;
-    return threadCount > 1;
-  }
-
-  return false;
-}
-
-// Helper function to get thread count (how many emails in this thread)
-function getThreadCount(emailId: string, emails: any[]): number {
-  const email = emails.find((e: any) => e.id === emailId);
-  if (!email?.threadId) return 1;
-  const count = emails.filter((e: any) => e.threadId === email.threadId).length;
-  return count > 1 ? count : 1;
-}
-
 // Helper function to get waiting email info
 function getWaitingEmailInfo(email: any, sentEmails: any[]): { daysWaiting: number; isOverdue: boolean } | null {
   const sentEmail = sentEmails.find((e: any) => e.id === email.id);
-  console.log('[EmailList] getWaitingEmailInfo for', email.id, ': found?', !!sentEmail, 'has waiting field?', !!sentEmail?.waiting_on_reply_since);
-
   if (!sentEmail?.waiting_on_reply_since) return null;
 
   const now = new Date();
@@ -255,22 +220,6 @@ export const EmailList: React.FC<EmailListProps> = ({
     currentFilter,
   } = useEmailStore();
 
-  // Debug: log sentEmails with waiting field
-  React.useEffect(() => {
-    const waitingInStore = sentEmails.filter(e => e.waiting_on_reply_since);
-    console.log('[EmailList] sentEmails with waiting_on_reply_since:', waitingInStore.length, waitingInStore.map(e => ({ id: e.id, subject: e.subject })));
-    if (emails.length > 0) {
-      const firstEmail = emails[0];
-      console.log('[EmailList] FIRST EMAIL:', JSON.stringify({
-        id: firstEmail.id,
-        subject: firstEmail.subject,
-        hasWaiting: !!firstEmail.waiting_on_reply_since,
-        allKeys: Object.keys(firstEmail),
-        from: firstEmail.from,
-        to: firstEmail.to
-      }));
-    }
-  }, [sentEmails, emails]);
 
   // Close snooze dropdown when clicking outside
   useEffect(() => {
@@ -667,17 +616,25 @@ export const EmailList: React.FC<EmailListProps> = ({
         )}
       </div>
       <div className="p-4 space-y-2">
-        {emails.map((email: any, index: number) => {
+        {/* Pre-compute thread counts once to avoid O(n²) lookups */}
+        {(() => {
+          const tcMap = new Map<string, number>();
+          for (const e of emails) {
+            if (e.threadId) tcMap.set(e.threadId, (tcMap.get(e.threadId) || 0) + 1);
+          }
+          return emails.map((email: any, index: number) => ({ email, index, tcMap }));
+        })().map(({ email, index, tcMap }: any) => {
           const replyData = getEmailReplyData(email.id);
           const isFyi = replyData?.loaded && replyData.requiresReply === false;
           const isFocused = focusedEmailId === email.id;
           const isSelected = isEmailSelected(email.id);
 
           // Get additional info for enhanced preview
-          const summary = getEmailSummary(email.id, useEmailStore.getState());
+          const summary = email.aiSummary;
           const attachmentCount = getAttachmentCount(email);
-          const isReply = isReplyEmail(email, emails);
-          const threadCount = getThreadCount(email.id, emails);
+          const subjectLower = (email.subject || '').toLowerCase();
+          const threadCount = email.threadId ? (tcMap.get(email.threadId) || 1) : 1;
+          const isReply = subjectLower.startsWith('re:') || subjectLower.startsWith('fwd:') || subjectLower.startsWith('fw:') || threadCount > 1;
 
           // Check if this is a waiting-on-reply sent email that needs follow-up (AI determined, 1+ day old)
           const isWaitingEmail = !!email.waiting_on_reply_since && email.needs_follow_up === true &&

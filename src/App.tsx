@@ -5,7 +5,7 @@ import { EmailList } from '@/components/ui/EmailList';
 import { ThreadedEmailList } from '@/components/ui/ThreadedEmailList';
 import { EmailView } from '@/components/ui/EmailView';
 import { SmartTriage } from '@/components/ui/SmartTriage';
-import { AttachmentItem, getFileIcon, formatFileSize } from '@/components/ui/EmailView';
+import { AttachmentItem, getFileIcon, formatFileSize, EmailHtmlContent } from '@/components/ui/EmailView';
 import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
 import { TestPage } from '@/components/TestPage';
@@ -221,7 +221,6 @@ function App() {
       recipients: email.recipients,
     };
 
-    console.log('[App] convertSentEmailToUI:', { originalId: email.id, convertedId: converted.id, hasWaiting: !!converted.waiting_on_reply_since, needsFollowUp: converted.needs_follow_up });
 
     return converted;
   }, []);
@@ -284,11 +283,6 @@ function App() {
 
       // Put overdue emails FIRST, then regular inbox
       result = [...overdueEmails, ...regularInbox];
-
-      // Debug logging
-      console.log('[App] Inbox filter:', { overdueEmails: overdueEmails.length, regularInbox: regularInbox.length, total: result.length });
-      console.log('[App] OverdueEmails:', overdueEmails.map(e => ({ id: e.id, subject: e.subject, hasWaiting: !!e.waiting_on_reply_since })));
-      console.log('[App] Sent emails with waiting_on_reply_since:', sentEmails.filter(e => e.waiting_on_reply_since).map(e => ({ id: e.id, subject: e.subject, waiting: e.waiting_on_reply_since })));
     } else {
       // All other filters
       result = emails
@@ -313,9 +307,6 @@ function App() {
         const savedSentEmails = sentEmails
           .filter(e => e.status === 'Saved')
           .map(convertSentEmailToUI);
-        // Debug logging
-        console.log('[App] Saved filter - savedSentEmails:', savedSentEmails.map(e => ({ id: e.id, subject: e.subject, status: (sentEmails as any).find((se: any) => se.id === e.id)?.status })));
-        console.log('[App] Saved filter - All sentEmails with their statuses:', sentEmails.map((e: any) => ({ id: e.id, subject: e.subject, status: e.status })));
         result = [...result, ...savedSentEmails];
       }
     }
@@ -336,27 +327,43 @@ function App() {
     const isWaitingAndReady = (e: any) => !!e.waiting_on_reply_since && e.needs_follow_up === true &&
       Math.floor((Date.now() - new Date(e.waiting_on_reply_since).getTime()) / (1000 * 60 * 60 * 24)) >= 1;
 
-    const getNeedsAttentionScore = (email: any): number => {
-      if ((window as any).dismissedAttentionEmails?.has(email.id)) return 0;
-      if (email.waiting_on_reply_since) return 0; // handled separately
-      if (email.status === 'Replied' || email.status === 'Archived' || email.status === 'Saved') return 0;
-      if (email.labels?.some((l: any) => l.name === 'Sent')) return 0;
-      const sentReplyIds = useEmailStore.getState().sentReplyEmailIds;
-      if (sentReplyIds.has(email.id)) return 0;
+    // Pre-compute attention scores to avoid O(n²) in sort comparator
+    const sentReplyIds = useEmailStore.getState().sentReplyEmailIds;
+    const now = new Date();
+    // Build thread map once: threadId -> array of emails
+    const threadMap = new Map<string, any[]>();
+    for (const email of result) {
+      if (email.thread_id) {
+        const arr = threadMap.get(email.thread_id) || [];
+        arr.push(email);
+        threadMap.set(email.thread_id, arr);
+      }
+    }
+
+    const attentionScoreMap = new Map<string, number>();
+    for (const email of result) {
+      let score = 0;
+      if ((window as any).dismissedAttentionEmails?.has(email.id) ||
+          email.waiting_on_reply_since ||
+          email.status === 'Replied' || email.status === 'Archived' || email.status === 'Saved' ||
+          email.labels?.some((l: any) => l.name === 'Sent') ||
+          sentReplyIds.has(email.id)) {
+        attentionScoreMap.set(email.id, 0);
+        continue;
+      }
 
       const questionData = (window as any).emailQuestionData?.get(email.id);
       const requiresReply = questionData?.loaded ? questionData.requiresReply : email.requires_reply;
-      const now = new Date();
       const daysOld = Math.floor((now.getTime() - new Date(email.date || 0).getTime()) / (1000 * 60 * 60 * 24));
 
-      // Follow-up from sender
+      // Follow-up from sender (use pre-built thread map)
       if (email.thread_id) {
-        const threadEmails = result.filter(e => e.thread_id === email.thread_id && e.id !== email.id);
+        const threadEmails = threadMap.get(email.thread_id) || [];
         const senderEmail = email.from?.email || '';
-        const fromSameSender = threadEmails.filter((e: any) => (e.from?.email || '') === senderEmail);
+        const fromSameSender = threadEmails.filter((e: any) => e.id !== email.id && (e.from?.email || '') === senderEmail);
         if (fromSameSender.length >= 2) {
           const hasSentReplyInThread = sentEmails.some((se: any) => se.thread_id === email.thread_id || se.inReplyTo === email.id);
-          if (!hasSentReplyInThread) return 3; // highest priority
+          if (!hasSentReplyInThread) { attentionScoreMap.set(email.id, 3); continue; }
         }
       }
       // Upcoming deadline
@@ -364,16 +371,19 @@ function App() {
         const deadlineDate = new Date(questionData.deadline);
         if (!isNaN(deadlineDate.getTime())) {
           const daysUntil = Math.ceil((now.getTime() - deadlineDate.getTime()) / (1000 * 60 * 60 * 24) * -1);
-          if (daysUntil <= 2) return 3;
-          if (daysUntil <= 7) return 2;
+          if (daysUntil <= 2) { score = 3; }
+          else if (daysUntil <= 7) { score = 2; }
         } else {
-          return 2; // non-ISO deadline, treat as important
+          score = 2;
         }
+        if (score) { attentionScoreMap.set(email.id, score); continue; }
       }
-      if (email.aiCategory === 'Urgent' || email.category === 'Urgent') return 2;
-      if (requiresReply && daysOld >= 2) return daysOld > 4 ? 2 : 1;
-      return 0;
-    };
+      if (email.aiCategory === 'Urgent' || email.category === 'Urgent') score = 2;
+      else if (requiresReply && daysOld >= 2) score = daysOld > 4 ? 2 : 1;
+      attentionScoreMap.set(email.id, score);
+    }
+
+    const getNeedsAttentionScore = (email: any): number => attentionScoreMap.get(email.id) || 0;
 
     // Sort by selected mode
     if (sortMode === 'importance') {
@@ -503,7 +513,7 @@ function App() {
     return emails.filter(email => {
       return email.status !== 'Archived' && email.status !== 'Saved' && email.status !== 'Deleted';
     }).length;
-  }, [emails, filteredEmails, currentFilter, isFocusMode]);
+  }, [emails, currentFilter, isFocusMode]);
 
   useEffect(() => {
     // Initialize authentication state on app load
@@ -550,12 +560,19 @@ function App() {
     if (!isAuthenticated) return;
 
     let interval: NodeJS.Timeout | null = null;
+    let lastFetchTime = 0;
+    const MIN_FETCH_INTERVAL = 30000; // Don't fetch more often than every 30s
+
+    const doFetch = () => {
+      const now = Date.now();
+      if (now - lastFetchTime < MIN_FETCH_INTERVAL) return;
+      lastFetchTime = now;
+      fetchEmails();
+    };
 
     const startPolling = () => {
       if (interval) clearInterval(interval);
-      interval = setInterval(() => {
-        fetchEmails();
-      }, 60000); // Poll every 60 seconds (reduced from 30 to reduce load)
+      interval = setInterval(doFetch, 60000); // Poll every 60 seconds
     };
 
     const stopPolling = () => {
@@ -567,7 +584,7 @@ function App() {
 
     // Handle window focus/blur
     const handleFocus = () => {
-      fetchEmails(); // Fetch immediately when window gains focus
+      doFetch(); // Fetch on focus, but only if enough time has passed
       startPolling();
     };
 
@@ -1346,7 +1363,6 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                 {/* Thread view for sent emails */}
                                 {(() => {
                                   const threadId = selectedEmail.thread_id;
-                                  console.log('[Sent Thread View] selectedEmail:', { id: selectedEmail.id, thread_id: threadId, subject: selectedEmail.subject });
                                   if (!threadId) return null;
 
                                   // Get all emails in this thread (both received and sent)
@@ -1354,8 +1370,6 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                     ...emails.filter(e => e.thread_id === threadId || e.id === threadId),
                                     ...sentEmails.filter(e => e.thread_id === threadId || e.id === threadId)
                                   ].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
-
-                                  console.log('[Sent Thread View] Thread emails found:', allThreadEmails.map(e => ({ id: e.id, thread_id: e.thread_id, subject: e.subject, date: e.date, isSent: !!sentEmails.find(se => se.id === e.id) })));
 
                                   return (
                                     <div className="space-y-6">
@@ -1404,7 +1418,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                             </div>
                                             <div className="prose prose-sm max-w-none dark:prose-invert">
                                               {emailData.bodyHtml || emailData.body_html ? (
-                                                <div className="email-html-content" dangerouslySetInnerHTML={{ __html: emailData.bodyHtml || emailData.body_html || '' }} />
+                                                <EmailHtmlContent html={emailData.bodyHtml || emailData.body_html || ''} />
                                               ) : (
                                                 <div className="whitespace-pre-wrap text-foreground">
                                                   {(emailData.content || '').startsWith(emailData.subject)
@@ -1629,7 +1643,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
 
                                 <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:text-foreground">
                                   {selectedEmail.bodyHtml || selectedEmail.body_html ? (
-                                    <div className="email-html-content" dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml || selectedEmail.body_html || '' }} />
+                                    <EmailHtmlContent html={selectedEmail.bodyHtml || selectedEmail.body_html || ''} />
                                   ) : (
                                     <div className="whitespace-pre-wrap text-foreground">
                                       {(selectedEmail.content || '').startsWith(selectedEmail.subject)
@@ -1652,8 +1666,8 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                     </div>
                                     <div className="space-y-2">
                                       {selectedEmail.attachments?.map((attachment: any) => {
-                                        // Get the full email from store to include AI analysis data
-                                        const fullEmail = emails.find(e => e.id === selectedEmail.id);
+                                        // Get the full email from store to include AI analysis data (check both emails and sentEmails)
+                                        const fullEmail = emails.find(e => e.id === selectedEmail.id) || sentEmails.find(e => e.id === selectedEmail.id);
                                         const fullAttachment = fullEmail?.attachments?.find((a: any) => a.id === attachment.id) || attachment;
 
                                         return (

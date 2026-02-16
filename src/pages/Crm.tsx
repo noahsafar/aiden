@@ -135,7 +135,7 @@ export const Crm: React.FC = () => {
       {/* Main Content */}
       <div className={`flex-1 flex overflow-hidden transition-all duration-300 ease-in-out ${isChatOpen ? 'mr-[400px]' : ''}`}>
         {/* Sidebar - View Navigation */}
-        <div className="w-56 bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-shrink-0">
+        <div className="w-16 sm:w-56 md:w-64 bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="p-3">
             <div className="relative mb-3">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />

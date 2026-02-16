@@ -62,10 +62,10 @@ function configureDOMPurifyHooks() {
 }
 
 // Component to render email HTML content properly
-// Handles full HTML documents with <html>, <head>, <body> tags
-function EmailHtmlContent({ html }: { html: string }) {
+// Uses Shadow DOM to fully encapsulate email styles and prevent CSS leakage
+export function EmailHtmlContent({ html }: { html: string }) {
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const uniqueId = React.useRef(`email-${Math.random().toString(36).substr(2, 9)}`);
+  const shadowRootRef = React.useRef<ShadowRoot | null>(null);
 
   const processedHtml = React.useMemo(() => {
     if (!html) return '';
@@ -76,14 +76,11 @@ function EmailHtmlContent({ html }: { html: string }) {
     let cleanHtml = html;
 
     // If the HTML contains a full document, extract just the body content
-    // or render the full document in an iframe-like way
     if (cleanHtml.includes('<html') || cleanHtml.includes('<body')) {
-      // Extract content from body tags if present
       const bodyMatch = cleanHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
       if (bodyMatch) {
         cleanHtml = bodyMatch[1];
       } else {
-        // If no body tag but has html tag, extract everything after the head
         const headEndMatch = cleanHtml.match(/<\/head[^>]*>([\s\S]*?)$/i);
         if (headEndMatch) {
           cleanHtml = headEndMatch[1];
@@ -91,32 +88,10 @@ function EmailHtmlContent({ html }: { html: string }) {
       }
     }
 
-    // Remove style tags and their content to prevent CSS leakage
-    cleanHtml = cleanHtml.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-
-    // Remove link tags that load external stylesheets
+    // Remove link tags that load external stylesheets (tracking/resource concern)
     cleanHtml = cleanHtml.replace(/<link[^>]*rel=['"]?stylesheet['"]?[^>]*>/gi, '');
 
-    // Scope all class names and id attributes to prevent conflicts
-    // This is a simple scoping - adds a unique prefix to classes/ids
-    const prefix = uniqueId.current;
-    cleanHtml = cleanHtml.replace(/\sclass=['"]([^'"]*)['"]/g, (match, classes) => {
-      const scopedClasses = classes.split(/\s+/).filter(c => c).map(c => `${prefix}-${c}`).join(' ');
-      return ` class="${scopedClasses}"`;
-    });
-
-    cleanHtml = cleanHtml.replace(/\sid=['"]([^'"]*)['"]/g, (match, id) => {
-      return ` id="${prefix}-${id}"`;
-    });
-
-    // Also scope anchor links and fragment identifiers
-    cleanHtml = cleanHtml.replace(/href=['"]#([^'"]*)['"]/g, (match, fragment) => {
-      return `href="#${prefix}-${fragment}"`;
-    });
-
     const sanitized = DOMPurify.sanitize(cleanHtml, {
-      // Allow all standard HTML plus email-specific tags
-      // NOTE: 'style' and 'link' are NOT included to prevent CSS leakage
       ALLOWED_TAGS: [
         // Basic HTML
         'p', 'br', 'strong', 'em', 'u', 's', 'a', 'ul', 'ol', 'li',
@@ -126,9 +101,8 @@ function EmailHtmlContent({ html }: { html: string }) {
         'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'col', 'colgroup',
         // Forms (sometimes in emails)
         'form', 'input', 'button', 'label', 'select', 'option', 'textarea',
-        // Other email elements (NOT style, link, script, meta, head, body)
-        'font', 'center', 'map', 'area', 'object', 'param', 'embed', 'video', 'audio',
-        'source', 'track', 'iframe', 'title', 'base', 'template', 'section', 'article', 'aside',
+        // Email elements - style tags are safe inside Shadow DOM
+        'style', 'font', 'center', 'map', 'area', 'section', 'article', 'aside',
         'nav', 'main', 'header', 'footer', 'figure', 'figcaption', 'details', 'summary'
       ],
       ALLOWED_ATTR: [
@@ -137,7 +111,7 @@ function EmailHtmlContent({ html }: { html: string }) {
         'id', 'name', 'type', 'value', 'placeholder', 'for', 'label',
         // Email/table attributes
         'bgcolor', 'background', 'cellpadding', 'cellspacing', 'valign', 'align',
-        'border', 'colspan', 'rowspan', 'nowrap', 'frameborder', 'scrolling',
+        'border', 'colspan', 'rowspan', 'nowrap',
         'marginwidth', 'marginheight', 'hspace', 'vspace',
         // Image attributes
         'usemap', 'ismap', 'longdesc',
@@ -148,11 +122,8 @@ function EmailHtmlContent({ html }: { html: string }) {
       ],
       ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
       ALLOW_UNKNOWN_PROTOCOLS: false,
-      // Allow comments (some emails use conditional comments)
       KEEP_CONTENT: true,
-      // Don't strip empty tags (emails use them for spacing)
       WHOLE_DOCUMENT: false,
-      // Return as a fragment
       RETURN_DOM_FRAGMENT: false,
       FORCE_BODY: false
     });
@@ -160,40 +131,46 @@ function EmailHtmlContent({ html }: { html: string }) {
     return sanitized;
   }, [html]);
 
-  // Apply scoped styles dynamically
+  // Render sanitized HTML inside Shadow DOM for full style encapsulation
   React.useEffect(() => {
-    if (!containerRef.current || !html) return;
+    if (!containerRef.current) return;
 
-    // Get all elements with scoped classes and update their class names
-    const elements = containerRef.current.querySelectorAll('[class]');
-    elements.forEach(el => {
-      const classList = Array.from(el.classList);
-      // Remove any classes that look like they were scoped from a previous email
-      const filteredClasses = classList.filter(c =>
-        !c.match(/^email-\w+-/) || c.startsWith(uniqueId.current)
-      );
-      if (filteredClasses.length !== classList.length) {
-        el.className = filteredClasses.join(' ');
-      }
-    });
-  }, [processedHtml, html]);
+    // Attach shadow root once
+    if (!shadowRootRef.current) {
+      shadowRootRef.current = containerRef.current.attachShadow({ mode: 'open' });
+    }
+
+    // Base styles inside shadow DOM - these won't leak out
+    shadowRootRef.current.innerHTML = `
+      <style>
+        :host {
+          display: block;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          font-size: 14px;
+          line-height: 1.5;
+          color: inherit;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+        }
+        img { max-width: 100%; height: auto; }
+        a { color: #3b82f6; text-decoration: underline; }
+        a:hover { color: #2563eb; }
+        table { max-width: 100%; border-collapse: collapse; }
+        pre { white-space: pre-wrap; overflow-x: auto; }
+        blockquote { border-left: 3px solid #d1d5db; margin: 0.5em 0; padding-left: 1em; color: #6b7280; }
+      </style>
+      ${processedHtml}
+    `;
+  }, [processedHtml]);
 
   return (
     <div
       ref={containerRef}
-      className={`email-html-content email-content-scoped ${uniqueId.current}`}
-      dangerouslySetInnerHTML={{ __html: processedHtml }}
+      className="email-html-content"
       style={{
         width: '100%',
         overflow: 'auto',
         maxWidth: '100%',
-        // Force specific font values instead of using all: initial
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-        fontSize: '14px',
-        lineHeight: '1.5',
-        color: 'inherit',
-        // Important: prevent email from affecting page layout
-        isolation: 'isolate',
       }}
     />
   );
@@ -256,12 +233,19 @@ export function AttachmentItem({
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const result = await downloadAttachment(messageId, attachment.id);
-      if (result.success && result.data) {
-        await saveAttachmentToFile(attachment.filename, result.data);
+      let data: string | undefined;
+      if (attachment.base64Data) {
+        data = attachment.base64Data;
       } else {
-        alert('Failed to download: ' + (result.error || 'Unknown error'));
+        const result = await downloadAttachment(messageId, attachment.id);
+        if (result.success && result.data) {
+          data = result.data;
+        } else {
+          alert('Failed to download: ' + (result.error || 'Unknown error'));
+          return;
+        }
       }
+      await saveAttachmentToFile(attachment.filename, data);
     } catch (error) {
       console.error('Download error:', error);
       alert('Failed to download attachment');
@@ -273,47 +257,55 @@ export function AttachmentItem({
   const handlePreview = async () => {
     setPreviewLoading(true);
     try {
-      console.log('[Attachment Preview] Fetching attachment:', attachment.id, 'from message:', messageId);
-      const result = await downloadAttachment(messageId, attachment.id);
-      console.log('[Attachment Preview] Download result:', result);
+      let data: string | undefined;
 
-      if (result.success && result.data) {
-        // Convert base64 to bytes and save to downloads
-        try {
-          const { invoke } = await import('@tauri-apps/api/core');
-
-          // Convert base64 to bytes
-          const binaryString = atob(result.data);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-
-          // Save to downloads folder
-          const downloadsPath = await invoke<string>('get_downloads_path', {});
-          const filePath = `${downloadsPath}/${attachment.filename}`;
-
-          await invoke('write_file', {
-            path: filePath,
-            contents: Array.from(bytes)
-          });
-
-          console.log('[Attachment Preview] Saved to:', filePath);
-
-          // Open the file with the default application
-          await invoke('open_file', { path: filePath });
-
-          console.log('[Attachment Preview] Opened file');
-        } catch (tauriError) {
-          console.error('[Attachment Preview] Tauri method failed:', tauriError);
-          alert('Preview saved to Downloads folder. Please open it manually.');
-        }
-        setPreviewLoading(false);
+      if (attachment.base64Data) {
+        data = attachment.base64Data;
       } else {
-        console.error('[Attachment Preview] Download failed:', result);
-        alert('Failed to load preview: ' + (result.error || 'Unknown error'));
-        setPreviewLoading(false);
+        console.log('[Attachment Preview] Fetching attachment:', attachment.id, 'from message:', messageId);
+        const result = await downloadAttachment(messageId, attachment.id);
+        console.log('[Attachment Preview] Download result:', result);
+        if (result.success && result.data) {
+          data = result.data;
+        } else {
+          console.error('[Attachment Preview] Download failed:', result);
+          alert('Failed to load preview: ' + (result.error || 'Unknown error'));
+          setPreviewLoading(false);
+          return;
+        }
       }
+
+      // Convert base64 to bytes and save to downloads
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+
+        // Convert base64 to bytes
+        const binaryString = atob(data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        // Save to downloads folder
+        const downloadsPath = await invoke<string>('get_downloads_path', {});
+        const filePath = `${downloadsPath}/${attachment.filename}`;
+
+        await invoke('write_file', {
+          path: filePath,
+          contents: Array.from(bytes)
+        });
+
+        console.log('[Attachment Preview] Saved to:', filePath);
+
+        // Open the file with the default application
+        await invoke('open_file', { path: filePath });
+
+        console.log('[Attachment Preview] Opened file');
+      } catch (tauriError) {
+        console.error('[Attachment Preview] Tauri method failed:', tauriError);
+        alert('Preview saved to Downloads folder. Please open it manually.');
+      }
+      setPreviewLoading(false);
     } catch (error) {
       console.error('[Attachment Preview] Error:', error);
       alert('Failed to preview attachment: ' + String(error));
@@ -324,43 +316,52 @@ export function AttachmentItem({
   const handleSummarize = async () => {
     setSummarizing(true);
     try {
-      // First download the attachment
-      const result = await downloadAttachment(messageId, attachment.id);
-      if (result.success && result.data) {
-        // Use Claude API for analysis (supports images and documents)
-        const analysisResult = await analyzeAttachment({
-          filename: attachment.filename,
-          attachment_data: result.data,
-          mime_type: attachment.mimeType,
-          email_subject: emailSubject,
-          email_sender: emailSender,
-          email_body: emailBody,
-          email_summary: emailSummary,
-        });
+      let attachmentData: string | undefined;
 
-        // Build a comprehensive summary from the analysis
-        let summaryText = analysisResult.summary;
-
-        if (analysisResult.key_points && analysisResult.key_points.length > 0) {
-          summaryText += '\n\nKey Points:\n' + analysisResult.key_points.map((p, i) => `${i + 1}. ${p}`).join('\n');
-        }
-
-        if (analysisResult.action_items && analysisResult.action_items.length > 0) {
-          summaryText += '\n\nAction Items:\n' + analysisResult.action_items.map((a, i) => `${i + 1}. ${a}`).join('\n');
-        }
-
-        setSummary(summaryText);
-        setShowSummary(true);
-
-        // Save the analysis to the email store
-        updateAttachmentAnalysis(messageId, attachment.id, {
-          summary: analysisResult.summary,
-          key_points: analysisResult.key_points,
-          action_items: analysisResult.action_items,
-        });
+      // Use stored base64 data if available (sent email attachments), otherwise download from Gmail
+      if (attachment.base64Data) {
+        attachmentData = attachment.base64Data;
       } else {
-        alert('Failed to download attachment for analysis: ' + (result.error || 'Unknown error'));
+        const result = await downloadAttachment(messageId, attachment.id);
+        if (result.success && result.data) {
+          attachmentData = result.data;
+        } else {
+          alert('Failed to download attachment for analysis: ' + (result.error || 'Unknown error'));
+          return;
+        }
       }
+
+      // Use Claude API for analysis (supports images and documents)
+      const analysisResult = await analyzeAttachment({
+        filename: attachment.filename,
+        attachment_data: attachmentData,
+        mime_type: attachment.mimeType,
+        email_subject: emailSubject,
+        email_sender: emailSender,
+        email_body: emailBody,
+        email_summary: emailSummary,
+      });
+
+      // Build a comprehensive summary from the analysis
+      let summaryText = analysisResult.summary;
+
+      if (analysisResult.key_points && analysisResult.key_points.length > 0) {
+        summaryText += '\n\nKey Points:\n' + analysisResult.key_points.map((p, i) => `${i + 1}. ${p}`).join('\n');
+      }
+
+      if (analysisResult.action_items && analysisResult.action_items.length > 0) {
+        summaryText += '\n\nAction Items:\n' + analysisResult.action_items.map((a, i) => `${i + 1}. ${a}`).join('\n');
+      }
+
+      setSummary(summaryText);
+      setShowSummary(true);
+
+      // Save the analysis to the email store
+      updateAttachmentAnalysis(messageId, attachment.id, {
+        summary: analysisResult.summary,
+        key_points: analysisResult.key_points,
+        action_items: analysisResult.action_items,
+      });
     } catch (error) {
       console.error('Analysis error:', error);
       alert('Failed to analyze attachment: ' + String(error));

@@ -47,66 +47,72 @@ async function serverURL(): Promise<string> {
   return cachedServerURL;
 }
 
+async function fetchEventsOnce(
+  baseURL: string,
+  startDate: string,
+  endDate?: string,
+  timezone?: string
+): Promise<EventsResponse> {
+  const userTimezone = timezone || 'America/New_York';
+
+  const response = await fetch(`${baseURL}/calendar`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      action: 'fetch_events',
+      timezone: userTimezone,
+      data: {
+        start_date: startDate,
+        end_date: endDate,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const data: EventsResponse = await response.json();
+
+  if (!data.events || !Array.isArray(data.events)) {
+    return {
+      success: false,
+      events: [],
+      error: data.error || 'Invalid response from server'
+    };
+  }
+
+  return data;
+}
+
 export async function fetchEvents(
   startDate: string = 'today',
   endDate?: string,
   timezone?: string
 ): Promise<EventsResponse> {
-  try {
-    const baseURL = await serverURL();
+  const MAX_RETRIES = 2;
+  const baseURL = await serverURL();
 
-    // Use provided timezone or default to Eastern Time - DO NOT auto-detect from browser
-    const userTimezone = timezone || 'America/New_York';
-    console.log('[calendar API] Using timezone:', userTimezone);
-
-    const response = await fetch(`${baseURL}/calendar`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        action: 'fetch_events',
-        timezone: userTimezone,
-        data: {
-          start_date: startDate,
-          end_date: endDate,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data: EventsResponse = await response.json();
-
-    // DEBUG: Log what we received from Python
-    console.log('[calendar API] Received response from Python:', data);
-
-    // Validate response has events array
-    if (!data.events || !Array.isArray(data.events)) {
-      console.warn('[calendar API] Response missing events array:', data);
-      return {
-        success: false,
-        events: [],
-        error: data.error || 'Invalid response from server'
-      };
-    }
-
-    // Log first 5 events
-    data.events.forEach((e, i) => {
-      if (i < 5) {  // First 5 events
-        console.log(`  ${e.summary}: time=${e.time}, date=${e.date}, start=${e.start}`);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fetchEventsOnce(baseURL, startDate, endDate, timezone);
+    } catch (error) {
+      const isLastAttempt = attempt === MAX_RETRIES;
+      if (isLastAttempt) {
+        console.error('Failed to fetch calendar events after retries:', error);
+        return {
+          success: false,
+          events: [],
+          error: error instanceof Error ? error.message : 'Failed to fetch events'
+        };
       }
-    });
-
-    return data;
-  } catch (error) {
-    console.error('Failed to fetch calendar events:', error);
-    return {
-      success: false,
-      events: [],
-      error: error instanceof Error ? error.message : 'Failed to fetch events'
-    };
+      // Wait briefly before retrying (500ms, then 1000ms)
+      await new Promise(r => setTimeout(r, (attempt + 1) * 500));
+    }
   }
+
+  // Unreachable, but TypeScript needs it
+  return { success: false, events: [], error: 'Unexpected error' };
 }

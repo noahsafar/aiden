@@ -8,3 +8,4 @@ pub mod notification;
 pub mod fs;
 pub mod crm;
 pub mod chatbot;
+pub mod email_storage;

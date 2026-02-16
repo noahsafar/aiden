@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, ArrowLeft } from 'lucide-react';
-import { EmailView } from './EmailView';
+import { EmailView, EmailHtmlContent } from './EmailView';
 import { useEmailStore } from '@/stores/emailStore';
 
 interface Email {
@@ -173,7 +173,7 @@ export const FocusedEmailView: React.FC<FocusedEmailViewProps> = ({
             {/* Email Body */}
             <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-gray-900 dark:prose-headings:text-white prose-p:text-gray-800 dark:prose-p:text-gray-200 prose-a:text-blue-600 dark:prose-a:text-blue-400">
               {email.bodyHtml || email.body_html || fullEmail.body_html ? (
-                <div dangerouslySetInnerHTML={{ __html: email.bodyHtml || email.body_html || fullEmail.body_html || '' }} />
+                <EmailHtmlContent html={email.bodyHtml || email.body_html || fullEmail.body_html || ''} />
               ) : (
                 <div className="whitespace-pre-wrap text-gray-800 dark:text-gray-200">
                   {(fullEmail.body_text || fullEmail.snippet || email.content)?.startsWith(fullEmail.subject || email.subject)
