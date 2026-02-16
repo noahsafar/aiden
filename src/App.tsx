@@ -106,7 +106,7 @@ function App() {
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
   const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
-  const { emails, fetchEmails, isLoading: emailsLoading, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode, searchQuery, setSearchQuery, getFilteredEmails, setSelectedEmail } = useEmailStore();
+  const { emails, fetchEmails, loadFromDisk, isLoading: emailsLoading, hasInitialized: emailsInitialized, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode, searchQuery, setSearchQuery, getFilteredEmails, setSelectedEmail } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
   const { isOpen: isChatOpen, openChat: openChatPanel, closeChat: closeChatPanel, composeData: chatComposeData, clearComposeData } = useChatStore();
 
@@ -542,18 +542,18 @@ function App() {
 
       // Initialize the reminder checker for auto-reminders
       if (isAuthenticated) {
-        const { initializeReminderChecker, loadMockWaitingEmails } = useEmailStore.getState();
+        const { initializeReminderChecker } = useEmailStore.getState();
         initializeReminderChecker();
 
-        // Load mock waiting-on-reply emails for testing
-        // DISABLED: Using real data now
-        // console.log('[App] Loading mock waiting emails...');
-        // loadMockWaitingEmails();
+        // Load cached emails from disk first (instant display)
+        await loadFromDisk();
+        // Then fetch fresh emails from Gmail (silently if cache was loaded)
+        fetchEmails();
       }
     };
 
     initAuth();
-  }, [initialize, isAuthenticated, loadThemeFromSettings]);
+  }, [initialize, isAuthenticated, loadThemeFromSettings, loadFromDisk, fetchEmails]);
 
   // Set up polling for new emails - only poll when window is focused to reduce load
   useEffect(() => {
@@ -1060,7 +1060,22 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
       <Route
         path="/dashboard"
         element={
-          isAuthenticated ? (
+          isAuthenticated && !emailsInitialized && emailsLoading ? (
+            <div className="h-screen bg-background flex items-center justify-center">
+              <div className="text-center">
+                <div className="flex items-center justify-center mb-6">
+                  <img
+                    src={logo}
+                    alt="Aiden Logo"
+                    className="h-16 w-16 animate-pulse"
+                  />
+                </div>
+                <div className="w-10 h-10 border-3 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-muted text-base">Loading your inbox...</p>
+                <p className="text-muted/60 text-sm mt-2">Fetching unread emails</p>
+              </div>
+            </div>
+          ) : isAuthenticated ? (
             <>
               <div className="h-screen bg-background overflow-hidden flex flex-col min-w-0">
               {/* Top Navigation Bar */}

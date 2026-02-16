@@ -331,7 +331,8 @@ export interface EmailState {
   searchQuery: string;
   notifiedEmailIds: Set<string>;  // Track which emails we've sent notifications for
   initialEmailIds: Set<string>;   // Track emails that existed at app startup
-  hasInitialized: boolean;        // Whether initial fetch has completed
+  hasInitialized: boolean;        // Whether emails are available (from cache or fetch)
+  hasFetchedFromGmail: boolean;   // Whether we've done at least one Gmail API fetch
   generatingReplies: Set<string>; // Track which emails are currently having replies generated
   generatingSummaries: Set<string>; // Track which emails are currently having summaries generated
   sentReplyEmailIds: Set<string>; // Track which emails we've sent replies to
@@ -353,6 +354,7 @@ export interface EmailState {
   reminderCheckInterval: NodeJS.Timeout | null;  // Interval for reminder checks
 
   // Actions
+  loadFromDisk: () => Promise<void>;
   fetchEmails: () => Promise<void>;
   selectEmail: (email: Email | null) => void;
   markAsRead: (emailId: string) => Promise<void>;
@@ -476,6 +478,8 @@ async function generateSummaryForEmail(emailId: string, attempt = 0): Promise<vo
           } : e
         ),
       }));
+      // Persist updated summary to disk
+      persistEmailsToDisk();
 
       // Send notification for new emails with summary
       const currentStore = useEmailStore.getState();
@@ -659,6 +663,8 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
             e.id === emailId ? { ...e, ai_generated_reply: cleanedReply } : e
           ),
         }));
+        // Persist updated reply to disk
+        persistEmailsToDisk();
       } else {
         console.log(`[AI Processing] Reply API returned no reply for ${emailId}:`, result);
       }
@@ -712,6 +718,24 @@ function processMultipleEmails(emailIds: string[]) {
   });
 }
 
+// Persist emails to disk (fire-and-forget, non-blocking)
+async function persistEmailsToDisk() {
+  try {
+    const state = useEmailStore.getState();
+    // Don't persist empty state — would overwrite good cached data
+    if (state.emails.length === 0 && state.sentEmails.length === 0) return;
+
+    const { invoke } = await import('@tauri-apps/api/core');
+    await Promise.all([
+      invoke('persist_emails', { emails: state.emails }),
+      invoke('persist_sent_emails', { emails: state.sentEmails }),
+    ]);
+    console.log(`[EmailStore] Persisted ${state.emails.length} emails and ${state.sentEmails.length} sent emails to disk`);
+  } catch (e) {
+    console.error('[EmailStore] Failed to persist emails:', e);
+  }
+}
+
 export const useEmailStore = create<EmailState>((set, get) => ({
   emails: [],
   sentEmails: [],
@@ -723,6 +747,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   notifiedEmailIds: new Set<string>(),
   initialEmailIds: new Set<string>(),
   hasInitialized: false,
+  hasFetchedFromGmail: false,
   generatingReplies: new Set<string>(),
   generatingSummaries: new Set<string>(),
   sentReplyEmailIds: new Set<string>(),
@@ -743,6 +768,32 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   pendingReminders: new Set<string>(),
   reminderCheckInterval: null,
 
+  loadFromDisk: async () => {
+    try {
+      // Don't overwrite if we already have fresh data from a fetch
+      if (get().hasInitialized) return;
+
+      const { invoke } = await import('@tauri-apps/api/core');
+      const [persisted, persistedSent] = await Promise.all([
+        invoke<any[]>('load_persisted_emails'),
+        invoke<any[]>('load_persisted_sent_emails'),
+      ]);
+
+      // Double-check in case a fetch completed while we were loading from disk
+      if (!get().hasInitialized && (persisted.length > 0 || persistedSent.length > 0)) {
+        set({
+          emails: persisted as Email[],
+          sentEmails: persistedSent as Email[],
+          hasInitialized: true,
+          isLoading: false,
+        });
+        console.log(`[EmailStore] Loaded ${persisted.length} emails and ${persistedSent.length} sent emails from disk`);
+      }
+    } catch (e) {
+      console.error('[EmailStore] Failed to load persisted emails:', e);
+    }
+  },
+
   fetchEmails: async () => {
     // Prevent overlapping fetch calls (polling + focus events can overlap)
     if (isFetchingEmails) {
@@ -751,8 +802,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
     isFetchingEmails = true;
     try {
-      // Don't set isLoading for background refreshes - keeps UI stable
-      set({ error: null });
+      const state = get();
+      const isFirstGmailFetch = !state.hasFetchedFromGmail;
+      // Set isLoading only when we have no emails at all (shows loading screen)
+      const showLoading = !state.hasInitialized;
+      set({ error: null, ...(showLoading ? { isLoading: true } : {}) });
 
       // Get access token from auth store or localStorage
       const authStore = useAuthStore.getState();
@@ -773,9 +827,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       // Use Python OAuth server to fetch emails
       try {
         const baseURL = await serverURL();
-        // Only fetch emails that arrived after the app was opened
-        const afterEpoch = Math.floor(get().appStartTime / 1000);
-        const response = await fetch(`${baseURL}/emails?q=${encodeURIComponent(`in:inbox after:${afterEpoch}`)}`, {
+        // First Gmail fetch: get all unread inbox emails. Subsequent: only new since app opened
+        const query = isFirstGmailFetch
+          ? 'is:unread in:inbox'
+          : `in:inbox after:${Math.floor(get().appStartTime / 1000)}`;
+        const response = await fetch(`${baseURL}/emails?q=${encodeURIComponent(query)}&maxResults=50`, {
           method: 'GET',
           mode: 'cors',
           headers: {
@@ -816,47 +872,64 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           summary: email.summary || undefined,
         }));
 
-        // Preserve status, summary, key_points, action_items, and ai_generated_reply from existing emails
+        // Merge with existing emails: preserve cached/existing data, add new ones
         const existingEmails = get().emails;
-        const emails = newEmails.map((newEmail: Email) => {
-          const existing = existingEmails.find(e => e.id === newEmail.id);
+        const existingById = new Map(existingEmails.map(e => [e.id, e]));
+
+        // Update or add fetched emails
+        for (const newEmail of newEmails) {
+          const existing = existingById.get(newEmail.id);
           if (existing) {
-            // Preserve the status, summary, key_points, action_items, and ai_generated_reply from existing email
-            return {
+            // Preserve AI-generated fields from existing email
+            existingById.set(newEmail.id, {
               ...newEmail,
               status: existing.status,
               summary: existing.summary || newEmail.summary,
               key_points: existing.key_points || newEmail.key_points,
               action_items: existing.action_items || newEmail.action_items,
-              ai_generated_reply: existing.ai_generated_reply
-            };
+              ai_generated_reply: existing.ai_generated_reply,
+            });
+          } else {
+            existingById.set(newEmail.id, newEmail);
           }
-          return newEmail;
-        });
+        }
 
+        const emails = [...existingById.values()];
         set({ emails, isLoading: false });
 
-        // Handle initial vs subsequent fetches
-        const state = get();
-        if (!state.hasInitialized) {
-          // First fetch - track existing emails and process UNREAD emails (with strict limit)
+        // Persist to disk in background
+        persistEmailsToDisk();
+
+        // Mark as initialized and fetched
+        set({ hasInitialized: true, hasFetchedFromGmail: true });
+
+        // Handle initial vs subsequent fetches for AI processing
+        if (isFirstGmailFetch) {
+          // First Gmail fetch - track existing emails and process ALL unread emails without summaries
           const initialIds = new Set(emails.map((e: Email) => e.id));
-          set({ initialEmailIds: initialIds, hasInitialized: true });
+          set({ initialEmailIds: initialIds });
           console.log(`[AI Processing] Initial fetch, found ${emails.length} emails`);
 
-          // Process unread emails that don't have summaries yet - STRICTLY LIMITED to avoid overload
-          const unreadEmails = emails.filter(e => !e.is_read);
-          const emailsNeedingProcessing = unreadEmails
-            .filter(e => !e.summary || !e.ai_generated_reply)
-            .slice(0, 3); // STRICT LIMIT: Only process 3 most recent unread emails
-          console.log(`[AI Processing] Unread emails needing processing: ${emailsNeedingProcessing.length} of ${unreadEmails.length} unread (limited to 3)`);
+          // Queue all emails that need summaries - the AI queue processes one at a time
+          const emailsNeedingProcessing = emails.filter(e => !e.summary);
+          console.log(`[AI Processing] Emails needing processing: ${emailsNeedingProcessing.length} of ${emails.length} total`);
           if (emailsNeedingProcessing.length > 0) {
+            // Process first 3 quickly, then stagger the rest to keep UI responsive
+            const firstBatch = emailsNeedingProcessing.slice(0, 3);
+            const remaining = emailsNeedingProcessing.slice(3);
             setTimeout(() => {
-              processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 2000); // Longer delay to let UI settle
+              processMultipleEmails(firstBatch.map(e => e.id));
+            }, 2000);
+            if (remaining.length > 0) {
+              // Queue the rest after a longer delay to let first batch finish
+              setTimeout(() => {
+                processMultipleEmails(remaining.map(e => e.id));
+              }, 15000);
+            }
           }
         } else {
           // Subsequent fetches - process truly NEW emails
+          const state = get();
           const currentIds = new Set(emails.map((e: Email) => e.id));
           const newEmailIds = [...currentIds].filter(id => !state.initialEmailIds.has(id));
 
@@ -888,36 +961,67 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         console.warn('Falling back to frontend Gmail API...');
 
         // Fetch emails directly from Gmail API
-        const afterEpochFallback = Math.floor(get().appStartTime / 1000);
-        const emailResponse = await fetchGmailEmails(accessToken, 10, `in:inbox after:${afterEpochFallback}`);
+        const fallbackQuery = isFirstGmailFetch
+          ? 'is:unread in:inbox'
+          : `in:inbox after:${Math.floor(get().appStartTime / 1000)}`;
+        const emailResponse = await fetchGmailEmails(accessToken, 50, fallbackQuery);
 
         if (!emailResponse.success) {
           throw new Error(emailResponse.error || 'Failed to fetch emails');
         }
 
-        // Convert Gmail emails to app format
-        const emails = emailResponse.emails.map(convertGmailEmailToApp);
+        // Convert Gmail emails to app format and merge with existing
+        const newEmails = emailResponse.emails.map(convertGmailEmailToApp);
+        const existingEmails = get().emails;
+        const existingById = new Map(existingEmails.map(e => [e.id, e]));
 
+        for (const newEmail of newEmails) {
+          const existing = existingById.get(newEmail.id);
+          if (existing) {
+            existingById.set(newEmail.id, {
+              ...newEmail,
+              status: existing.status,
+              summary: existing.summary || newEmail.summary,
+              key_points: existing.key_points || newEmail.key_points,
+              action_items: existing.action_items || newEmail.action_items,
+              ai_generated_reply: existing.ai_generated_reply,
+            });
+          } else {
+            existingById.set(newEmail.id, newEmail);
+          }
+        }
+
+        const emails = [...existingById.values()];
         set({ emails, isLoading: false });
 
-        // Handle initial vs subsequent fetches (same logic as Python path)
-        const state = get();
-        if (!state.hasInitialized) {
-          const initialIds = new Set(emails.map((e: Email) => e.id));
-          set({ initialEmailIds: initialIds, hasInitialized: true });
+        // Persist to disk in background
+        persistEmailsToDisk();
 
-          // Process unread emails with STRICT LIMIT
-          const unreadEmails = emails.filter(e => !e.is_read);
-          const emailsNeedingProcessing = unreadEmails
-            .filter(e => !e.summary || !e.ai_generated_reply)
-            .slice(0, 3); // STRICT LIMIT
-          console.log(`[AI Processing] Gmail API - Unread emails needing processing: ${emailsNeedingProcessing.length} of ${unreadEmails.length} unread (limited to 3)`);
+        // Mark as initialized and fetched
+        set({ hasInitialized: true, hasFetchedFromGmail: true });
+
+        // Handle initial vs subsequent fetches (same logic as Python path)
+        if (isFirstGmailFetch) {
+          const initialIds = new Set(emails.map((e: Email) => e.id));
+          set({ initialEmailIds: initialIds });
+
+          // Queue all emails that need summaries
+          const emailsNeedingProcessing = emails.filter(e => !e.summary);
+          console.log(`[AI Processing] Gmail API - Emails needing processing: ${emailsNeedingProcessing.length} of ${emails.length} total`);
           if (emailsNeedingProcessing.length > 0) {
+            const firstBatch = emailsNeedingProcessing.slice(0, 3);
+            const remaining = emailsNeedingProcessing.slice(3);
             setTimeout(() => {
-              processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
+              processMultipleEmails(firstBatch.map(e => e.id));
             }, 2000);
+            if (remaining.length > 0) {
+              setTimeout(() => {
+                processMultipleEmails(remaining.map(e => e.id));
+              }, 15000);
+            }
           }
         } else {
+          const state = get();
           const currentIds = new Set(emails.map((e: Email) => e.id));
           const newEmailIds = [...currentIds].filter(id => !state.initialEmailIds.has(id));
           const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
