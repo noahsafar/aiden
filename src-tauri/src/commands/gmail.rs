@@ -458,7 +458,7 @@ pub async fn modify_email(access_token: String, message_id: String, remove_label
 
     let client = reqwest::Client::new();
     let url = format!(
-        "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}",
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/modify",
         message_id
     );
 

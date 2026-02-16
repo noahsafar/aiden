@@ -287,6 +287,8 @@ export interface Email {
   key_points?: string[];
   action_items?: string[];
   requires_reply: boolean;
+  deadline?: string;  // Extracted deadline (e.g. "2026-02-20", "next Friday")
+  sender_tone?: string;  // Detected tone of sender (e.g. "frustrated", "friendly")
   ai_generated_reply?: string;
   meeting_request?: {
     is_meeting: boolean;
@@ -306,6 +308,7 @@ export interface Email {
   reminder_count?: number;  // Number of reminders sent
   reminder_snoozed_until?: string;  // ISO timestamp if reminder was snoozed
   needs_follow_up?: boolean;  // Whether this email actually needs a follow-up (AI determined)
+  attention_dismissed?: boolean;  // Whether the user dismissed the attention banner
 }
 
 export interface EmailAttachment {
@@ -361,6 +364,7 @@ export interface EmailState {
   markAsStarred: (emailId: string, starred: boolean) => Promise<void>;
   updateEmailStatus: (emailId: string, status: Email['status']) => Promise<void>;
   updateAttachmentAnalysis: (emailId: string, attachmentId: string, analysis: { summary: string; key_points: string[]; action_items: string[] }) => void;
+  dismissAttention: (emailId: string) => void;
   classifyEmail: (emailId: string) => Promise<void>;
   generateReply: (emailId: string) => Promise<void>;
   summarizeEmail: (emailId: string) => Promise<string | null>;
@@ -560,6 +564,10 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
       suggested_formality_score: claudeResponse.suggested_formality_score,
       meeting_request: claudeResponse.meeting_request,
       missing_attachment_warning: claudeResponse.missing_attachment_warning,
+      requires_reply: claudeResponse.requires_reply,
+      reply_reasoning: claudeResponse.reply_reasoning,
+      deadline: claudeResponse.deadline,
+      sender_tone: claudeResponse.sender_tone,
     };
 
     if (result.success) {
@@ -589,6 +597,21 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
         senderTone: result.sender_tone || null,
         loaded: true,
       });
+
+      // Persist deadline and sender_tone to the email store so they survive reloads
+      if (result.deadline || result.sender_tone || result.requires_reply !== undefined) {
+        useEmailStore.setState((state) => ({
+          emails: state.emails.map(e =>
+            e.id === emailId ? {
+              ...e,
+              deadline: result.deadline || e.deadline,
+              sender_tone: result.sender_tone || e.sender_tone,
+              requires_reply: result.requires_reply ?? e.requires_reply,
+            } : e
+          ),
+        }));
+        persistEmailsToDisk();
+      }
     } else {
       console.log(`[AI Processing] Question API returned no data for ${emailId}:`, result);
     }
@@ -684,7 +707,41 @@ async function generateReplyForEmail(emailId: string): Promise<void> {
   }
 }
 
-// Process an email completely (summary + questions) - does the actual work, should be queued
+// Classify an email's priority using AI
+async function classifyEmailPriority(emailId: string): Promise<void> {
+  try {
+    const store = useEmailStore.getState();
+    const email = store.emails.find(e => e.id === emailId);
+    if (!email || email.category !== 'Normal') return; // Skip if already classified
+
+    const { invoke } = await import('@tauri-apps/api/core');
+    const result = await invoke<{ category: string; confidence: number; requires_reply: boolean; can_auto_archive: boolean }>('classify_email', {
+      emailContent: email.body_text || email.snippet || '',
+      sender: email.sender,
+      subject: email.subject,
+    });
+
+    // Map the category to our enum (capitalize first letter)
+    const categoryMap: Record<string, Email['category']> = {
+      'urgent': 'Urgent',
+      'important': 'Important',
+      'normal': 'Normal',
+      'low': 'Low',
+    };
+    const category = categoryMap[result.category.toLowerCase()] || 'Normal';
+
+    useEmailStore.setState((state) => ({
+      emails: state.emails.map(e =>
+        e.id === emailId ? { ...e, category, requires_reply: result.requires_reply } : e
+      ),
+    }));
+    persistEmailsToDisk();
+  } catch (e) {
+    console.error(`[AI Processing] Failed to classify email ${emailId}:`, e);
+  }
+}
+
+// Process an email completely (summary + questions + classification) - does the actual work, should be queued
 async function processEmailCore(emailId: string) {
   // Mark as generating (removed in generateSummaryForEmail's finally block)
   useEmailStore.setState((state) => ({
@@ -692,8 +749,11 @@ async function processEmailCore(emailId: string) {
   }));
 
   await generateSummaryForEmail(emailId);
-  // After summary completes, process questions
-  await generateQuestionsForEmail(emailId);
+  // After summary completes, process questions and classify in parallel
+  await Promise.all([
+    generateQuestionsForEmail(emailId),
+    classifyEmailPriority(emailId),
+  ]);
 }
 
 // Process an email with queuing (for immediate processing)
@@ -707,6 +767,15 @@ function processEmailImmediately(emailId: string) {
   if (!processingEmails.has(`${emailId}-summary`)) {
     queueAIOperation(() => processEmailCore(emailId));
   }
+}
+
+// Backfill question data for emails that have summaries but missing deadline/sender_tone
+// (These were analyzed before the persistence code was added)
+function backfillQuestionData(emailIds: string[]) {
+  console.log(`[AI Processing] Backfilling question data for ${emailIds.length} emails`);
+  emailIds.forEach((emailId) => {
+    queueAIOperation(() => generateQuestionsForEmail(emailId));
+  });
 }
 
 // Process multiple emails - adds them to the queue for sequential processing
@@ -880,14 +949,28 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         for (const newEmail of newEmails) {
           const existing = existingById.get(newEmail.id);
           if (existing) {
-            // Preserve AI-generated fields from existing email
+            // Preserve AI-generated and user-action fields from existing email
             existingById.set(newEmail.id, {
               ...newEmail,
               status: existing.status,
+              category: existing.category !== 'Normal' ? existing.category : newEmail.category,
               summary: existing.summary || newEmail.summary,
               key_points: existing.key_points || newEmail.key_points,
               action_items: existing.action_items || newEmail.action_items,
               ai_generated_reply: existing.ai_generated_reply,
+              requires_reply: existing.requires_reply,
+              deadline: existing.deadline || newEmail.deadline,
+              sender_tone: existing.sender_tone || newEmail.sender_tone,
+              attention_dismissed: existing.attention_dismissed,
+              meeting_request: existing.meeting_request,
+              waiting_on_reply_since: existing.waiting_on_reply_since,
+              reminder_due_date: existing.reminder_due_date,
+              reminder_triggered: existing.reminder_triggered,
+              reminder_count: existing.reminder_count,
+              reminder_snoozed_until: existing.reminder_snoozed_until,
+              needs_follow_up: existing.needs_follow_up,
+              inReplyTo: existing.inReplyTo,
+              originalEmail: existing.originalEmail,
             });
           } else {
             existingById.set(newEmail.id, newEmail);
@@ -902,6 +985,25 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
         // Mark as initialized and fetched
         set({ hasInitialized: true, hasFetchedFromGmail: true });
+
+        // Classify any emails that haven't been classified yet (separate from summary pipeline)
+        const unclassifiedEmails = emails.filter(e => e.category === 'Normal');
+        if (unclassifiedEmails.length > 0) {
+          console.log(`[AI Processing] Classifying ${unclassifiedEmails.length} unclassified emails`);
+          // Run classification in background, staggered to not overload API
+          const classifyBatch = async (batch: Email[]) => {
+            for (const email of batch) {
+              await classifyEmailPriority(email.id);
+            }
+          };
+          setTimeout(() => classifyBatch(unclassifiedEmails.slice(0, 5)), 3000);
+          if (unclassifiedEmails.length > 5) {
+            setTimeout(() => classifyBatch(unclassifiedEmails.slice(5, 10)), 20000);
+          }
+          if (unclassifiedEmails.length > 10) {
+            setTimeout(() => classifyBatch(unclassifiedEmails.slice(10)), 40000);
+          }
+        }
 
         // Handle initial vs subsequent fetches for AI processing
         if (isFirstGmailFetch) {
@@ -926,6 +1028,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
                 processMultipleEmails(remaining.map(e => e.id));
               }, 15000);
             }
+          }
+
+          // Backfill: re-run question analysis for emails that have summaries but missing deadline data
+          const emailsNeedingBackfill = emails.filter(e => e.summary && e.deadline === undefined && e.sender_tone === undefined);
+          if (emailsNeedingBackfill.length > 0) {
+            console.log(`[AI Processing] Backfilling ${emailsNeedingBackfill.length} emails missing question data`);
+            const delay = emailsNeedingProcessing.length > 0 ? 30000 : 5000;
+            setTimeout(() => {
+              backfillQuestionData(emailsNeedingBackfill.map(e => e.id));
+            }, delay);
           }
         } else {
           // Subsequent fetches - process truly NEW emails
@@ -981,10 +1093,15 @@ export const useEmailStore = create<EmailState>((set, get) => ({
             existingById.set(newEmail.id, {
               ...newEmail,
               status: existing.status,
+              category: existing.category !== 'Normal' ? existing.category : newEmail.category,
               summary: existing.summary || newEmail.summary,
               key_points: existing.key_points || newEmail.key_points,
               action_items: existing.action_items || newEmail.action_items,
               ai_generated_reply: existing.ai_generated_reply,
+              requires_reply: existing.requires_reply,
+              deadline: existing.deadline || newEmail.deadline,
+              sender_tone: existing.sender_tone || newEmail.sender_tone,
+              attention_dismissed: existing.attention_dismissed,
             });
           } else {
             existingById.set(newEmail.id, newEmail);
@@ -999,6 +1116,24 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
         // Mark as initialized and fetched
         set({ hasInitialized: true, hasFetchedFromGmail: true });
+
+        // Classify unclassified emails in background
+        const unclassifiedEmails = emails.filter(e => e.category === 'Normal');
+        if (unclassifiedEmails.length > 0) {
+          console.log(`[AI Processing] Gmail API - Classifying ${unclassifiedEmails.length} unclassified emails`);
+          const classifyBatch = async (batch: Email[]) => {
+            for (const email of batch) {
+              await classifyEmailPriority(email.id);
+            }
+          };
+          setTimeout(() => classifyBatch(unclassifiedEmails.slice(0, 5)), 3000);
+          if (unclassifiedEmails.length > 5) {
+            setTimeout(() => classifyBatch(unclassifiedEmails.slice(5, 10)), 20000);
+          }
+          if (unclassifiedEmails.length > 10) {
+            setTimeout(() => classifyBatch(unclassifiedEmails.slice(10)), 40000);
+          }
+        }
 
         // Handle initial vs subsequent fetches (same logic as Python path)
         if (isFirstGmailFetch) {
@@ -1074,18 +1209,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         return;
       }
 
-      // Get access token
-      const authStore = useAuthStore.getState();
-      const accessToken = authStore.token?.access_token || localStorage.getItem('aiden_access_token');
-
-      if (isTauri && accessToken && accessToken !== 'mock_access_token_dev') {
-        // Call Tauri command to mark as read in Gmail
-        try {
-          const { invoke } = await import('@tauri-apps/api/core');
-          await invoke('mark_email_as_read', { accessToken, messageId: email.gmail_id });
-        } catch (error) {
-          console.error('Failed to mark as read via Gmail API:', error);
-        }
+      // Mark as read in Gmail via Python OAuth server (handles token refresh)
+      try {
+        const baseURL = await serverURL();
+        await fetch(`${baseURL}/mark-read`, {
+          method: 'POST',
+          mode: 'cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageId: email.gmail_id }),
+        });
+      } catch (error) {
+        console.error('Failed to mark as read via Gmail API:', error);
       }
 
       // Update local state
@@ -1097,6 +1231,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           ? { ...state.selectedEmail, is_read: true }
           : state.selectedEmail,
       }));
+      persistEmailsToDisk();
     } catch (error) {
       console.error('Failed to mark email as read:', error);
     }
@@ -1113,8 +1248,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           ? { ...state.selectedEmail, is_starred: starred }
           : state.selectedEmail,
       }));
-
-      // TODO: Call Gmail API to mark as starred
+      persistEmailsToDisk();
     } catch (error) {
       console.error('Failed to mark email as starred:', error);
     }
@@ -1138,6 +1272,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           ? { ...state.selectedEmail, status }
           : state.selectedEmail,
       }));
+      persistEmailsToDisk();
     } catch (error) {
       console.error('Failed to update email status:', error);
     }
@@ -1170,6 +1305,19 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           : state.selectedEmail,
       };
     });
+    persistEmailsToDisk();
+  },
+
+  dismissAttention: (emailId) => {
+    set((state) => ({
+      emails: state.emails.map(e => {
+        if (e.id !== emailId) return e;
+        // Downgrade Urgent → Normal so it moves down in importance sort
+        const category = e.category === 'Urgent' ? 'Normal' as const : e.category;
+        return { ...e, attention_dismissed: true, category };
+      }),
+    }));
+    persistEmailsToDisk();
   },
 
   classifyEmail: async (emailId) => {
@@ -1340,6 +1488,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // Track that we sent a reply to this email
         sentReplyEmailIds: new Set(state.sentReplyEmailIds).add(inReplyTo || ''),
       }));
+      persistEmailsToDisk();
 
       // Schedule a reminder if this is a reply (has inReplyTo)
       if (inReplyTo) {
@@ -1376,6 +1525,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         ? { ...state.selectedEmail, status: 'Saved' }
         : state.selectedEmail,
     }));
+    persistEmailsToDisk();
   },
 
   unsaveEmail: (emailId) => {
@@ -1387,6 +1537,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         ? { ...state.selectedEmail, status: 'Unhandled' }
         : state.selectedEmail,
     }));
+    persistEmailsToDisk();
   },
 
   saveGeneratedReply: (emailId, reply) => {
@@ -1398,6 +1549,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         ? { ...state.selectedEmail, ai_generated_reply: reply }
         : state.selectedEmail,
     }));
+    persistEmailsToDisk();
   },
 
   sendEmailNotification: async (emailId, summary, reply) => {
@@ -1630,6 +1782,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         idsToMark.includes(email.id) ? { ...email, is_read: true } : email
       ),
     }));
+    persistEmailsToDisk();
   },
 
   bulkSave: (emailIds?: string[]) => {
@@ -1637,13 +1790,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const idsToSave = emailIds || Array.from(state.selectedEmailIds);
     if (idsToSave.length === 0) return;
 
-    console.log('[bulkSave] === START BULK SAVE ===');
-    console.log('[bulkSave] emailIds parameter:', emailIds);
-    console.log('[bulkSave] selectedEmailIds:', Array.from(state.selectedEmailIds));
-    console.log('[bulkSave] idsToSave (final):', idsToSave);
-    console.log('[bulkSave] Current sentEmails statuses:', state.sentEmails.map(e => ({ id: e.id, subject: e.subject?.substring(0, 30), status: e.status })));
-
-    // Save/unsaves each email by toggling its status in both arrays
+    // Save/unsave each email by toggling its status in both arrays
     set((state) => ({
       emails: state.emails.map(email =>
         idsToSave.includes(email.id)
@@ -1657,8 +1804,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       ),
     }));
 
-    console.log('[bulkSave] After save - sentEmails statuses:', get().sentEmails.map(e => ({ id: e.id, subject: e.subject?.substring(0, 30), status: e.status })));
-    console.log('[bulkSave] === END BULK SAVE ===');
+    persistEmailsToDisk();
 
     // Clear selection after bulk action
     get().clearSelection();
@@ -1847,14 +1993,15 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       );
       set({ emails: updatedEmails });
 
-      // Auto-dismiss any attention flag on the original email
-      (window as any).dismissedAttentionEmails?.add(originalEmailId);
+      // Auto-dismiss attention flag on the original email (persisted)
+      get().dismissAttention(originalEmailId);
 
       // Track that we've replied to this email
       const sentReplyEmailIds = new Set(state.sentReplyEmailIds);
       sentReplyEmailIds.add(originalEmailId);
       set({ sentReplyEmailIds });
     }
+    persistEmailsToDisk();
   },
 
   checkPendingReminders: () => {
@@ -1900,6 +2047,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         set({ sentEmails: updatedSentEmails });
       }
     });
+
+    if (dueReminders.length > 0) {
+      persistEmailsToDisk();
+    }
 
     // Send notifications for due reminders
     if (dueReminders.length > 0 && typeof window !== 'undefined' && 'Notification' in window) {
@@ -1967,6 +2118,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       sentEmails: updatedSentEmails,
     });
 
+    persistEmailsToDisk();
     console.log('[cancelReminder] Reminder cancelled for', emailId);
   },
 
@@ -1995,6 +2147,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       pendingReminders,
     });
 
+    persistEmailsToDisk();
     console.log('[snoozeReminder] Reminder snoozed for', emailId, 'until', snoozeUntil.toISOString());
   },
 

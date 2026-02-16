@@ -35,6 +35,7 @@ fn main() {
             ai::get_recipient_writing_style,
             ai::analyze_and_save_writing_style,
             ai::get_conversation_context_from_emails,
+            ai::classify_email,
             ai::classify_contacts_batch,
             // Email persistence
             email_storage::persist_emails,

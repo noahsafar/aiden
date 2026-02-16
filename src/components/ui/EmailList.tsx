@@ -23,6 +23,7 @@ interface EmailListProps {
   onOpenFocusedView?: () => void;  // Open email in focused/full-screen view
   onBulkDelete?: (emailIds?: string[]) => void;  // Bulk delete with undo toast
   onBump?: (emailId: string) => void;  // Trigger AI bump for a sent email
+  sortMode?: 'date' | 'importance';
 }
 
 // Helper function to get reply requirement data for an email
@@ -58,10 +59,6 @@ function getWaitingEmailInfo(email: any, sentEmails: any[]): { daysWaiting: numb
   return { daysWaiting, isOverdue };
 }
 
-// Track dismissed attention flags (persists during session)
-if (!(window as any).dismissedAttentionEmails) {
-  (window as any).dismissedAttentionEmails = new Set<string>();
-}
 
 // Helper function to determine if an inbox email needs attention
 function getNeedsAttentionInfo(
@@ -70,8 +67,8 @@ function getNeedsAttentionInfo(
   sentEmails: any[],
   sentReplyEmailIds: Set<string>
 ): { reason: string; severity: 'urgent' | 'warning'; deadline?: string } | null {
-  // Skip dismissed emails
-  if ((window as any).dismissedAttentionEmails?.has(email.id)) return null;
+  // Skip dismissed emails (persisted to disk)
+  if (email.attention_dismissed) return null;
   // Skip sent emails / waiting-on-reply emails (they have their own banner)
   if (email.waiting_on_reply_since) return null;
   if (email.labels?.some((l: any) => l.name === 'Sent')) return null;
@@ -111,20 +108,22 @@ function getNeedsAttentionInfo(
     }
   }
 
-  // 2. Upcoming deadline
-  if (questionData?.deadline) {
-    const deadlineStr = questionData.deadline;
+  // 2. Upcoming deadline (check in-memory AI data first, then persisted field)
+  const deadlineValue = questionData?.deadline || email.deadline;
+  if (deadlineValue) {
+    const deadlineStr = deadlineValue;
     const deadlineDate = new Date(deadlineStr);
     const isValidDate = !isNaN(deadlineDate.getTime());
     if (isValidDate) {
       const daysUntil = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysUntil <= 7) {
-        const label = daysUntil <= 0 ? 'Overdue' : daysUntil === 1 ? 'Due tomorrow' : `Due in ${daysUntil} days`;
-        return { reason: `Upcoming deadline · ${label}`, severity: daysUntil <= 2 ? 'urgent' : 'warning', deadline: deadlineStr };
-      }
+      const label = daysUntil <= 0 ? 'Overdue'
+        : daysUntil === 1 ? 'Due tomorrow'
+        : `Due in ${daysUntil} days`;
+      const severity = daysUntil <= 3 ? 'urgent' : 'warning';
+      return { reason: `Deadline · ${label}`, severity, deadline: deadlineStr };
     } else {
       // Non-ISO deadline string (e.g. "next Friday") — still flag it
-      return { reason: `Upcoming deadline · ${deadlineStr}`, severity: 'warning', deadline: deadlineStr };
+      return { reason: `Deadline · ${deadlineStr}`, severity: 'warning', deadline: deadlineStr };
     }
   }
 
@@ -145,14 +144,18 @@ function getNeedsAttentionInfo(
 }
 
 // Component for the action badge - memoized for performance (defined outside to prevent re-creation)
-const ActionBadge = React.memo(({ emailId }: { emailId: string }) => {
+const ActionBadge = React.memo(({ emailId, email }: { emailId: string; email?: any }) => {
   const data = getEmailReplyData(emailId);
 
   // Meeting requests always require action
   const isMeetingRequest = data?.meetingRequest?.is_meeting;
 
-  // If not loaded yet, show nothing (waiting for AI analysis)
-  if (!data?.loaded) {
+  // Use in-memory data if available, otherwise fall back to persisted email fields
+  const hasData = data?.loaded || (email?.requires_reply !== undefined && email?.requires_reply !== null);
+  const requiresReply = data?.loaded ? data.requiresReply : email?.requires_reply;
+
+  // If no data at all (neither in-memory nor persisted), show nothing
+  if (!hasData) {
     return null;
   }
 
@@ -166,7 +169,7 @@ const ActionBadge = React.memo(({ emailId }: { emailId: string }) => {
   }
 
   // After analysis, show Action Required or FYI based on analysis
-  if (data.requiresReply) {
+  if (requiresReply) {
     return (
       <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 border border-amber-200">
         Action Required
@@ -184,7 +187,7 @@ const ActionBadge = React.memo(({ emailId }: { emailId: string }) => {
 ActionBadge.displayName = 'ActionBadge';
 
 export const EmailList: React.FC<EmailListProps> = ({
-  emails = [],
+  emails: rawEmails = [],
   selectedEmailId = null,
   onEmailSelect = () => {},
   onEmailAction = () => {},
@@ -195,11 +198,28 @@ export const EmailList: React.FC<EmailListProps> = ({
   onOpenFocusedView = () => {},
   onBulkDelete,
   onBump,
+  sortMode = 'date',
 }) => {
+  // Sort emails at render time based on sortMode
+  const emails = React.useMemo(() => {
+    const sorted = [...rawEmails];
+    if (sortMode === 'importance') {
+      const categoryOrder: Record<string, number> = { 'Urgent': 0, 'Important': 1, 'Normal': 2, 'Low': 3 };
+      sorted.sort((a, b) => {
+        const aOrder = categoryOrder[a.aiCategory || a.category || 'Normal'] ?? 2;
+        const bOrder = categoryOrder[b.aiCategory || b.category || 'Normal'] ?? 2;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+      });
+    } else {
+      sorted.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+    }
+    return sorted;
+  }, [rawEmails, sortMode]);
   const listRef = useRef<HTMLDivElement>(null);
   const [shortcutsCollapsed, setShortcutsCollapsed] = useState(true);
   const [snoozeDropdownOpen, setSnoozeDropdownOpen] = useState<string | null>(null);
-  const [, setDismissCounter] = useState(0);
+
 
   // Bulk selection state from store
   const {
@@ -218,6 +238,7 @@ export const EmailList: React.FC<EmailListProps> = ({
     cancelReminder,
     snoozeReminder,
     currentFilter,
+    dismissAttention,
   } = useEmailStore();
 
 
@@ -625,7 +646,9 @@ export const EmailList: React.FC<EmailListProps> = ({
           return emails.map((email: any, index: number) => ({ email, index, tcMap }));
         })().map(({ email, index, tcMap }: any) => {
           const replyData = getEmailReplyData(email.id);
-          const isFyi = replyData?.loaded && replyData.requiresReply === false;
+          const isFyi = replyData?.loaded
+            ? replyData.requiresReply === false
+            : email.requires_reply === false;
           const isFocused = focusedEmailId === email.id;
           const isSelected = isEmailSelected(email.id);
 
@@ -853,8 +876,7 @@ export const EmailList: React.FC<EmailListProps> = ({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      (window as any).dismissedAttentionEmails?.add(email.id);
-                      setDismissCounter(c => c + 1);
+                      dismissAttention(email.id);
                     }}
                     className="p-1 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                     title="Dismiss"
@@ -871,7 +893,7 @@ export const EmailList: React.FC<EmailListProps> = ({
                     <span className="text-xs text-muted truncate">
                       {isWaitingEmail ? `To: ${email.recipients || 'Unknown'}` : (email.from?.name || email.from?.email || 'Unknown')}
                     </span>
-                    {!isWaitingEmail && <ActionBadge emailId={email.id} />}
+                    {!isWaitingEmail && <ActionBadge emailId={email.id} email={email} />}
                     {email.status === 'Saved' && !email.labels?.some((l: any) => l.name === 'Sent') && !email.waiting_on_reply_since && !email.recipients && <span className="text-blue-500" title="Saved">◆</span>}
                     {/* Thread indicator */}
                     {isReply && !isWaitingEmail && (
@@ -920,7 +942,21 @@ export const EmailList: React.FC<EmailListProps> = ({
                     )}
                   </p>
                 </div>
-                <span className="text-xs text-muted flex-shrink-0">{email.timestamp}</span>
+                <span className="text-xs text-muted flex-shrink-0">
+                  {(() => {
+                    const d = new Date(email.date || 0);
+                    const now = new Date();
+                    const isToday = d.toDateString() === now.toDateString();
+                    const yesterday = new Date(now);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    const isYesterday = d.toDateString() === yesterday.toDateString();
+                    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    if (isToday) return time;
+                    if (isYesterday) return `Yesterday ${time}`;
+                    if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ` ${time}`;
+                    return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) + ` ${time}`;
+                  })()}
+                </span>
               </div>
             </div>
           );

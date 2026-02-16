@@ -99,6 +99,11 @@ interface Email {
   reminder_triggered?: boolean;
   reminder_count?: number;
   needs_follow_up?: boolean;
+  deadline?: string;
+  requires_reply?: boolean;
+  attention_dismissed?: boolean;
+  status?: string;
+  category?: string;
 }
 
 function App() {
@@ -168,7 +173,14 @@ function App() {
       aiActionItems: email.key_points || [],
       key_points: email.key_points || [],
       action_items: email.action_items || [],
-      aiPriority: email.category === 'Urgent' ? 'high' : email.category === 'Important' ? 'medium' : 'low' as const
+      aiPriority: email.category === 'Urgent' ? 'high' : email.category === 'Important' ? 'medium' : 'low' as const,
+      deadline: email.deadline,
+      requires_reply: email.requires_reply,
+      attention_dismissed: email.attention_dismissed,
+      status: email.status,
+      category: email.category,
+      sender: email.sender,
+      recipients: email.recipients,
     };
   }, []);
 
@@ -327,154 +339,45 @@ function App() {
     const isWaitingAndReady = (e: any) => !!e.waiting_on_reply_since && e.needs_follow_up === true &&
       Math.floor((Date.now() - new Date(e.waiting_on_reply_since).getTime()) / (1000 * 60 * 60 * 24)) >= 1;
 
-    // Pre-compute attention scores to avoid O(n²) in sort comparator
-    const sentReplyIds = useEmailStore.getState().sentReplyEmailIds;
-    const now = new Date();
-    // Build thread map once: threadId -> array of emails
-    const threadMap = new Map<string, any[]>();
-    for (const email of result) {
-      if (email.thread_id) {
-        const arr = threadMap.get(email.thread_id) || [];
-        arr.push(email);
-        threadMap.set(email.thread_id, arr);
+    // Helper: sort waiting-on-reply emails (used by both modes)
+    const sortWaiting = (a: any, b: any): number | null => {
+      const aIsWaiting = isWaitingAndReady(a);
+      const bIsWaiting = isWaitingAndReady(b);
+      if (aIsWaiting !== bIsWaiting) return aIsWaiting ? -1 : 1;
+      if (aIsWaiting && bIsWaiting) {
+        const aTime = a.waiting_on_reply_since ? new Date(a.waiting_on_reply_since).getTime() : 0;
+        const bTime = b.waiting_on_reply_since ? new Date(b.waiting_on_reply_since).getTime() : 0;
+        return aTime - bTime; // Oldest first (waiting longest)
       }
-    }
+      return null; // Neither is waiting, let caller decide
+    };
 
-    const attentionScoreMap = new Map<string, number>();
-    for (const email of result) {
-      let score = 0;
-      if ((window as any).dismissedAttentionEmails?.has(email.id) ||
-          email.waiting_on_reply_since ||
-          email.status === 'Replied' || email.status === 'Archived' || email.status === 'Saved' ||
-          email.labels?.some((l: any) => l.name === 'Sent') ||
-          sentReplyIds.has(email.id)) {
-        attentionScoreMap.set(email.id, 0);
-        continue;
-      }
-
-      const questionData = (window as any).emailQuestionData?.get(email.id);
-      const requiresReply = questionData?.loaded ? questionData.requiresReply : email.requires_reply;
-      const daysOld = Math.floor((now.getTime() - new Date(email.date || 0).getTime()) / (1000 * 60 * 60 * 24));
-
-      // Follow-up from sender (use pre-built thread map)
-      if (email.thread_id) {
-        const threadEmails = threadMap.get(email.thread_id) || [];
-        const senderEmail = email.from?.email || '';
-        const fromSameSender = threadEmails.filter((e: any) => e.id !== email.id && (e.from?.email || '') === senderEmail);
-        if (fromSameSender.length >= 2) {
-          const hasSentReplyInThread = sentEmails.some((se: any) => se.thread_id === email.thread_id || se.inReplyTo === email.id);
-          if (!hasSentReplyInThread) { attentionScoreMap.set(email.id, 3); continue; }
-        }
-      }
-      // Upcoming deadline
-      if (questionData?.deadline) {
-        const deadlineDate = new Date(questionData.deadline);
-        if (!isNaN(deadlineDate.getTime())) {
-          const daysUntil = Math.ceil((now.getTime() - deadlineDate.getTime()) / (1000 * 60 * 60 * 24) * -1);
-          if (daysUntil <= 2) { score = 3; }
-          else if (daysUntil <= 7) { score = 2; }
-        } else {
-          score = 2;
-        }
-        if (score) { attentionScoreMap.set(email.id, score); continue; }
-      }
-      if (email.aiCategory === 'Urgent' || email.category === 'Urgent') score = 2;
-      else if (requiresReply && daysOld >= 2) score = daysOld > 4 ? 2 : 1;
-      attentionScoreMap.set(email.id, score);
-    }
-
-    const getNeedsAttentionScore = (email: any): number => attentionScoreMap.get(email.id) || 0;
+    const byDateDesc = (a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
 
     // Sort by selected mode
     if (sortMode === 'importance') {
-      // Sort by category priority: Urgent > Important > Normal > Low
-      // BUT keep waiting emails at the top regardless (except for sent page)
-      const categoryOrder = { 'Urgent': 0, 'Important': 1, 'Normal': 2, 'Low': 3 };
+      const categoryOrder: Record<string, number> = { 'Urgent': 0, 'Important': 1, 'Normal': 2, 'Low': 3 };
       return result.sort((a, b) => {
-        // For sent page: sort by how long waiting (oldest first = most important)
-        if (currentFilter === 'sent') {
-          const aIsWaiting = isWaitingAndReady(a);
-          const bIsWaiting = isWaitingAndReady(b);
+        // Waiting-on-reply emails stay at top
+        const waitResult = sortWaiting(a, b);
+        if (waitResult !== null) return waitResult;
 
-          // Waiting emails come first, sorted by how long they've been waiting
-          if (aIsWaiting && bIsWaiting) {
-            const aDays = a.waiting_on_reply_since ? new Date(a.waiting_on_reply_since).getTime() : 0;
-            const bDays = b.waiting_on_reply_since ? new Date(b.waiting_on_reply_since).getTime() : 0;
-            return aDays - bDays; // Oldest first (waiting longest)
-          }
-          if (aIsWaiting !== bIsWaiting) {
-            return aIsWaiting ? -1 : 1;
-          }
-          // Non-waiting emails: sort by date (newest first)
-          return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
-        }
+        // Sort by category: Urgent > Important > Normal > Low
+        const aOrder = categoryOrder[a.aiCategory || 'Normal'] ?? 2;
+        const bOrder = categoryOrder[b.aiCategory || 'Normal'] ?? 2;
+        if (aOrder !== bOrder) return aOrder - bOrder;
 
-        // For other pages (inbox, etc.): keep waiting emails at top
-        const aIsWaiting = isWaitingAndReady(a);
-        const bIsWaiting = isWaitingAndReady(b);
-        if (aIsWaiting !== bIsWaiting) {
-          return aIsWaiting ? -1 : 1;
-        }
-
-        // Within waiting emails, sort by days waiting (oldest first = most urgent)
-        if (aIsWaiting && bIsWaiting) {
-          const aDays = a.waiting_on_reply_since ? new Date(a.waiting_on_reply_since).getTime() : 0;
-          const bDays = b.waiting_on_reply_since ? new Date(b.waiting_on_reply_since).getTime() : 0;
-          return aDays - bDays; // Oldest first (most overdue)
-        }
-
-        // Needs-attention emails come next (same logic as date sort)
-        const aAttentionImp = getNeedsAttentionScore(a);
-        const bAttentionImp = getNeedsAttentionScore(b);
-        if (aAttentionImp !== bAttentionImp) {
-          return bAttentionImp - aAttentionImp;
-        }
-
-        // For regular emails, sort by category (Urgent naturally rises)
-        const aCategory = a.aiCategory || 'Normal';
-        const bCategory = b.aiCategory || 'Normal';
-        const aOrder = categoryOrder[aCategory as keyof typeof categoryOrder] ?? 2;
-        const bOrder = categoryOrder[bCategory as keyof typeof categoryOrder] ?? 2;
-        if (aOrder !== bOrder) {
-          return aOrder - bOrder;
-        }
-        // Within same category, sort by date (newest first)
-        return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+        // Within same category, newest first
+        return byDateDesc(a, b);
       });
     } else {
-      // Sort by date (newest first)
-      // For sent page: simple date sort (no special waiting handling)
-      if (currentFilter === 'sent') {
-        return result.sort((a, b) => {
-          return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
-        });
-      }
-
-      // For other pages: keep waiting emails at top, then needs-attention, then regular
       return result.sort((a, b) => {
-        // Waiting emails come first
-        const aIsWaiting = isWaitingAndReady(a);
-        const bIsWaiting = isWaitingAndReady(b);
-        if (aIsWaiting !== bIsWaiting) {
-          return aIsWaiting ? -1 : 1;
-        }
+        // Waiting-on-reply emails stay at top
+        const waitResult = sortWaiting(a, b);
+        if (waitResult !== null) return waitResult;
 
-        // Within waiting emails, sort by days waiting (oldest first = most urgent)
-        if (aIsWaiting && bIsWaiting) {
-          const aDays = a.waiting_on_reply_since ? new Date(a.waiting_on_reply_since).getTime() : 0;
-          const bDays = b.waiting_on_reply_since ? new Date(b.waiting_on_reply_since).getTime() : 0;
-          return aDays - bDays; // Oldest first (most overdue)
-        }
-
-        // Needs-attention emails come next
-        const aAttention = getNeedsAttentionScore(a);
-        const bAttention = getNeedsAttentionScore(b);
-        if (aAttention !== bAttention) {
-          return bAttention - aAttention; // Higher score first
-        }
-
-        // For regular emails, sort by date (newest first)
-        return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+        // Sort by date: newest first
+        return byDateDesc(a, b);
       });
     }
   }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI, sortMode, isFocusMode, searchQuery]
@@ -1320,6 +1223,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                           onFocusEmail={setFocusedEmailId}
                           onBulkDelete={handleBulkDeleteWithUndo}
                           onOpenFocusedView={handleOpenFocusedView}
+                          sortMode={sortMode}
                           onBump={(emailId) => {
                             // Select the email and trigger bump
                             setSelectedEmailId(emailId);

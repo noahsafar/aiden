@@ -978,6 +978,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_execute_command()
         elif self.path.startswith('/scheduling'):
             self.handle_scheduling()
+        elif self.path.startswith('/mark-read'):
+            self.handle_mark_read()
         else:
             self.send_error(404)
 
@@ -1244,6 +1246,42 @@ class OAuthHandler(BaseHTTPRequestHandler):
                 'error': f'Failed to fetch emails: {str(e)}'
             }
             self.wfile.write(json.dumps(response).encode())
+
+    def handle_mark_read(self):
+        """Handle marking an email as read in Gmail"""
+        try:
+            self.send_header('Content-type', 'application/json')
+
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+            message_id = data.get('messageId')
+
+            if not message_id:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'messageId is required'}).encode())
+                return
+
+            creds = get_stored_credentials()
+            if not creds:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'Not authenticated'}).encode())
+                return
+
+            service = build('gmail', 'v1', credentials=creds)
+            service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'removeLabelIds': ['UNREAD']}
+            ).execute()
+
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': True}).encode())
+        except Exception as e:
+            print(f"Error marking email as read: {e}")
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
 
     def handle_send_email(self):
         """Handle sending email via Gmail API"""
