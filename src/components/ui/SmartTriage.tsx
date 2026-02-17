@@ -148,9 +148,12 @@ function categorizeEmail(email: { subject: string; sender: string; snippet?: str
 interface SmartTriageProps {
   onAction?: (action: string, emailIds: string[]) => void;
   onEmailSelect?: (emailId: string) => void;
+  readFilter?: 'all' | 'unread';
+  isFocusMode?: boolean;
+  sortMode?: 'date' | 'importance';
 }
 
-export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelect }) => {
+export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelect, readFilter = 'all', isFocusMode = false, sortMode = 'date' }) => {
   const {
     emails,
     bulkArchive,
@@ -165,7 +168,6 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<'archive' | 'save' | 'delete' | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<Set<string>>(new Set());
-  const [showQuickActions, setShowQuickActions] = useState(false);
 
   const toggleExcludeEmail = (emailId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -263,6 +265,19 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
     emails.forEach(email => {
       // Exclude archived, deleted, and saved emails from smart triage
       if (email.status === 'Archived' || email.status === 'Deleted' || email.status === 'Saved') return;
+      if (readFilter === 'unread' && email.is_read) return;
+      if (isFocusMode) {
+        let requiresReply: boolean | null = null;
+        if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
+          const data = (window as any).emailQuestionData.get(email.id);
+          if (data?.loaded) {
+            requiresReply = data.requiresReply === true;
+          }
+        }
+        if (requiresReply === true) { /* include */ }
+        else if (requiresReply === false) return;
+        else if (email.category !== 'Urgent' && email.category !== 'Important') return;
+      }
 
       const category = categorizeEmail(email);
       if (!groups.has(category)) {
@@ -272,21 +287,31 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
     });
 
     return groups;
-  }, [emails]);
+  }, [emails, readFilter, isFocusMode]);
 
-  // Sort groups by email count (descending)
+  // Sort groups by email count (descending), sort emails within each group
   const sortedGroups = useMemo(() => {
+    const categoryOrder: Record<string, number> = { 'Urgent': 0, 'Important': 1, 'Normal': 2, 'Low': 3 };
+    const sortEmails = (arr: typeof emails) => {
+      return [...arr].sort((a, b) => {
+        if (sortMode === 'importance') {
+          const aOrder = categoryOrder[a.category || 'Normal'] ?? 2;
+          const bOrder = categoryOrder[b.category || 'Normal'] ?? 2;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+        }
+        return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+      });
+    };
     return Array.from(groupedEmails.entries())
       .map(([groupId, groupEmails]) => ({
         group: EMAIL_GROUPS.find(g => g.id === groupId)!,
-        emails: groupEmails,
+        emails: sortEmails(groupEmails),
         count: groupEmails.length,
       }))
       .filter(item => item.group && item.count > 0)
       .sort((a, b) => b.count - a.count);
-  }, [groupedEmails]);
+  }, [groupedEmails, sortMode]);
 
-  const totalGroupedEmails = sortedGroups.reduce((sum, g) => sum + g.count, 0);
 
   if (sortedGroups.length === 0) {
     return (
@@ -304,54 +329,6 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
 
   return (
     <div className="p-4 space-y-4">
-      {/* Header */}
-      <div className="pb-4 border-b border-gray-200 dark:border-gray-700">
-        <button
-          onClick={() => setShowQuickActions(!showQuickActions)}
-          className="flex items-center justify-between w-full text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-        >
-          <span>Quick actions for all {totalGroupedEmails} grouped emails</span>
-          {showQuickActions ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-        </button>
-        {showQuickActions && (
-          <div className="flex gap-2 mt-3">
-            <button
-              onClick={() => {
-                const allIds = Array.from(groupedEmails.values()).flat().map(e => e.id);
-                selectMultipleEmails(allIds);
-                bulkArchive(allIds);
-                clearSelection();
-              }}
-              className="flex-1 px-3 py-2 text-sm font-medium text-green-700 bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-300 rounded-lg transition-colors"
-            >
-              Archive ({totalGroupedEmails})
-            </button>
-            <button
-              onClick={() => {
-                const allIds = Array.from(groupedEmails.values()).flat().map(e => e.id);
-                selectMultipleEmails(allIds);
-                bulkSave(allIds);
-                clearSelection();
-              }}
-              className="flex-1 px-3 py-2 text-sm font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg transition-colors"
-            >
-              Save ({totalGroupedEmails})
-            </button>
-            <button
-              onClick={() => {
-                const allIds = Array.from(groupedEmails.values()).flat().map(e => e.id);
-                selectMultipleEmails(allIds);
-                bulkDelete(allIds);
-                clearSelection();
-              }}
-              className="flex-1 px-3 py-2 text-sm font-medium text-red-700 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 rounded-lg transition-colors"
-            >
-              Delete ({totalGroupedEmails})
-            </button>
-          </div>
-        )}
-      </div>
-
       {/* Groups */}
       <div className="space-y-3">
         {sortedGroups.map(({ group, emails: groupEmails, count }) => {
@@ -371,16 +348,13 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
               <div className={`p-4 ${isExpanded ? 'pb-2' : ''}`}>
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg ${bgClasses}`}>
-                      <Icon className={`w-5 h-5 ${colorClasses}`} />
+                    <div className={`p-1.5 rounded-lg ${bgClasses}`}>
+                      <Icon className={`w-4 h-4 ${colorClasses}`} />
                     </div>
                     <div>
-                      <h3 className="font-medium text-gray-900 dark:text-white">
+                      <h3 className="text-[15px] font-medium text-gray-900 dark:text-white">
                         {group.label}
                       </h3>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {group.description}
-                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

@@ -5,6 +5,7 @@ import { EmailList } from '@/components/ui/EmailList';
 import { ThreadedEmailList } from '@/components/ui/ThreadedEmailList';
 import { EmailView } from '@/components/ui/EmailView';
 import { SmartTriage } from '@/components/ui/SmartTriage';
+import { LifeIntel } from '@/pages/LifeIntel';
 import { AttachmentItem, getFileIcon, formatFileSize, EmailHtmlContent } from '@/components/ui/EmailView';
 import { Login } from '@/components/Login';
 import { OAuthHandler } from '@/components/OAuthHandler';
@@ -51,6 +52,7 @@ import {
   PenSquare,
   Paperclip,
   Send,
+  Lightbulb,
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 
@@ -121,6 +123,12 @@ function App() {
   const [isClosingAnimation, setIsClosingAnimation] = useState(false);
   // Focus mode toggle - separate from currentFilter so inbox stays highlighted
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [showTriage, setShowTriage] = useState(false);
+
+  // Reset triage view when leaving inbox
+  useEffect(() => {
+    if (currentFilter !== 'inbox') setShowTriage(false);
+  }, [currentFilter]);
   const [analysisPanelHeight, setAnalysisPanelHeight] = useState(0);
   const [emailPanelTopPosition, setEmailPanelTopPosition] = useState<number | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
@@ -292,7 +300,7 @@ function App() {
           return email.status !== 'Archived' && email.status !== 'Saved';
         })
         // Apply read filter (only in inbox, only to regular emails)
-        .filter(email => readFilter === 'all' || !email.is_read)
+        .filter(email => readFilter === 'all' || !email.is_read || email.id === selectedEmailId)
         .map(convertToUIEmail);
 
       // Put overdue emails FIRST, then regular inbox
@@ -301,7 +309,11 @@ function App() {
       // All other filters
       result = emails
         .filter(email => {
-          // Always exclude deleted emails from all views
+          // For Trash view, show ONLY deleted emails
+          if (currentFilter === 'deleted') {
+            return email.status === 'Deleted';
+          }
+          // Always exclude deleted emails from all other views
           if (email.status === 'Deleted') return false;
 
           // For Saved category, show saved emails from both emails and sentEmails
@@ -322,6 +334,13 @@ function App() {
           .filter(e => e.status === 'Saved')
           .map(convertSentEmailToUI);
         result = [...result, ...savedSentEmails];
+      }
+      // For Trash filter, also include deleted sent emails
+      if (currentFilter === 'deleted') {
+        const deletedSentEmails = sentEmails
+          .filter(e => e.status === 'Deleted')
+          .map(convertSentEmailToUI);
+        result = [...result, ...deletedSentEmails];
       }
     }
 
@@ -382,44 +401,34 @@ function App() {
         return byDateDesc(a, b);
       });
     }
-  }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI, sortMode, isFocusMode, searchQuery, readFilter]
+  }, [currentFilter, sentEmails, emails, convertToUIEmail, convertSentEmailToUI, sortMode, isFocusMode, searchQuery, readFilter, selectedEmailId]
   );
 
   // Calculate actual inbox count (emails not archived/saved/deleted)
   // Use useMemo to avoid recalculating on every render
   const inboxCount = React.useMemo(() => {
-    // When in inbox view, count only regular inbox emails (exclude follow-up suggested emails)
-    if (currentFilter === 'inbox') {
-      const now = new Date();
-      // Count regular inbox emails (not the overdue sent emails)
-      const regularInboxCount = emails
-        .filter(email => {
-          if (email.status === 'Deleted') return false;
-          if (isFocusMode) {
-            if (email.status === 'Archived' || email.status === 'Saved') return false;
-            let requiresReply: boolean | null = null;
-            if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
-              const data = (window as any).emailQuestionData.get(email.id);
-              if (data?.loaded) {
-                requiresReply = data.requiresReply === true;
-              }
+    return emails
+      .filter(email => {
+        if (email.status === 'Deleted') return false;
+        if (isFocusMode) {
+          if (email.status === 'Archived' || email.status === 'Saved') return false;
+          let requiresReply: boolean | null = null;
+          if (typeof window !== 'undefined' && (window as any).emailQuestionData) {
+            const data = (window as any).emailQuestionData.get(email.id);
+            if (data?.loaded) {
+              requiresReply = data.requiresReply === true;
             }
-            if (requiresReply === true) return true;
-            if (requiresReply === false) return false;
-            if (email.category === 'Urgent' || email.category === 'Important') return true;
-            return false;
           }
-          return email.status !== 'Archived' && email.status !== 'Saved';
-        })
-        .filter(email => readFilter === 'all' || !email.is_read)
-        .length;
-      return regularInboxCount;
-    }
-    // Otherwise, count all non-archived/non-saved emails
-    return emails.filter(email => {
-      return email.status !== 'Archived' && email.status !== 'Saved' && email.status !== 'Deleted';
-    }).length;
-  }, [emails, currentFilter, isFocusMode, readFilter]);
+          if (requiresReply === true) return true;
+          if (requiresReply === false) return false;
+          if (email.category === 'Urgent' || email.category === 'Important') return true;
+          return false;
+        }
+        return email.status !== 'Archived' && email.status !== 'Saved';
+      })
+      .filter(email => readFilter === 'all' || !email.is_read)
+      .length;
+  }, [emails, isFocusMode, readFilter]);
 
   useEffect(() => {
     // Initialize authentication state on app load
@@ -453,6 +462,12 @@ function App() {
 
         // Load cached emails from disk first (instant display)
         await loadFromDisk();
+        // Purge trash older than 30 days
+        useEmailStore.getState().purgeOldTrash();
+        // Load life intelligence data from disk
+        import('@/stores/lifeStore').then(({ useLifeStore }) => {
+          useLifeStore.getState().loadFromDisk();
+        });
         // Then fetch fresh emails from Gmail (silently if cache was loaded)
         fetchEmails();
       }
@@ -1043,6 +1058,11 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                 </div>
 
                 <div className="flex items-center space-x-1 flex-shrink-0">
+                  <Link to="/life">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Life Intel">
+                      <Lightbulb className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                    </Button>
+                  </Link>
                   <Link to="/crm">
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="Relationship Intelligence">
                       <Users className="h-4 w-4 text-gray-600 dark:text-gray-400" />
@@ -1090,21 +1110,14 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                   animationPhase === 'idle' ? '' :
                   '-translate-x-[20rem]'
                 }`}>
-                  {/* Smart Triage View */}
-                  {currentFilter === 'triage' ? (
-                    <div className="h-full overflow-y-auto">
-                      <SmartTriage
-                        onAction={handleEmailAction}
-                        onEmailSelect={(emailId) => setSelectedEmailId(emailId)}
-                      />
-                    </div>
-                  ) : filteredEmails.length === 0 && !emailsLoading ? (
+                  {filteredEmails.length === 0 && !emailsLoading && !showTriage ? (
                     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                       <Mail className="h-12 w-12 text-gray-400 mb-4" />
                       <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
                         {currentFilter === 'sent' ? 'No sent emails yet' :
                          currentFilter === 'saved' ? 'No saved emails yet' :
                          currentFilter === 'archived' ? 'No archived emails yet' :
+                         currentFilter === 'deleted' ? 'Trash is empty' :
                          isFocusMode && currentFilter === 'inbox' ? 'No action-required emails' :
                          'No new emails yet'}
                       </h3>
@@ -1115,6 +1128,8 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                           ? 'Emails you bookmark will appear here.'
                           : currentFilter === 'archived'
                           ? 'Emails you archive will appear here.'
+                          : currentFilter === 'deleted'
+                          ? 'Deleted emails are automatically removed after 30 days.'
                           : isFocusMode && currentFilter === 'inbox'
                           ? 'Emails requiring action will appear here.'
                           : 'Emails that arrive will appear here.'}
@@ -1122,8 +1137,8 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                     </div>
                   ) : (
                     <div className="h-full flex flex-col">
-                      {/* Sort and view mode toggle - only show for non-triage views */}
-                      {currentFilter !== 'triage' && (
+                      {/* Sort and view mode toggle */}
+                      {(
                         <div className="px-2 py-2 border-b border-gray-200 dark:border-gray-700">
                           <div className="flex items-center justify-center gap-1">
                             {/* Sort options */}
@@ -1184,9 +1199,14 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                             )}
                             {/* View toggle (single button) */}
                             <button
-                              onClick={() => setViewMode(viewMode === 'individual' ? 'threaded' : 'individual')}
-                              className="h-6 w-6 rounded flex items-center justify-center transition-colors bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
-                              title={viewMode === 'individual' ? 'Switch to threaded view' : 'Switch to list view'}
+                              onClick={() => !showTriage && setViewMode(viewMode === 'individual' ? 'threaded' : 'individual')}
+                              className={`h-6 w-6 rounded flex items-center justify-center transition-colors ${
+                                showTriage && currentFilter === 'inbox'
+                                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                              }`}
+                              title={showTriage ? 'Not available in triage view' : viewMode === 'individual' ? 'Switch to threaded view' : 'Switch to list view'}
+                              disabled={showTriage && currentFilter === 'inbox'}
                             >
                               {viewMode === 'individual' ? <Mail className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
                             </button>
@@ -1204,10 +1224,34 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                 <Target className="w-3 h-3" />
                               </button>
                             )}
+                            {/* Smart Triage button - only show in inbox */}
+                            {currentFilter === 'inbox' && (
+                              <button
+                                onClick={() => setShowTriage(!showTriage)}
+                                className={`h-6 w-6 rounded flex items-center justify-center transition-colors cursor-pointer ${
+                                  showTriage
+                                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                                }`}
+                                title="Smart Triage - group similar emails"
+                              >
+                                <Sparkles className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}
-                      {viewMode === 'threaded' ? (
+                      {showTriage && currentFilter === 'inbox' ? (
+                        <div className="flex-1 overflow-y-auto">
+                          <SmartTriage
+                            onAction={handleEmailAction}
+                            onEmailSelect={(emailId) => setSelectedEmailId(emailId)}
+                            readFilter={readFilter}
+                            isFocusMode={isFocusMode}
+                            sortMode={sortMode}
+                          />
+                        </div>
+                      ) : viewMode === 'threaded' ? (
                         <ThreadedEmailList
                           emails={filteredEmails}
                           selectedEmailId={selectedEmailId}
@@ -1774,6 +1818,18 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
         element={
           isAuthenticated ? (
             <Calendar />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+
+      {/* Life Intel route - protected */}
+      <Route
+        path="/life"
+        element={
+          isAuthenticated ? (
+            <LifeIntel />
           ) : (
             <Navigate to="/login" replace />
           )

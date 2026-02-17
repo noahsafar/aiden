@@ -39,12 +39,27 @@ export interface AnalyzeEmailResponse {
   deadline?: string | null;
   // Detected tone of the sender (e.g. "frustrated", "friendly", "neutral")
   sender_tone?: string | null;
+  // Life intelligence data extracted from email
+  life_data: LifeDataItem[];
 }
 
 export interface AttachmentRequest {
   keyword: string;
   file_type: string | null;
   description: string;
+}
+
+export interface LifeDataItem {
+  data_type: 'subscription' | 'bill' | 'travel' | 'package' | 'deadline';
+  title: string;
+  amount?: number | null;
+  currency?: string | null;
+  date?: string | null;
+  end_date?: string | null;
+  frequency?: string | null;
+  details?: string | null;
+  tracking_number?: string | null;
+  carrier?: string | null;
 }
 
 // File search types

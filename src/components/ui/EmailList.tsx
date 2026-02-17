@@ -87,23 +87,29 @@ function getNeedsAttentionInfo(
   const questionData = (window as any).emailQuestionData?.get(email.id);
   const requiresReply = questionData?.loaded ? questionData.requiresReply : email.requires_reply;
 
-  // 1. Follow-up from sender: multiple emails in thread from same sender, no reply from user
-  if (email.thread_id) {
-    const threadEmails = allEmails.filter((e: any) =>
-      e.thread_id === email.thread_id && e.id !== email.id
-    );
-    const senderEmail = email.from?.email || email.sender || '';
-    const fromSameSender = threadEmails.filter((e: any) => {
-      const eSender = e.from?.email || e.sender || '';
-      return eSender === senderEmail;
-    });
-    // If sender sent multiple emails in this thread back-to-back and user hasn't replied
-    if (fromSameSender.length >= 2) {
+  // 1. Follow-up from sender: they sent a NEWER message in the same thread after this one,
+  //    suggesting they're waiting for your reply. Must be a real person (require reply).
+  if (email.thread_id && requiresReply) {
+    const senderEmail = (email.from?.email || email.sender || '').toLowerCase();
+    // Skip automated/noreply senders
+    const isAutomated = /noreply|no-reply|notifications?@|mailer|donotreply|automated|support@|info@|updates@/i.test(senderEmail);
+    if (!isAutomated) {
       const hasSentReplyInThread = sentEmails.some((se: any) =>
         se.thread_id === email.thread_id || se.inReplyTo === email.id
       );
       if (!hasSentReplyInThread) {
-        return { reason: 'They followed up', severity: 'urgent' };
+        const emailTime = new Date(email.date || email.timestamp || 0).getTime();
+        // Check if same sender sent a NEWER email in this thread (actual follow-up)
+        const hasNewerFromSender = allEmails.some((e: any) => {
+          if (e.id === email.id || e.thread_id !== email.thread_id) return false;
+          const eSender = (e.from?.email || e.sender || '').toLowerCase();
+          if (eSender !== senderEmail) return false;
+          const eTime = new Date(e.date || e.timestamp || 0).getTime();
+          return eTime > emailTime;
+        });
+        if (hasNewerFromSender) {
+          return { reason: 'They followed up', severity: 'urgent' };
+        }
       }
     }
   }
@@ -132,12 +138,18 @@ function getNeedsAttentionInfo(
     return { reason: 'Urgent', severity: 'urgent' };
   }
 
-  // 4. Unanswered too long (requires reply + old)
+  // 4. Unanswered too long (requires reply + old + not automated)
   if (requiresReply && daysOld >= 2) {
-    return {
-      reason: `No response · ${daysOld} ${daysOld === 1 ? 'day' : 'days'}`,
-      severity: daysOld > 4 ? 'urgent' : 'warning',
-    };
+    const senderEmail = (email.from?.email || email.sender || '').toLowerCase();
+    const isAutomated = /noreply|no-reply|notifications?@|mailer|donotreply|automated|support@|info@|updates@|newsletter|digest|marketing/i.test(senderEmail);
+    // Also skip low-priority emails — they likely don't need a response
+    const isLow = email.aiCategory === 'Low' || email.category === 'Low';
+    if (!isAutomated && !isLow) {
+      return {
+        reason: `No response · ${daysOld} ${daysOld === 1 ? 'day' : 'days'}`,
+        severity: daysOld > 4 ? 'urgent' : 'warning',
+      };
+    }
   }
 
   return null;

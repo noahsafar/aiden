@@ -6,13 +6,61 @@ mod models;
 mod services;
 mod utils;
 
-use commands::{auth, gmail, ai, database, settings, fs, crm, chatbot, email_storage};
+use commands::{auth, gmail, ai, database, settings, fs, crm, chatbot, email_storage, life_data};
 use services::storage::TokenStorage;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    Manager,
+};
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .setup(|app| {
+            let show_item = MenuItem::with_id(app, "show", "Show Aiden", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            let _tray = TrayIconBuilder::with_id("main-tray")
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("Aiden")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click { .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+        })
         // Register only the commands that exist
         .invoke_handler(tauri::generate_handler![
             // Auth commands
@@ -83,6 +131,11 @@ fn main() {
             chatbot::delete_reminder,
             chatbot::get_due_reminders,
             chatbot::mark_reminder_triggered,
+            // Life intelligence commands
+            life_data::save_life_items,
+            life_data::load_life_items,
+            life_data::dismiss_life_item,
+            life_data::delete_life_item,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

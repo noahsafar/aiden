@@ -336,6 +336,8 @@ pub struct AnalyzeEmailResponse {
     pub deadline: Option<String>,
     // Detected tone of the sender (e.g. "frustrated", "friendly", "urgent", "neutral")
     pub sender_tone: Option<String>,
+    // Life intelligence data extracted from email
+    pub life_data: Vec<LifeDataItem>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -343,6 +345,20 @@ pub struct AttachmentRequest {
     pub keyword: String, // e.g., "resume", "transcript", "invoice"
     pub file_type: Option<String>, // e.g., "pdf", "docx"
     pub description: String, // e.g., "They want your resume"
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LifeDataItem {
+    pub data_type: String,        // "subscription" | "bill" | "travel" | "package" | "deadline"
+    pub title: String,
+    pub amount: Option<f64>,
+    pub currency: Option<String>,
+    pub date: Option<String>,     // renewal/due/delivery/departure date
+    pub end_date: Option<String>, // travel return dates
+    pub frequency: Option<String>,// "monthly", "yearly", "one-time", null
+    pub details: Option<String>,  // confirmation #, tracking URL, etc.
+    pub tracking_number: Option<String>,
+    pub carrier: Option<String>,  // shipping carrier or airline
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -403,7 +419,8 @@ Respond in this exact JSON format:
     {{"keyword": "transcript", "file_type": null, "description": "They're asking for your transcript"}}
   ],
   "deadline": null,
-  "sender_tone": "neutral"
+  "sender_tone": "neutral",
+  "life_data": []
 }}
 
 Guidelines:
@@ -419,20 +436,34 @@ Guidelines:
   * description: Brief description of what they want
 
 - Sender tone: Detect the emotional tone of the email. Use one word like "friendly", "neutral", "frustrated", "angry", "anxious", "excited", "apologetic", "demanding", "grateful", "formal", "casual". This will be used to adapt the reply tone.
-- Deadline: Extract any deadline, due date, or time-sensitive date mentioned in the email. Use ISO format (YYYY-MM-DD) if possible, otherwise use the exact phrase from the email (e.g. "next Friday", "end of this week"). Set to null if no deadline is mentioned.
-  Examples: application deadlines, RSVP dates, submission due dates, expiration dates, event dates requiring action before them.
+- Deadline: Extract a deadline ONLY if the user personally needs to take action by that date. Use ISO format (YYYY-MM-DD) if possible, otherwise use the exact phrase. Set to null if no deadline applies to the user.
+  YES — deadlines that require the user's action: application deadlines, RSVP dates, payment due dates, submission deadlines, renewal dates requiring a decision, registration closing dates.
+  NO — do NOT flag these as deadlines: event start dates (conferences, webinars), sale end dates, shipping delivery dates, informational date mentions, dates in newsletters, someone else's deadline mentioned in passing.
+
+- Life data: Extract structured life intelligence items from the email. Each item has a data_type and relevant fields:
+  * "subscription" — recurring services (Netflix, Spotify, gym memberships, SaaS). Include amount, currency, frequency, renewal date.
+  * "bill" — one-time or recurring bills/invoices (utilities, rent, insurance). Include amount, currency, date (due date), frequency.
+  * "travel" — flights, hotel bookings, trip confirmations. Include carrier (airline/hotel), date (departure), end_date (return), details (confirmation #).
+  * "package" — shipping/delivery notifications. Include carrier (UPS, FedEx, USPS, Amazon), tracking_number, date (delivery date), details (item description).
+  * "deadline" — important deadlines not covered by the top-level deadline field (tax deadlines, application deadlines, renewal deadlines). Include date, details.
+  Only include items with clear, concrete data. Do not fabricate amounts or dates. Leave fields null if not explicitly stated in the email.
 
 IMPORTANT - Set requires_reply to FALSE for:
 - Newsletters, marketing emails, notifications, or automated emails
 - Emails that are purely informational with no questions asked
-- Receipts, confirmations, or updates that don't need a response
-- Emails from known senders like "NYT Cooking", "Substack", newsletters, etc.
+- Receipts, confirmations, order updates, or shipping notifications
+- Emails from noreply/automated addresses
+- Emails from known senders like "NYT Cooking", "Substack", newsletters, mailing lists, etc.
+- CC'd emails where someone else is the primary recipient or already answered
+- GitHub/Jira/Slack/social media notifications
+- Promotional or sale emails
+- When in doubt, default to FALSE — it is better to miss a reply than to falsely nag the user
 
-Set requires_reply to TRUE for:
-- Emails asking direct questions
-- Meeting requests
-- Emails requesting your input, approval, or action
-- Messages from real people expecting a response"#,
+Set requires_reply to TRUE ONLY for:
+- A real person directly asking the user a question and expecting an answer
+- Meeting requests that need a yes/no
+- Explicit requests for the user's input, approval, deliverables, or action
+- Messages where ignoring would be socially or professionally inappropriate"#,
         request.sender, request.subject, request.body_text, request.has_attachments
     );
 
@@ -472,6 +503,10 @@ Set requires_reply to TRUE for:
     let sender_tone = parsed["sender_tone"].as_str()
         .map(|s| s.to_string());
 
+    let life_data: Vec<LifeDataItem> = parsed["life_data"].as_array()
+        .and_then(|arr| serde_json::from_value(serde_json::Value::Array(arr.clone())).ok())
+        .unwrap_or_default();
+
     Ok(AnalyzeEmailResponse {
         questions,
         suggested_formality_score,
@@ -483,6 +518,7 @@ Set requires_reply to TRUE for:
         attachment_requests,
         deadline,
         sender_tone,
+        life_data,
     })
 }
 
@@ -781,7 +817,7 @@ Focus on the most important information and action items."#,
 #[command]
 pub async fn classify_email(email_content: String, sender: String, subject: String) -> Result<EmailClassification, String> {
     let prompt = format!(
-        r#"Please classify this email by priority and importance.
+        r#"Classify this email's priority. Be CONSERVATIVE — most emails are "normal". Only escalate when truly warranted.
 
 From: {}
 Subject: {}
@@ -789,24 +825,43 @@ Content: {}
 
 Respond in JSON format:
 {{
-  "category": "urgent|important|normal|low|spam",
+  "category": "urgent|important|normal|low",
   "confidence": 0.95,
   "requires_reply": true,
   "can_auto_archive": false
 }}
 
-Categories:
-- urgent: Requires immediate attention (time-sensitive, emergencies, etc.)
-- important: Important but not immediately time-sensitive
-- normal: Regular emails that can be handled during routine processing
-- low: Low priority emails (newsletters, notifications, etc.)
-- spam: Unwanted or spam emails
+STRICT classification rules:
 
-Consider:
-- Sender relationship and authority
-- Time sensitivity
-- Action required
-- Content importance"#,
+"urgent" — ONLY use when ALL of these are true:
+  - Explicit time pressure (deadline within 48 hours, "ASAP", "immediately", "today")
+  - Requires the user's personal action (not just FYI about something time-sensitive)
+  - From a real person or organization that matters (not automated/marketing)
+  Examples: "Your rent is due tomorrow", boss asking for something ASAP, interview time confirmation needed today
+  NOT urgent: Sale ending soon, shipping updates, social media notifications, event reminders for next week
+
+"important" — Requires the user's personal action or decision, but not immediately:
+  - Direct questions from real people expecting a response
+  - Requests for your input, approval, or deliverables
+  - Financial matters needing action (bills, account issues)
+  Examples: Colleague asking for feedback, invoice requiring payment this week, job application follow-up
+  NOT important: Newsletters from important sources, FYI updates from work tools, read receipts
+
+"normal" — Default category. Regular emails that may or may not need action:
+  - General correspondence, updates, informational emails
+  - Emails where it's unclear if a reply is expected
+  When in doubt, classify as "normal"
+
+"low" — Clearly does not need attention:
+  - Newsletters, marketing, promotions, digests
+  - Automated notifications (GitHub, Jira, Slack digests, social media)
+  - Receipts, order confirmations, shipping updates (informational only)
+  - Mailing lists where user is just a subscriber
+
+requires_reply rules:
+  - TRUE only if the sender is a real person directly asking the user to respond, provide info, or take action
+  - FALSE for: newsletters, automated emails, notifications, receipts, confirmations, FYI updates, CC'd emails where someone else is the primary recipient
+  - When in doubt, set FALSE — it's better to miss a reply prompt than to nag about newsletters"#,
         sender, subject, email_content
     );
 

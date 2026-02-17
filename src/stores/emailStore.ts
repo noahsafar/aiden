@@ -309,6 +309,7 @@ export interface Email {
   reminder_snoozed_until?: string;  // ISO timestamp if reminder was snoozed
   needs_follow_up?: boolean;  // Whether this email actually needs a follow-up (AI determined)
   attention_dismissed?: boolean;  // Whether the user dismissed the attention banner
+  deleted_at?: string;  // ISO timestamp when email was moved to trash
 }
 
 export interface EmailAttachment {
@@ -400,6 +401,7 @@ export interface EmailState {
   bulkSave: (emailIds?: string[]) => void;
   isEmailSelected: (emailId: string) => boolean;
   getSelectedCount: () => number;
+  purgeOldTrash: () => void;
 
   // Threading methods
   setEmails: (emails: Email[]) => void;
@@ -616,6 +618,13 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
           ),
         }));
         persistEmailsToDisk();
+      }
+
+      // Forward life intelligence data to lifeStore
+      if (claudeResponse.life_data && claudeResponse.life_data.length > 0) {
+        import('@/stores/lifeStore').then(({ useLifeStore }) => {
+          useLifeStore.getState().addItemsFromEmail(emailId, claudeResponse.life_data);
+        }).catch(() => {});
       }
     } else {
       console.log(`[AI Processing] Question API returned no data for ${emailId}:`, result);
@@ -847,17 +856,23 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   loadFromDisk: async () => {
     try {
-      // Don't overwrite if we already have fresh data from a fetch
-      if (get().hasInitialized) return;
-
       const { invoke } = await import('@tauri-apps/api/core');
       const [persisted, persistedSent] = await Promise.all([
         invoke<any[]>('load_persisted_emails'),
         invoke<any[]>('load_persisted_sent_emails'),
       ]);
 
-      // Double-check in case a fetch completed while we were loading from disk
-      if (!get().hasInitialized && (persisted.length > 0 || persistedSent.length > 0)) {
+      const state = get();
+
+      // Always restore sent emails from disk if we don't have any in memory
+      // (fetchEmails only populates inbox emails, never sent)
+      if (state.sentEmails.length === 0 && persistedSent.length > 0) {
+        set({ sentEmails: persistedSent as Email[] });
+        console.log(`[EmailStore] Restored ${persistedSent.length} sent emails from disk`);
+      }
+
+      // Only load inbox emails from disk if we haven't fetched from Gmail yet
+      if (!state.hasInitialized && (persisted.length > 0 || persistedSent.length > 0)) {
         set({
           emails: persisted as Email[],
           sentEmails: persistedSent as Email[],
@@ -904,9 +919,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       // Use Python OAuth server to fetch emails
       try {
         const baseURL = await serverURL();
-        // First Gmail fetch: get all unread inbox emails. Subsequent: only new since app opened
+        // First Gmail fetch: get all recent inbox emails (including read). Subsequent: only new since app opened
         const query = isFirstGmailFetch
-          ? 'is:unread in:inbox'
+          ? 'in:inbox'
           : `in:inbox after:${Math.floor(get().appStartTime / 1000)}`;
         const response = await fetch(`${baseURL}/emails?q=${encodeURIComponent(query)}&maxResults=50`, {
           method: 'GET',
@@ -1059,15 +1074,21 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
           set({ initialEmailIds: updatedInitialIds });
 
-          // Process only new emails - STRICT LIMIT to prevent overload
+          // Process new emails — stagger to keep UI responsive
           const emailsNeedingProcessing = emails
-            .filter(e => newEmailIds.includes(e.id))
-            .slice(0, 3); // STRICT LIMIT: Only 3 new emails per poll
-          console.log(`[AI Processing] New emails to process: ${emailsNeedingProcessing.length} (limited to 3)`);
+            .filter(e => newEmailIds.includes(e.id) && !e.summary);
+          console.log(`[AI Processing] New emails to process: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
+            const firstBatch = emailsNeedingProcessing.slice(0, 3);
+            const remaining = emailsNeedingProcessing.slice(3);
             setTimeout(() => {
-              processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
-            }, 1000); // Longer delay
+              processMultipleEmails(firstBatch.map(e => e.id));
+            }, 1000);
+            if (remaining.length > 0) {
+              setTimeout(() => {
+                processMultipleEmails(remaining.map(e => e.id));
+              }, 15000);
+            }
           }
         }
       } catch (pythonError) {
@@ -1082,7 +1103,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
         // Fetch emails directly from Gmail API
         const fallbackQuery = isFirstGmailFetch
-          ? 'is:unread in:inbox'
+          ? 'in:inbox'
           : `in:inbox after:${Math.floor(get().appStartTime / 1000)}`;
         const emailResponse = await fetchGmailEmails(accessToken, 50, fallbackQuery);
 
@@ -1170,15 +1191,21 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           const updatedInitialIds = new Set([...state.initialEmailIds, ...newEmailIds]);
           set({ initialEmailIds: updatedInitialIds });
 
-          // Process only new emails - STRICT LIMIT
+          // Process new emails — stagger to keep UI responsive
           const emailsNeedingProcessing = emails
-            .filter(e => newEmailIds.includes(e.id))
-            .slice(0, 3); // Even stricter for polling
-          console.log(`[AI Processing] Gmail API - New emails to process: ${emailsNeedingProcessing.length} (limited to 3)`);
+            .filter(e => newEmailIds.includes(e.id) && !e.summary);
+          console.log(`[AI Processing] Gmail API - New emails to process: ${emailsNeedingProcessing.length}`);
           if (emailsNeedingProcessing.length > 0) {
+            const firstBatch = emailsNeedingProcessing.slice(0, 3);
+            const remaining = emailsNeedingProcessing.slice(3);
             setTimeout(() => {
-              processMultipleEmails(emailsNeedingProcessing.map(e => e.id));
+              processMultipleEmails(firstBatch.map(e => e.id));
             }, 1000);
+            if (remaining.length > 0) {
+              setTimeout(() => {
+                processMultipleEmails(remaining.map(e => e.id));
+              }, 15000);
+            }
           }
         }
       }
@@ -1307,15 +1334,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       console.log(`Updating email ${emailId} status to ${status}`);
 
       // Update local state - both emails and sentEmails
+      const deleted_at = status === 'Deleted' ? new Date().toISOString() : undefined;
       set((state) => ({
         emails: state.emails.map(email =>
-          email.id === emailId ? { ...email, status } : email
+          email.id === emailId ? { ...email, status, ...(status === 'Deleted' ? { deleted_at } : {}) } : email
         ),
         sentEmails: state.sentEmails.map(email =>
-          email.id === emailId ? { ...email, status } : email
+          email.id === emailId ? { ...email, status, ...(status === 'Deleted' ? { deleted_at } : {}) } : email
         ),
         selectedEmail: state.selectedEmail?.id === emailId
-          ? { ...state.selectedEmail, status }
+          ? { ...state.selectedEmail, status, ...(status === 'Deleted' ? { deleted_at } : {}) }
           : state.selectedEmail,
       }));
       persistEmailsToDisk();
@@ -1858,6 +1886,29 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
     // Clear selection after bulk action
     get().clearSelection();
+  },
+
+  purgeOldTrash: () => {
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - THIRTY_DAYS_MS;
+    const state = get();
+    const beforeCount = state.emails.length + state.sentEmails.length;
+    const emails = state.emails.filter(e => {
+      if (e.status !== 'Deleted') return true;
+      if (!e.deleted_at) return true; // keep if no timestamp (legacy)
+      return new Date(e.deleted_at).getTime() > cutoff;
+    });
+    const sentEmails = state.sentEmails.filter(e => {
+      if (e.status !== 'Deleted') return true;
+      if (!e.deleted_at) return true;
+      return new Date(e.deleted_at).getTime() > cutoff;
+    });
+    const purged = beforeCount - emails.length - sentEmails.length;
+    if (purged > 0) {
+      set({ emails, sentEmails });
+      persistEmailsToDisk();
+      console.log(`[EmailStore] Purged ${purged} emails from trash (older than 30 days)`);
+    }
   },
 
   // ===== Threading Methods =====

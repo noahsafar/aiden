@@ -6,7 +6,7 @@ import {
   PaperAirplaneIcon,
   BookmarkIcon,
   ArchiveBoxIcon,
-  SparklesIcon as SparklesIconHero,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
 
 interface SidebarProps {
@@ -24,13 +24,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const filters = [
     { id: 'inbox', label: 'Inbox', icon: InboxIcon },
-    { id: 'triage', label: 'Smart Triage', icon: SparklesIconHero },
     { id: 'saved', label: 'Saved', icon: BookmarkIcon },
     { id: 'sent', label: 'Sent', icon: PaperAirplaneIcon },
     { id: 'archived', label: 'Archive', icon: ArchiveBoxIcon },
+    { id: 'deleted', label: 'Trash', icon: TrashIcon },
   ] as const;
 
-  const isDashboardActive = currentFilter === 'inbox' || currentFilter === 'triage' || currentFilter === 'saved' || currentFilter === 'sent' || currentFilter === 'archived';
+  const isDashboardActive = currentFilter === 'inbox' || currentFilter === 'saved' || currentFilter === 'sent' || currentFilter === 'archived' || currentFilter === 'deleted';
 
   const getFilterCount = (filterId: string) => {
     switch (filterId) {
@@ -42,6 +42,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return sentEmails.filter(e => e.status !== 'Deleted' && e.status !== 'Saved').length;
       case 'archived':
         return emails.filter(e => e.status === 'Archived').length;
+      case 'deleted':
+        return emails.filter(e => e.status === 'Deleted').length + sentEmails.filter(e => e.status === 'Deleted').length;
       default:
         return 0;
     }
