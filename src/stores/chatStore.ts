@@ -73,6 +73,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         sender: email.sender,
         date: email.date,
         snippet: (email.body_text || email.snippet || '').substring(0, 80),
+        status: email.status,
       }));
 
       // Get top contacts
@@ -206,7 +207,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const emailIds = data.email_ids || [];
         const emailStore = useEmailStore.getState();
         for (const id of emailIds) {
-          await emailStore.updateEmailStatus(id, 'archived');
+          await emailStore.updateEmailStatus(id, 'Archived');
+        }
+        break;
+      }
+
+      case 'delete': {
+        const emailIds = data.email_ids || [];
+        const emailStore = useEmailStore.getState();
+        for (const id of emailIds) {
+          await emailStore.updateEmailStatus(id, 'Deleted');
+        }
+        break;
+      }
+
+      case 'save': {
+        const emailIds = data.email_ids || [];
+        const emailStore = useEmailStore.getState();
+        for (const id of emailIds) {
+          emailStore.saveEmail(id);
+        }
+        break;
+      }
+
+      case 'mark_read': {
+        const emailIds = data.email_ids || [];
+        const emailStore = useEmailStore.getState();
+        for (const id of emailIds) {
+          await emailStore.markAsRead(id);
+        }
+        break;
+      }
+
+      case 'mark_unread': {
+        const emailIds = data.email_ids || [];
+        const emailStore = useEmailStore.getState();
+        for (const id of emailIds) {
+          await emailStore.markAsUnread(id);
         }
         break;
       }

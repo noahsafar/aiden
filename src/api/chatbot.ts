@@ -9,6 +9,7 @@ export interface ChatEmailContext {
   sender: string;
   date: string;
   snippet: string;
+  status: string;
 }
 
 export interface ChatContactContext {
@@ -31,7 +32,7 @@ export interface ChatMessage {
 }
 
 export interface ChatAction {
-  type: 'search' | 'compose' | 'archive' | 'navigate' | 'summarize' | 'remind' | 'none';
+  type: 'search' | 'compose' | 'archive' | 'delete' | 'save' | 'mark_read' | 'mark_unread' | 'navigate' | 'summarize' | 'remind' | 'none';
   data: any;
 }
 

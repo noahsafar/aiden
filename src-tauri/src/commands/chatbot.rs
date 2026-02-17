@@ -10,6 +10,7 @@ pub struct ChatEmailContext {
     pub sender: String,
     pub date: String,
     pub snippet: String,  // First ~80 chars of body
+    pub status: String,   // Unhandled, Saved, Replied, Archived, Deleted
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -37,7 +38,7 @@ pub struct ChatMessage {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChatAction {
     #[serde(rename = "type")]
-    pub action_type: String,  // "search", "compose", "archive", "navigate", "summarize", "remind", "none"
+    pub action_type: String,  // "search", "compose", "archive", "delete", "save", "mark_read", "mark_unread", "navigate", "summarize", "remind", "none"
     pub data: serde_json::Value,
 }
 
@@ -233,10 +234,14 @@ Available actions you can take:
 1. **search** - Search emails using Gmail query syntax. Return `data.query` with the search query.
 2. **compose** - Compose a new email. Return `data.to`, `data.subject`, `data.body`.
 3. **archive** - Archive emails. Return `data.email_ids` as an array of email IDs to archive.
-4. **navigate** - Navigate to a specific email. Return `data.email_id`.
-5. **summarize** - Provide a summary (included in reply_message, no special data needed).
-6. **remind** - Set a reminder. Return `data.message` and `data.due_date` (ISO 8601).
-7. **none** - Just respond conversationally without taking action.
+4. **delete** - Delete emails. Return `data.email_ids` as an array of email IDs to delete.
+5. **save** - Save/bookmark emails. Return `data.email_ids` as an array of email IDs to save.
+6. **mark_read** - Mark emails as read. Return `data.email_ids` as an array of email IDs.
+7. **mark_unread** - Mark emails as unread. Return `data.email_ids` as an array of email IDs.
+8. **navigate** - Navigate to a specific email. Return `data.email_id`.
+9. **summarize** - Provide a summary (included in reply_message, no special data needed).
+10. **remind** - Set a reminder. Return `data.message` and `data.due_date` (ISO 8601).
+11. **none** - Just respond conversationally without taking action.
 
 Context about the user:
 "#.to_string();
@@ -261,11 +266,13 @@ Context about the user:
         prompt.push_str("Recent emails:\n");
         for (i, email) in context.emails.iter().enumerate() {
             prompt.push_str(&format!(
-                "{}. From: {} | Subject: {} | Date: {} | Preview: {}...\n",
+                "{}. [{}] From: {} | Subject: {} | Date: {} | ID: {} | Preview: {}...\n",
                 i + 1,
+                email.status,
                 email.sender,
                 email.subject,
                 email.date,
+                email.id,
                 email.snippet
             ));
         }
@@ -304,6 +311,10 @@ Action-specific data formats:
 - **search**: `{"query": "gmail search query string"}`
 - **compose**: `{"to": "recipient@example.com", "subject": "Email subject", "body": "Email body"}`
 - **archive**: `{"email_ids": ["id1", "id2", ...]}`
+- **delete**: `{"email_ids": ["id1", "id2", ...]}`
+- **save**: `{"email_ids": ["id1", "id2", ...]}`
+- **mark_read**: `{"email_ids": ["id1", "id2", ...]}`
+- **mark_unread**: `{"email_ids": ["id1", "id2", ...]}`
 - **navigate**: `{"email_id": "email_id_here"}`
 - **remind**: `{"message": "Reminder message", "due_date": "2025-02-15T10:00:00"}`
 - **summarize** or **none**: `{}` or omit action entirely
@@ -315,6 +326,8 @@ Guidelines:
 - For compose, include a complete email with subject and body
 - For reminders, parse natural language dates like "tomorrow", "in 2 days", "next Friday" into ISO 8601 format
 - If unsure about something, ask for clarification in reply_message
+- For bulk operations like "clear inbox", "delete all newsletters", or "mark all as read", include all matching email IDs from the context
+- Each email in the context has a status field showing its current state (Unhandled, Saved, Replied, Archived, Deleted) - use this to avoid redundant operations
 - CRITICAL: You MUST always respond with valid JSON. Never respond with plain text.
 - Even for casual conversation, wrap your response in the JSON format above."#);
 
