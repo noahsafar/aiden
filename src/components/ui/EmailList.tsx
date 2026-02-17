@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
-import { Clock, BellOff, Send, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Clock, BellOff, Send, ChevronDown, AlertTriangle, Mail, MailOpen } from 'lucide-react';
 
 interface EmailQuestionData {
   questions: string[];
@@ -219,6 +219,7 @@ export const EmailList: React.FC<EmailListProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
   const [shortcutsCollapsed, setShortcutsCollapsed] = useState(true);
   const [snoozeDropdownOpen, setSnoozeDropdownOpen] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; emailId: string; isRead: boolean } | null>(null);
 
 
   // Bulk selection state from store
@@ -239,13 +240,16 @@ export const EmailList: React.FC<EmailListProps> = ({
     snoozeReminder,
     currentFilter,
     dismissAttention,
+    markAsRead,
+    markAsUnread,
   } = useEmailStore();
 
 
-  // Close snooze dropdown when clicking outside
+  // Close snooze dropdown and context menu when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
       setSnoozeDropdownOpen(null);
+      setContextMenu(null);
     };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
@@ -298,6 +302,22 @@ export const EmailList: React.FC<EmailListProps> = ({
       lastSelectedEmailRef.current = emailId;
     }
   }, [isSelectMode, toggleEmailSelection, onEmailSelect]);
+
+  // Handle right-click context menu
+  const handleContextMenu = useCallback((e: React.MouseEvent, emailId: string, isRead: boolean) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, emailId, isRead });
+  }, []);
+
+  const handleContextMenuAction = useCallback(async (action: 'markRead' | 'markUnread') => {
+    if (!contextMenu) return;
+    if (action === 'markRead') {
+      await markAsRead(contextMenu.emailId);
+    } else {
+      await markAsUnread(contextMenu.emailId);
+    }
+    setContextMenu(null);
+  }, [contextMenu, markAsRead, markAsUnread]);
 
   // Reset the last selected email when isSelectMode changes
   useEffect(() => {
@@ -713,6 +733,7 @@ export const EmailList: React.FC<EmailListProps> = ({
                               : 'bg-surface dark:bg-gray-800 border-border')))
               } ${isFyi && !isWaitingEmail && !needsAttention ? 'opacity-60' : ''}`}
               onClick={() => handleEmailClick(email.id)}
+              onContextMenu={(e) => handleContextMenu(e, email.id, email.isRead)}
             >
               {/* Selection sidebar strip */}
               <div
@@ -962,6 +983,33 @@ export const EmailList: React.FC<EmailListProps> = ({
           );
         })}
       </div>
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <div
+          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 min-w-[160px] py-1"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {contextMenu.isRead ? (
+            <button
+              onClick={() => handleContextMenuAction('markUnread')}
+              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+            >
+              <Mail className="w-4 h-4" />
+              Mark as Unread
+            </button>
+          ) : (
+            <button
+              onClick={() => handleContextMenuAction('markRead')}
+              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+            >
+              <MailOpen className="w-4 h-4" />
+              Mark as Read
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };

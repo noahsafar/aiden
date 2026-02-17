@@ -165,6 +165,7 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<'archive' | 'save' | 'delete' | null>(null);
   const [excludedEmails, setExcludedEmails] = useState<Set<string>>(new Set());
+  const [showQuickActions, setShowQuickActions] = useState(false);
 
   const toggleExcludeEmail = (emailId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -305,44 +306,50 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
     <div className="p-4 space-y-4">
       {/* Header */}
       <div className="pb-4 border-b border-gray-200 dark:border-gray-700">
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          Quick actions for all {totalGroupedEmails} grouped emails:
-        </p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              const allIds = Array.from(groupedEmails.values()).flat().map(e => e.id);
-              selectMultipleEmails(allIds);
-              bulkArchive(allIds);
-              clearSelection();
-            }}
-            className="flex-1 px-3 py-2 text-sm font-medium text-green-700 bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-300 rounded-lg transition-colors"
-          >
-            Archive ({totalGroupedEmails})
-          </button>
-          <button
-            onClick={() => {
-              const allIds = Array.from(groupedEmails.values()).flat().map(e => e.id);
-              selectMultipleEmails(allIds);
-              bulkSave(allIds);
-              clearSelection();
-            }}
-            className="flex-1 px-3 py-2 text-sm font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg transition-colors"
-          >
-            Save ({totalGroupedEmails})
-          </button>
-          <button
-            onClick={() => {
-              const allIds = Array.from(groupedEmails.values()).flat().map(e => e.id);
-              selectMultipleEmails(allIds);
-              bulkDelete(allIds);
-              clearSelection();
-            }}
-            className="flex-1 px-3 py-2 text-sm font-medium text-red-700 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 rounded-lg transition-colors"
-          >
-            Delete ({totalGroupedEmails})
-          </button>
-        </div>
+        <button
+          onClick={() => setShowQuickActions(!showQuickActions)}
+          className="flex items-center justify-between w-full text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+        >
+          <span>Quick actions for all {totalGroupedEmails} grouped emails</span>
+          {showQuickActions ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
+        {showQuickActions && (
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={() => {
+                const allIds = Array.from(groupedEmails.values()).flat().map(e => e.id);
+                selectMultipleEmails(allIds);
+                bulkArchive(allIds);
+                clearSelection();
+              }}
+              className="flex-1 px-3 py-2 text-sm font-medium text-green-700 bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-300 rounded-lg transition-colors"
+            >
+              Archive ({totalGroupedEmails})
+            </button>
+            <button
+              onClick={() => {
+                const allIds = Array.from(groupedEmails.values()).flat().map(e => e.id);
+                selectMultipleEmails(allIds);
+                bulkSave(allIds);
+                clearSelection();
+              }}
+              className="flex-1 px-3 py-2 text-sm font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg transition-colors"
+            >
+              Save ({totalGroupedEmails})
+            </button>
+            <button
+              onClick={() => {
+                const allIds = Array.from(groupedEmails.values()).flat().map(e => e.id);
+                selectMultipleEmails(allIds);
+                bulkDelete(allIds);
+                clearSelection();
+              }}
+              className="flex-1 px-3 py-2 text-sm font-medium text-red-700 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 rounded-lg transition-colors"
+            >
+              Delete ({totalGroupedEmails})
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Groups */}
@@ -392,7 +399,7 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
                 {!isExpanded ? (
                   <>
                     {/* Email Previews (first 3) - collapsed state */}
-                    <div className="mb-3 space-y-2">
+                    <div className="space-y-2">
                       {groupEmails.slice(0, 3).map((email, idx) => (
                         <div
                           key={email.id}
@@ -408,43 +415,6 @@ export const SmartTriage: React.FC<SmartTriageProps> = ({ onAction, onEmailSelec
                           +{count - 3} more...
                         </div>
                       )}
-                    </div>
-
-                    {/* Action Buttons - collapsed state */}
-                    <div className="flex w-full items-center justify-center gap-3">
-                      <button
-                        onClick={(e) => handleGroupActionClick(group.id, 'archive', e)}
-                        className={`w-8 h-8 rounded-lg transition-colors flex items-center justify-center ${
-                          group.suggestedAction === 'archive'
-                            ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-300'
-                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                        }`}
-                        title="Archive all"
-                      >
-                        <Archive className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleGroupActionClick(group.id, 'save', e)}
-                        className={`w-8 h-8 rounded-lg transition-colors flex items-center justify-center ${
-                          group.suggestedAction === 'save'
-                            ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300'
-                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                        }`}
-                        title="Save all"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleGroupActionClick(group.id, 'delete', e)}
-                        className={`w-8 h-8 rounded-lg transition-colors flex items-center justify-center ${
-                          group.suggestedAction === 'delete'
-                            ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300'
-                            : 'text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20'
-                        }`}
-                        title="Delete all"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </button>
                     </div>
                   </>
                 ) : (

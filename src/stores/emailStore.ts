@@ -352,6 +352,9 @@ export interface EmailState {
   // Sort state
   sortMode: 'date' | 'importance';      // How to sort emails
 
+  // Read filter state (UI-only, resets on reload)
+  readFilter: 'unread' | 'all';
+
   // Auto-reminder state
   pendingReminders: Set<string>;        // Email IDs needing reminder check
   reminderCheckInterval: NodeJS.Timeout | null;  // Interval for reminder checks
@@ -361,6 +364,7 @@ export interface EmailState {
   fetchEmails: () => Promise<void>;
   selectEmail: (email: Email | null) => void;
   markAsRead: (emailId: string) => Promise<void>;
+  markAsUnread: (emailId: string) => Promise<void>;
   markAsStarred: (emailId: string, starred: boolean) => Promise<void>;
   updateEmailStatus: (emailId: string, status: Email['status']) => Promise<void>;
   updateAttachmentAnalysis: (emailId: string, attachmentId: string, analysis: { summary: string; key_points: string[]; action_items: string[] }) => void;
@@ -376,6 +380,7 @@ export interface EmailState {
   setSearchQuery: (query: string) => void;
   setCurrentFilter: (filter: EmailState['currentFilter']) => void;
   setSortMode: (sort: EmailState['sortMode']) => void;
+  setReadFilter: (filter: EmailState['readFilter']) => void;
   refreshEmails: () => Promise<void>;
   getFilteredEmails: () => Email[];
   isGeneratingReply: (emailId: string) => boolean;
@@ -833,6 +838,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   // Sort state
   sortMode: 'date',
 
+  // Read filter state
+  readFilter: 'unread',
+
   // Auto-reminder state
   pendingReminders: new Set<string>(),
   reminderCheckInterval: null,
@@ -1237,6 +1245,44 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
   },
 
+  markAsUnread: async (emailId) => {
+    try {
+      const state = get();
+      const email = state.emails.find(e => e.id === emailId);
+
+      if (!email) {
+        console.warn('Email not found:', emailId);
+        return;
+      }
+
+      // Mark as unread in Gmail via Python OAuth server
+      try {
+        const baseURL = await serverURL();
+        await fetch(`${baseURL}/mark-unread`, {
+          method: 'POST',
+          mode: 'cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageId: email.gmail_id }),
+        });
+      } catch (error) {
+        console.error('Failed to mark as unread via Gmail API:', error);
+      }
+
+      // Update local state
+      set((state) => ({
+        emails: state.emails.map(email =>
+          email.id === emailId ? { ...email, is_read: false } : email
+        ),
+        selectedEmail: state.selectedEmail?.id === emailId
+          ? { ...state.selectedEmail, is_read: false }
+          : state.selectedEmail,
+      }));
+      persistEmailsToDisk();
+    } catch (error) {
+      console.error('Failed to mark email as unread:', error);
+    }
+  },
+
   markAsStarred: async (emailId, starred) => {
     try {
       // Update local state
@@ -1510,6 +1556,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   setSortMode: (sort) => {
     set({ sortMode: sort });
+  },
+
+  setReadFilter: (filter) => {
+    set({ readFilter: filter });
   },
 
   refreshEmails: async () => {
