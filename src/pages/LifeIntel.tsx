@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLifeStore, LifeIntelligenceItem } from '@/stores/lifeStore';
+import { useEmailStore } from '@/stores/emailStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
 import { useNavigate } from 'react-router-dom';
@@ -106,21 +107,51 @@ export const LifeIntel: React.FC = () => {
   const { signOut, user } = useAuthStore();
   const { isOpen: isChatOpen } = useChatStore();
   const { items, loadFromDisk, isLoaded, dismissItem, getSubscriptions, getBills, getTravel, getPackages, getDeadlines, getMonthlySpend } = useLifeStore();
+  const emails = useEmailStore((s) => s.emails);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!isLoaded) loadFromDisk();
   }, [isLoaded, loadFromDisk]);
 
+  // Also bridge email deadlines into life store on mount
+  useEffect(() => {
+    if (!isLoaded) return;
+    const lifeState = useLifeStore.getState();
+    const emailsWithDeadlines = emails.filter(
+      (e) => e.deadline && !lifeState.processedEmailIds.has(e.id)
+    );
+    for (const email of emailsWithDeadlines) {
+      lifeState.addItemsFromEmail(email.id, [{
+        data_type: 'deadline',
+        title: email.subject,
+        date: email.deadline!,
+        details: null,
+      }]);
+    }
+  }, [isLoaded, emails]);
+
   const subscriptions = getSubscriptions();
   const bills = getBills();
   const travel = getTravel();
   const packages = getPackages();
-  const deadlines = getDeadlines();
+  // Filter out deadlines that are more than 7 days past (stale/wrong dates)
+  const allDeadlines = getDeadlines();
+  const deadlines = allDeadlines.filter((d) => {
+    const days = daysUntil(d.date);
+    return days === null || days >= -7;
+  });
   const monthlySpend = getMonthlySpend();
   const activeCount = items.filter((i) => !i.dismissed).length;
 
   const handleRowClick = (emailId: string) => {
+    if (emailId && !emailId.startsWith('mock-')) {
+      // Select the source email and switch to inbox
+      import('@/stores/emailStore').then(({ useEmailStore }) => {
+        useEmailStore.getState().setCurrentFilter('inbox');
+        useEmailStore.getState().setSelectedEmail(emailId);
+      });
+    }
     navigate('/dashboard');
   };
 

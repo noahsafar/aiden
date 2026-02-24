@@ -34,7 +34,14 @@ export const useLifeStore = create<LifeState>((set, get) => ({
 
   addItemsFromEmail: (emailId: string, items: LifeDataItem[]) => {
     const state = get();
-    if (state.processedEmailIds.has(emailId) || items.length === 0) return;
+    if (state.processedEmailIds.has(emailId)) return;
+
+    // Mark as processed even if no items — prevents re-analyzing on every startup
+    if (items.length === 0) {
+      set({ processedEmailIds: new Set([...state.processedEmailIds, emailId]) });
+      invoke('save_life_processed_ids', { ids: [emailId] }).catch(() => {});
+      return;
+    }
 
     const now = new Date().toISOString();
     const newItems: LifeIntelligenceItem[] = items.map((item) => ({
@@ -74,6 +81,7 @@ export const useLifeStore = create<LifeState>((set, get) => ({
     invoke('save_life_items', { items: filtered }).catch((e) =>
       console.error('[LifeStore] Failed to persist items:', e)
     );
+    invoke('save_life_processed_ids', { ids: [emailId] }).catch(() => {});
   },
 
   dismissItem: (id: string) => {
@@ -95,12 +103,26 @@ export const useLifeStore = create<LifeState>((set, get) => ({
   },
 
   loadFromDisk: async () => {
-    // Skip if mock data is already loaded
-    if (get().items.length > 0) { set({ isLoaded: true }); return; }
+    if (get().isLoaded) return;
     try {
-      const items = await invoke<LifeIntelligenceItem[]>('load_life_items');
-      const processedEmailIds = new Set(items.map((i) => i.email_id));
-      set({ items, processedEmailIds, isLoaded: true });
+      const [diskItems, processedIds] = await Promise.all([
+        invoke<LifeIntelligenceItem[]>('load_life_items'),
+        invoke<string[]>('load_life_processed_ids'),
+      ]);
+      // Merge disk items with any items already added in-memory (from backfill)
+      const currentItems = get().items;
+      const currentProcessedIds = get().processedEmailIds;
+      const diskItemIds = new Set(diskItems.map((i) => i.id));
+      const mergedItems = [
+        ...diskItems,
+        ...currentItems.filter((i) => !diskItemIds.has(i.id)),
+      ];
+      const processedEmailIds = new Set([
+        ...mergedItems.map((i) => i.email_id),
+        ...processedIds,
+        ...currentProcessedIds,
+      ]);
+      set({ items: mergedItems, processedEmailIds, isLoaded: true });
     } catch (e) {
       console.error('[LifeStore] Failed to load from disk:', e);
       set({ isLoaded: true });
@@ -126,27 +148,3 @@ export const useLifeStore = create<LifeState>((set, get) => ({
   },
 }));
 
-// ==================== MOCK DATA (remove for production) ====================
-const MOCK_LIFE_DATA: LifeIntelligenceItem[] = [
-  { id: 'mock-sub-1', email_id: 'mock-1', data_type: 'subscription', title: 'Netflix Premium', amount: 22.99, currency: 'USD', date: '2026-03-15', end_date: null, frequency: 'monthly', details: null, tracking_number: null, carrier: null, created_at: '2026-02-10T10:00:00Z', dismissed: false },
-  { id: 'mock-sub-2', email_id: 'mock-2', data_type: 'subscription', title: 'Spotify Family', amount: 16.99, currency: 'USD', date: '2026-03-01', end_date: null, frequency: 'monthly', details: null, tracking_number: null, carrier: null, created_at: '2026-02-08T10:00:00Z', dismissed: false },
-  { id: 'mock-sub-3', email_id: 'mock-3', data_type: 'subscription', title: 'iCloud+ 200GB', amount: 2.99, currency: 'USD', date: '2026-02-28', end_date: null, frequency: 'monthly', details: null, tracking_number: null, carrier: null, created_at: '2026-02-01T10:00:00Z', dismissed: false },
-  { id: 'mock-sub-4', email_id: 'mock-4', data_type: 'subscription', title: 'ChatGPT Plus', amount: 20.00, currency: 'USD', date: '2026-03-12', end_date: null, frequency: 'monthly', details: null, tracking_number: null, carrier: null, created_at: '2026-02-12T10:00:00Z', dismissed: false },
-  { id: 'mock-bill-1', email_id: 'mock-5', data_type: 'bill', title: 'Electric Bill - ConEd', amount: 142.37, currency: 'USD', date: '2026-02-25', end_date: null, frequency: 'monthly', details: 'Account #4821', tracking_number: null, carrier: null, created_at: '2026-02-14T10:00:00Z', dismissed: false },
-  { id: 'mock-bill-2', email_id: 'mock-6', data_type: 'bill', title: 'Car Insurance - Geico', amount: 189.00, currency: 'USD', date: '2026-02-15', end_date: null, frequency: 'monthly', details: 'Policy #GK-8291', tracking_number: null, carrier: null, created_at: '2026-02-10T10:00:00Z', dismissed: false },
-  { id: 'mock-bill-3', email_id: 'mock-7', data_type: 'bill', title: 'Internet - Verizon Fios', amount: 79.99, currency: 'USD', date: '2026-03-03', end_date: null, frequency: 'monthly', details: null, tracking_number: null, carrier: null, created_at: '2026-02-16T10:00:00Z', dismissed: false },
-  { id: 'mock-travel-1', email_id: 'mock-8', data_type: 'travel', title: 'NYC → San Francisco', amount: 387.00, currency: 'USD', date: '2026-03-20', end_date: '2026-03-25', frequency: null, details: 'XKJF82', tracking_number: null, carrier: 'United Airlines', created_at: '2026-02-15T10:00:00Z', dismissed: false },
-  { id: 'mock-travel-2', email_id: 'mock-9', data_type: 'travel', title: 'Marriott Downtown SF', amount: 245.00, currency: 'USD', date: '2026-03-20', end_date: '2026-03-25', frequency: null, details: '92817364', tracking_number: null, carrier: 'Marriott', created_at: '2026-02-15T10:00:00Z', dismissed: false },
-  { id: 'mock-pkg-1', email_id: 'mock-10', data_type: 'package', title: 'MacBook Pro Charger', amount: null, currency: null, date: '2026-02-19', end_date: null, frequency: null, details: null, tracking_number: '1Z999AA10123456784', carrier: 'UPS', created_at: '2026-02-16T10:00:00Z', dismissed: false },
-  { id: 'mock-pkg-2', email_id: 'mock-11', data_type: 'package', title: 'Running Shoes - Nike', amount: null, currency: null, date: '2026-02-21', end_date: null, frequency: null, details: null, tracking_number: '9400111899223100', carrier: 'USPS', created_at: '2026-02-15T10:00:00Z', dismissed: false },
-  { id: 'mock-deadline-1', email_id: 'mock-12', data_type: 'deadline', title: 'Tax Filing Deadline', amount: null, currency: null, date: '2026-04-15', end_date: null, frequency: null, details: 'Federal & state returns due', tracking_number: null, carrier: null, created_at: '2026-02-01T10:00:00Z', dismissed: false },
-  { id: 'mock-deadline-2', email_id: 'mock-13', data_type: 'deadline', title: 'Lease Renewal Decision', amount: null, currency: null, date: '2026-02-28', end_date: null, frequency: null, details: 'Must notify landlord by this date', tracking_number: null, carrier: null, created_at: '2026-02-10T10:00:00Z', dismissed: false },
-  { id: 'mock-deadline-3', email_id: 'mock-14', data_type: 'deadline', title: 'Passport Renewal', amount: null, currency: null, date: '2026-02-16', end_date: null, frequency: null, details: 'Expires — renew ASAP', tracking_number: null, carrier: null, created_at: '2026-02-05T10:00:00Z', dismissed: false },
-];
-
-// Load mock data on import
-useLifeStore.setState({
-  items: MOCK_LIFE_DATA,
-  processedEmailIds: new Set(MOCK_LIFE_DATA.map(i => i.email_id)),
-  isLoaded: true,
-});

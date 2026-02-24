@@ -118,14 +118,22 @@ function getNeedsAttentionInfo(
   const deadlineValue = questionData?.deadline || email.deadline;
   if (deadlineValue) {
     const deadlineStr = deadlineValue;
-    const deadlineDate = new Date(deadlineStr);
+    // Parse as local date to avoid UTC timezone shift (ISO date-only strings are parsed as UTC)
+    const parts = deadlineStr.split('-');
+    const deadlineDate = parts.length === 3
+      ? new Date(+parts[0], +parts[1] - 1, +parts[2])
+      : new Date(deadlineStr);
     const isValidDate = !isNaN(deadlineDate.getTime());
     if (isValidDate) {
-      const daysUntil = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      const label = daysUntil <= 0 ? 'Overdue'
+      // Use calendar-day comparison (not timestamp) so "due today" works correctly
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const deadlineDay = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
+      const daysUntil = Math.round((deadlineDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      const label = daysUntil < 0 ? (daysUntil === -1 ? 'Overdue by 1 day' : `Overdue by ${-daysUntil} days`)
+        : daysUntil === 0 ? 'Due today'
         : daysUntil === 1 ? 'Due tomorrow'
         : `Due in ${daysUntil} days`;
-      const severity = daysUntil <= 3 ? 'urgent' : 'warning';
+      const severity = daysUntil <= 1 ? 'urgent' : daysUntil <= 3 ? 'warning' : 'warning';
       return { reason: `Deadline · ${label}`, severity, deadline: deadlineStr };
     } else {
       // Non-ISO deadline string (e.g. "next Friday") — still flag it
@@ -212,22 +220,61 @@ export const EmailList: React.FC<EmailListProps> = ({
   onBump,
   sortMode = 'date',
 }) => {
+  // Pull these before the sort memo so they're in scope
+  const sentEmails = useEmailStore((s) => s.sentEmails);
+  const sentReplyEmailIds = useEmailStore((s) => s.sentReplyEmailIds);
+
   // Sort emails at render time based on sortMode
+  // Emails needing attention (urgent/deadline/follow-up) are pinned to top until dismissed
   const emails = React.useMemo(() => {
     const sorted = [...rawEmails];
+
+    // Pre-compute which emails need attention (avoids calling per-comparison)
+    const attentionMap = new Map<string, { severity: 'urgent' | 'warning' }>();
+    for (const email of sorted) {
+      const isWaiting = !!email.waiting_on_reply_since && email.needs_follow_up === true &&
+        (Math.floor((Date.now() - new Date(email.waiting_on_reply_since).getTime()) / (1000 * 60 * 60 * 24)) >= 1);
+      if (!isWaiting) {
+        const attention = getNeedsAttentionInfo(email, sorted, sentEmails, sentReplyEmailIds);
+        if (attention) {
+          attentionMap.set(email.id, { severity: attention.severity });
+        }
+      }
+    }
+
+    const pinCompare = (a: any, b: any): number | null => {
+      const aPin = attentionMap.has(a.id);
+      const bPin = attentionMap.has(b.id);
+      if (aPin && !bPin) return -1;
+      if (!aPin && bPin) return 1;
+      if (aPin && bPin) {
+        // Both pinned: urgent before warning
+        const aSev = attentionMap.get(a.id)!.severity === 'urgent' ? 0 : 1;
+        const bSev = attentionMap.get(b.id)!.severity === 'urgent' ? 0 : 1;
+        if (aSev !== bSev) return aSev - bSev;
+      }
+      return null; // fall through to normal sort
+    };
+
     if (sortMode === 'importance') {
       const categoryOrder: Record<string, number> = { 'Urgent': 0, 'Important': 1, 'Normal': 2, 'Low': 3 };
       sorted.sort((a, b) => {
+        const pin = pinCompare(a, b);
+        if (pin !== null) return pin;
         const aOrder = categoryOrder[a.aiCategory || a.category || 'Normal'] ?? 2;
         const bOrder = categoryOrder[b.aiCategory || b.category || 'Normal'] ?? 2;
         if (aOrder !== bOrder) return aOrder - bOrder;
         return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
       });
     } else {
-      sorted.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      sorted.sort((a, b) => {
+        const pin = pinCompare(a, b);
+        if (pin !== null) return pin;
+        return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+      });
     }
     return sorted;
-  }, [rawEmails, sortMode]);
+  }, [rawEmails, sortMode, sentEmails, sentReplyEmailIds]);
   const listRef = useRef<HTMLDivElement>(null);
   const [shortcutsCollapsed, setShortcutsCollapsed] = useState(true);
   const [snoozeDropdownOpen, setSnoozeDropdownOpen] = useState<string | null>(null);
@@ -246,8 +293,6 @@ export const EmailList: React.FC<EmailListProps> = ({
     bulkMarkAsRead,
     bulkSave,
     isEmailSelected,
-    sentEmails,
-    sentReplyEmailIds,
     cancelReminder,
     snoozeReminder,
     currentFilter,
@@ -942,9 +987,13 @@ export const EmailList: React.FC<EmailListProps> = ({
                       <span className="text-xs font-medium text-red-600 dark:text-red-400 flex items-center gap-0.5">
                         <Clock className="w-3 h-3" />
                         {(() => {
-                          const d = new Date(needsAttention.deadline);
-                          if (!isNaN(d.getTime())) {
-                            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                          // Parse as local date (not UTC) to avoid off-by-one from timezone shift
+                          const parts = needsAttention.deadline.split('-');
+                          if (parts.length === 3) {
+                            const d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+                            if (!isNaN(d.getTime())) {
+                              return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                            }
                           }
                           return needsAttention.deadline;
                         })()}

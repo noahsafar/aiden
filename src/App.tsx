@@ -1137,8 +1137,8 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                     </div>
                   ) : (
                     <div className="h-full flex flex-col">
-                      {/* Sort and view mode toggle */}
-                      {(
+                      {/* Sort and view mode toggle - only show in inbox */}
+                      {currentFilter === 'inbox' && (
                         <div className="px-2 py-2 border-b border-gray-200 dark:border-gray-700">
                           <div className="flex items-center justify-center gap-1">
                             {/* Sort options */}

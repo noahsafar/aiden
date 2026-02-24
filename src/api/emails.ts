@@ -30,25 +30,32 @@ export interface SummarizeResponse {
   error?: string;
 }
 
-// Try to find the oauth server on ports 8081-8085
-async function getOAuthServerURL(): Promise<string> {
+// Try to find the oauth server on ports 8081-8085, with retries for startup race
+async function getOAuthServerURL(retries = 3): Promise<string> {
   const ports = [8081, 8082, 8083, 8084, 8085];
-  for (const port of ports) {
-    try {
-      const response = await fetch(`http://localhost:${port}/`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(500)
-      });
-      if (response.ok) {
-        console.log(`[serverURL] Found oauth server on port ${port}`);
-        return `http://localhost:${port}`;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    for (const port of ports) {
+      try {
+        const response = await fetch(`http://localhost:${port}/`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(500)
+        });
+        if (response.ok) {
+          console.log(`[serverURL] Found oauth server on port ${port}`);
+          return `http://localhost:${port}`;
+        }
+      } catch {
+        // Port not available, try next
       }
-    } catch {
-      // Port not available, try next
+    }
+    // Server might still be starting — wait before retrying
+    if (attempt < retries - 1) {
+      console.log(`[serverURL] Server not found, retrying in 2s (attempt ${attempt + 1}/${retries})`);
+      await new Promise(r => setTimeout(r, 2000));
     }
   }
-  console.log(`[serverURL] No oauth server found, using default 8081`);
-  return 'http://localhost:8081'; // fallback
+  console.log(`[serverURL] No oauth server found, using default 8082`);
+  return 'http://localhost:8082'; // fallback to most common port
 }
 
 let cachedServerURL: string | null = null;
@@ -58,6 +65,11 @@ async function serverURL(): Promise<string> {
     cachedServerURL = await getOAuthServerURL();
   }
   return cachedServerURL;
+}
+
+// Reset cached URL on fetch failure so next call re-discovers
+export function resetServerURL() {
+  cachedServerURL = null;
 }
 
 export async function fetchEmails(

@@ -606,26 +606,38 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
       });
 
       // Persist deadline and sender_tone to the email store so they survive reloads
-      if (result.deadline || result.sender_tone || result.requires_reply !== undefined) {
-        useEmailStore.setState((state) => ({
-          emails: state.emails.map(e =>
-            e.id === emailId ? {
-              ...e,
-              deadline: result.deadline || e.deadline,
-              sender_tone: result.sender_tone || e.sender_tone,
-              requires_reply: result.requires_reply ?? e.requires_reply,
-            } : e
-          ),
-        }));
-        persistEmailsToDisk();
-      }
+      // Always write deadline (null = "analyzed, no deadline") so backfill doesn't re-trigger
+      useEmailStore.setState((state) => ({
+        emails: state.emails.map(e =>
+          e.id === emailId ? {
+            ...e,
+            deadline: result.deadline || e.deadline || null,
+            sender_tone: result.sender_tone || e.sender_tone || null,
+            requires_reply: result.requires_reply ?? e.requires_reply,
+          } : e
+        ),
+      }));
+      persistEmailsToDisk();
 
-      // Forward life intelligence data to lifeStore
-      if (claudeResponse.life_data && claudeResponse.life_data.length > 0) {
-        import('@/stores/lifeStore').then(({ useLifeStore }) => {
-          useLifeStore.getState().addItemsFromEmail(emailId, claudeResponse.life_data);
-        }).catch(() => {});
+      // Forward life intelligence data to lifeStore (always call to track processed emails)
+      // Also bridge top-level deadline to a life_data item so it appears in Life Intel
+      const lifeItems = [...(claudeResponse.life_data || [])];
+      if (claudeResponse.deadline) {
+        const alreadyHasDeadline = lifeItems.some(
+          (item) => item.data_type === 'deadline' && item.date === claudeResponse.deadline
+        );
+        if (!alreadyHasDeadline) {
+          lifeItems.push({
+            data_type: 'deadline',
+            title: email.subject,
+            date: claudeResponse.deadline,
+            details: claudeResponse.reply_reasoning || null,
+          });
+        }
       }
+      import('@/stores/lifeStore').then(({ useLifeStore }) => {
+        useLifeStore.getState().addItemsFromEmail(emailId, lifeItems);
+      }).catch(() => {});
     } else {
       console.log(`[AI Processing] Question API returned no data for ${emailId}:`, result);
     }
@@ -809,10 +821,15 @@ async function persistEmailsToDisk() {
     if (state.emails.length === 0 && state.sentEmails.length === 0) return;
 
     const { invoke } = await import('@tauri-apps/api/core');
-    await Promise.all([
-      invoke('persist_emails', { emails: state.emails }),
-      invoke('persist_sent_emails', { emails: state.sentEmails }),
-    ]);
+    const promises: Promise<void>[] = [];
+    if (state.emails.length > 0) {
+      promises.push(invoke('persist_emails', { emails: state.emails }));
+    }
+    // Only persist sent emails if we have some — never overwrite disk with empty
+    if (state.sentEmails.length > 0) {
+      promises.push(invoke('persist_sent_emails', { emails: state.sentEmails }));
+    }
+    await Promise.all(promises);
     console.log(`[EmailStore] Persisted ${state.emails.length} emails and ${state.sentEmails.length} sent emails to disk`);
   } catch (e) {
     console.error('[EmailStore] Failed to persist emails:', e);
@@ -923,7 +940,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         const query = isFirstGmailFetch
           ? 'in:inbox'
           : `in:inbox after:${Math.floor(get().appStartTime / 1000)}`;
-        const response = await fetch(`${baseURL}/emails?q=${encodeURIComponent(query)}&maxResults=50`, {
+        // Send known email IDs so server can skip re-fetching them
+        const knownIds = get().emails.map(e => e.id).join(',');
+        const knownParam = knownIds ? `&knownIds=${encodeURIComponent(knownIds)}` : '';
+        const response = await fetch(`${baseURL}/emails?q=${encodeURIComponent(query)}&maxResults=50${knownParam}`, {
           method: 'GET',
           mode: 'cors',
           headers: {
@@ -1053,8 +1073,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
             }
           }
 
-          // Backfill: re-run question analysis for emails that have summaries but missing deadline data
-          const emailsNeedingBackfill = emails.filter(e => e.summary && e.deadline === undefined && e.sender_tone === undefined);
+          // Backfill: re-run question analysis for emails that were never analyzed (deadline === undefined)
+          // or Urgent/Important emails where old prompt missed the deadline (deadline === undefined, not null)
+          const emailsNeedingBackfill = emails.filter(e => e.summary && (
+            (e.deadline === undefined && e.sender_tone === undefined) ||
+            (e.deadline === undefined && (e.category === 'Urgent' || e.category === 'Important'))
+          ));
           if (emailsNeedingBackfill.length > 0) {
             console.log(`[AI Processing] Backfilling ${emailsNeedingBackfill.length} emails missing question data`);
             const delay = emailsNeedingProcessing.length > 0 ? 30000 : 5000;
@@ -1062,6 +1086,48 @@ export const useEmailStore = create<EmailState>((set, get) => ({
               backfillQuestionData(emailsNeedingBackfill.map(e => e.id));
             }, delay);
           }
+
+          // Fast backfill: bridge existing email deadlines to life store without re-running AI
+          // Also do full re-analysis for emails that have no life data at all
+          const alreadyQueuedIds = new Set([
+            ...emailsNeedingProcessing.map(e => e.id),
+            ...emailsNeedingBackfill.map(e => e.id),
+          ]);
+          import('@/stores/lifeStore').then(async ({ useLifeStore }) => {
+            // Ensure lifeStore is loaded from disk before backfilling
+            await useLifeStore.getState().loadFromDisk();
+            const lifeState = useLifeStore.getState();
+
+            // Fast path: emails with deadlines already extracted — create life items directly
+            const emailsWithDeadlines = emails.filter(
+              (e) => e.deadline && !lifeState.processedEmailIds.has(e.id)
+            );
+            if (emailsWithDeadlines.length > 0) {
+              console.log(`[Life Intel] Fast backfilling ${emailsWithDeadlines.length} emails with existing deadlines`);
+              for (const email of emailsWithDeadlines) {
+                useLifeStore.getState().addItemsFromEmail(email.id, [{
+                  data_type: 'deadline',
+                  title: email.subject,
+                  date: email.deadline!,
+                  details: null,
+                }]);
+              }
+            }
+
+            // Slow path: full re-analysis for remaining emails without life data
+            const emailsNeedingLifeBackfill = emails.filter(
+              e => e.summary && !lifeState.processedEmailIds.has(e.id)
+                && !alreadyQueuedIds.has(e.id)
+                && !emailsWithDeadlines.some(d => d.id === e.id)
+            );
+            if (emailsNeedingLifeBackfill.length > 0) {
+              console.log(`[AI Processing] Backfilling life data for ${emailsNeedingLifeBackfill.length} emails`);
+              const lifeDelay = emailsNeedingProcessing.length > 0 || emailsNeedingBackfill.length > 0 ? 45000 : 5000;
+              setTimeout(() => {
+                backfillQuestionData(emailsNeedingLifeBackfill.map(e => e.id));
+              }, lifeDelay);
+            }
+          }).catch(() => {});
         } else {
           // Subsequent fetches - process truly NEW emails
           const state = get();
@@ -1093,6 +1159,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         }
       } catch (pythonError) {
         console.error('Python OAuth server error:', pythonError);
+        // Reset cached server URL so next fetch re-discovers
+        import('@/api/emails').then(({ resetServerURL }) => resetServerURL());
 
         // Fall back to frontend Gmail API
         if (!window.gapi) {
@@ -1849,18 +1917,25 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const idsToMark = emailIds || Array.from(state.selectedEmailIds);
     if (idsToMark.length === 0) return;
 
-    // Mark each email as read
-    for (const emailId of idsToMark) {
-      await get().markAsRead(emailId);
-    }
-
-    // Update local state for selected emails
+    // Update local state immediately
     set((state) => ({
       emails: state.emails.map(email =>
         idsToMark.includes(email.id) ? { ...email, is_read: true } : email
       ),
     }));
     persistEmailsToDisk();
+
+    // Batch mark in Gmail via single API call
+    try {
+      const baseURL = await serverURL();
+      await fetch(`${baseURL}/batch-mark-read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageIds: idsToMark }),
+      });
+    } catch (e) {
+      console.warn('Failed to batch mark as read in Gmail:', e);
+    }
   },
 
   bulkSave: (emailIds?: string[]) => {

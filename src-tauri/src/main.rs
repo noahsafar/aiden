@@ -136,6 +136,8 @@ fn main() {
             life_data::load_life_items,
             life_data::dismiss_life_item,
             life_data::delete_life_item,
+            life_data::save_life_processed_ids,
+            life_data::load_life_processed_ids,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

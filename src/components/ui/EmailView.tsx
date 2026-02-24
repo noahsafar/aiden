@@ -536,6 +536,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
   const [meetingRequest, setMeetingRequest] = React.useState<any>({ is_meeting: false });
   const [selectedMeetingTime, setSelectedMeetingTime] = React.useState<any>(null); // { date, time, start, end, dayName }
   const [userTimezone, setUserTimezone] = React.useState<string>('America/New_York');
+  // Event calendar state (for event_type === "event")
+  const [eventCalendarStatus, setEventCalendarStatus] = React.useState<'idle' | 'adding' | 'added' | 'dismissed'>('idle');
 
   // Attachment suggestions state
   const [attachmentRequests, setAttachmentRequests] = React.useState<any[]>([]);
@@ -747,6 +749,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
       setSummaryComplete(false);
       setQuestionsLoaded(false);
       setMeetingRequest({ is_meeting: false });
+      setEventCalendarStatus('idle');
       onShowResponseOptionsChange(false);
     } else if (prevEmailIdRef.current !== newEmailId) {
       // New email - try to load saved state
@@ -762,6 +765,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         setSummaryComplete(false);
         setQuestionsLoaded(false);
         setMeetingRequest({ is_meeting: false });
+        setEventCalendarStatus('idle');
         setIsEditing(false);
         setHasEdited(false);
         onShowResponseOptionsChange(false);
@@ -1497,8 +1501,111 @@ export const EmailView: React.FC<EmailViewProps> = ({
           </div>
         )}
 
-        {/* Meeting Suggestions - independent of Respond button */}
-        {!displayAiReply && !isSentEmail && !hasSent && summary && meetingRequest?.is_meeting && (
+        {/* Event Card - for detected events (talks, seminars, workshops) */}
+        {!isSentEmail && !hasSent && summary && meetingRequest?.is_meeting && meetingRequest?.event_type === 'event' && eventCalendarStatus !== 'dismissed' && (
+          <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800" style={{ animation: 'slideInUp 0.3s ease-out' }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-blue-500 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                    {meetingRequest.subject || email.subject}
+                  </p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                    {(() => {
+                      const time = meetingRequest.proposed_times?.[0];
+                      if (!time) return 'Date TBD';
+                      const parts = time.split('-');
+                      // Parse as local to avoid timezone shift
+                      const d = parts.length >= 3 ? new Date(time) : new Date(time);
+                      if (isNaN(d.getTime())) return time;
+                      return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) +
+                        ' at ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+                    })()}
+                    {meetingRequest.location && ` · ${meetingRequest.location}`}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 mt-3 pl-10">
+              {eventCalendarStatus === 'added' ? (
+                <div className="flex items-center gap-1.5 text-green-600 dark:text-green-400">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-xs font-medium">Added to calendar</span>
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={async () => {
+                      setEventCalendarStatus('adding');
+                      try {
+                        const time = meetingRequest.proposed_times?.[0];
+                        if (!time) return;
+                        const startDate = new Date(time);
+                        const endDate = new Date(startDate.getTime() + (meetingRequest.duration_minutes || 60) * 60000);
+                        const baseURL = await serverURL();
+                        const response = await fetch(`${baseURL}/calendar`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            action: 'create_event',
+                            summary: meetingRequest.subject || email.subject,
+                            start_datetime: startDate.toISOString(),
+                            end_datetime: endDate.toISOString(),
+                            location: meetingRequest.location || undefined,
+                          }),
+                        });
+                        if (response.ok) {
+                          const data = await response.json();
+                          if (data.success) {
+                            setEventCalendarStatus('added');
+                          }
+                        }
+                      } catch (err) {
+                        console.error('Failed to add event to calendar:', err);
+                        setEventCalendarStatus('idle');
+                      }
+                    }}
+                    disabled={eventCalendarStatus === 'adding'}
+                    className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors flex items-center gap-1.5"
+                  >
+                    {eventCalendarStatus === 'adding' ? (
+                      <>
+                        <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Adding...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Add to Calendar
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setEventCalendarStatus('dismissed')}
+                    className="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 rounded-lg font-medium transition-colors"
+                  >
+                    Not interested
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Meeting Suggestions - for scheduling meetings (not events) */}
+        {!displayAiReply && !isSentEmail && !hasSent && summary && meetingRequest?.is_meeting && meetingRequest?.event_type !== 'event' && (
           <div className="mt-4" style={{ animation: 'slideInUp 0.3s ease-out' }}>
             <MeetingSuggestions
               meetingRequest={meetingRequest}

@@ -27,6 +27,55 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
+# Calendar event cache (5-minute TTL)
+_calendar_cache = {
+    'events': [],
+    'time_min': None,
+    'time_max': None,
+    'fetched_at': 0,
+    'ttl': 300,  # 5 minutes
+}
+
+def get_cached_calendar_events(calendar_service, time_min_iso, time_max_iso):
+    """Fetch calendar events with 5-minute TTL caching."""
+    import time as _time
+    from dateutil import parser as date_parser
+    now = _time.time()
+    cache = _calendar_cache
+
+    # Check if cache covers the requested range and is fresh
+    if (cache['fetched_at'] > 0
+        and (now - cache['fetched_at']) < cache['ttl']
+        and cache['time_min'] and cache['time_max']):
+        cached_min = date_parser.parse(cache['time_min'])
+        cached_max = date_parser.parse(cache['time_max'])
+        req_min = date_parser.parse(time_min_iso)
+        req_max = date_parser.parse(time_max_iso)
+        if req_min >= cached_min and req_max <= cached_max:
+            return [ev for ev in cache['events']
+                    if (ev.get('start', {}).get('dateTime') or ev.get('start', {}).get('date', ''))
+                    and req_min <= date_parser.parse(ev.get('start', {}).get('dateTime') or ev.get('start', {}).get('date')) <= req_max]
+
+    # Cache miss - fetch wide range (30 days)
+    from datetime import timedelta
+    req_min_dt = date_parser.parse(time_min_iso)
+    req_max_dt = date_parser.parse(time_max_iso)
+    wide_max = max(req_max_dt, req_min_dt + timedelta(days=30))
+
+    result = calendar_service.events().list(
+        calendarId='primary', timeMin=time_min_iso, timeMax=wide_max.isoformat(),
+        singleEvents=True, orderBy='startTime', maxResults=250
+    ).execute()
+    all_events = result.get('items', [])
+
+    cache['events'] = all_events
+    cache['time_min'] = time_min_iso
+    cache['time_max'] = wide_max.isoformat()
+    cache['fetched_at'] = now
+    return [ev for ev in all_events
+            if (ev.get('start', {}).get('dateTime') or ev.get('start', {}).get('date', ''))
+            and req_min_dt <= date_parser.parse(ev.get('start', {}).get('dateTime') or ev.get('start', {}).get('date')) <= req_max_dt]
+
 # OAuth Scopes for Gmail and Calendar access
 SCOPES = [
     'openid',  # Add at beginning - Google adds this automatically
@@ -289,39 +338,53 @@ def decode_html_entities(text):
 
 def extract_email_body(message):
     """Extract plain text body from Gmail message"""
+    text, _ = extract_email_bodies(message)
+    return text
+
+
+def extract_email_bodies(message, service=None):
+    """Extract both plain text and HTML body from Gmail message in a single pass.
+    Returns (text_body, html_body) tuple."""
     try:
+        import base64
         payload = message.get('payload', {})
+        text_body = None
+        html_body = None
 
-        def find_text(part):
-            if part.get('mimeType') == 'text/plain':
-                data = part.get('body', {}).get('data', '')
-                if data:
-                    import base64
-                    decoded = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
-                    return decode_html_entities(decoded)
+        def find_bodies(part):
+            nonlocal text_body, html_body
+            mime = part.get('mimeType', '')
+            data = part.get('body', {}).get('data', '')
+            if mime == 'text/plain' and not text_body and data:
+                text_body = decode_html_entities(base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore'))
+            elif mime == 'text/html' and not html_body and data:
+                html_body = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
             for subpart in part.get('parts', []):
-                result = find_text(subpart)
-                if result:
-                    return result
-            return None
+                find_bodies(subpart)
 
-        # Check main body first
+        # Check main body first (single-part messages)
         body_data = payload.get('body', {}).get('data', '')
         if body_data:
-            import base64
-            return decode_html_entities(base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore'))
+            mime = payload.get('mimeType', '')
+            decoded = base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
+            if mime == 'text/html':
+                html_body = decoded
+            else:
+                text_body = decode_html_entities(decoded)
 
-        # Check parts
-        parts = payload.get('parts', [])
-        for part in parts:
-            result = find_text(part)
-            if result:
-                return decode_html_entities(result)
+        # Check parts (multipart messages)
+        if not text_body or not html_body:
+            for part in payload.get('parts', []):
+                find_bodies(part)
 
-        return None
+        # Inline image replacement for HTML (reuse existing logic)
+        if html_body and service:
+            html_body = _replace_inline_images(html_body, message, service)
+
+        return (text_body, html_body)
     except Exception as e:
-        print(f"Error extracting body: {e}")
-        return None
+        print(f"Error extracting bodies: {e}")
+        return (None, None)
 
 
 def extract_attachments(message):
@@ -368,136 +431,69 @@ def extract_attachments(message):
         return []
 
 
+def _replace_inline_images(html_content, message, service):
+    """Replace cid: references in HTML with base64 data URLs."""
+    import base64
+    import re
+
+    payload = message.get('payload', {})
+    message_id = message.get('id')
+    inline_images = {}
+    attachments_to_fetch = []
+
+    def collect_images(part):
+        headers = part.get('headers', [])
+        content_id = None
+        for header in headers:
+            if header['name'].lower() == 'content-id':
+                content_id = header['value'].strip('<>')
+                break
+        if content_id:
+            body_data = part.get('body', {}).get('data', '')
+            attachment_id = part.get('body', {}).get('attachmentId')
+            mime_type = part.get('mimeType', 'image/png')
+            if body_data:
+                try:
+                    decoded = base64.urlsafe_b64decode(body_data)
+                    inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
+                except Exception:
+                    pass
+            elif attachment_id:
+                attachments_to_fetch.append((content_id, attachment_id, mime_type))
+        for subpart in part.get('parts', []):
+            collect_images(subpart)
+
+    collect_images(payload)
+
+    if service and message_id and attachments_to_fetch:
+        for content_id, attachment_id, mime_type in attachments_to_fetch:
+            try:
+                att = service.users().messages().attachments().get(
+                    userId='me', messageId=message_id, id=attachment_id).execute()
+                data = att.get('data', '')
+                if data:
+                    decoded = base64.urlsafe_b64decode(data)
+                    inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
+            except Exception:
+                pass
+
+    if not inline_images:
+        return html_content
+
+    def replace_cid(match):
+        cid = match.group(1)
+        return inline_images.get(cid, inline_images.get(f"<{cid}>", match.group(0)))
+
+    html_content = re.sub(r'src=["\']cid:([^"\']+)["\']', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
+    html_content = re.sub(r'src=cid:([^\s>]+)', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
+    html_content = re.sub(r'cid:([^"\s>]+)', replace_cid, html_content)
+    return html_content
+
+
 def extract_email_body_html(message, service=None):
     """Extract HTML body from Gmail message and convert inline images to base64"""
-    try:
-        import base64
-        import re
-
-        payload = message.get('payload', {})
-        message_id = message.get('id')
-
-        # First, collect ALL inline images (attachments with Content-ID)
-        inline_images = {}
-        attachments_to_fetch = []  # Store (content_id, attachment_id, mime_type) tuples
-
-        def collect_images(part, path=None):
-            """Recursively collect all inline images"""
-            if path is None:
-                path = []
-
-            # Check if this part has a Content-ID (inline image)
-            headers = part.get('headers', [])
-            content_id = None
-            for header in headers:
-                if header['name'].lower() == 'content-id':
-                    content_id = header['value']
-                    # Strip angle brackets if present
-                    if content_id.startswith('<') and content_id.endswith('>'):
-                        content_id = content_id[1:-1]
-                    break
-
-            if content_id:
-                # This is an inline image
-                body_data = part.get('body', {}).get('data', '')
-                attachment_id = part.get('body', {}).get('attachmentId')
-                mime_type = part.get('mimeType', 'image/png')
-
-                if body_data:
-                    try:
-                        decoded = base64.urlsafe_b64decode(body_data)
-                        inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
-                        print(f"Decoded inline image: {content_id}, size: {len(decoded)} bytes")
-                    except Exception as e:
-                        print(f"Error decoding inline image data: {e}")
-                elif attachment_id:
-                    # For large attachments, store for later retrieval
-                    attachments_to_fetch.append((content_id, attachment_id, mime_type))
-
-            # Recurse into subparts
-            for subpart in part.get('parts', []):
-                collect_images(subpart)
-
-        collect_images(payload)
-
-        print(f"Found {len(inline_images)} inline images, {len(attachments_to_fetch)} need fetching")
-
-        # Fetch large attachments if we have a service and message_id
-        if service and message_id and attachments_to_fetch:
-            for content_id, attachment_id, mime_type in attachments_to_fetch:
-                try:
-                    attachment = service.users().messages().attachments().get(
-                        userId='me',
-                        messageId=message_id,
-                        id=attachment_id
-                    ).execute()
-                    data = attachment.get('data', '')
-                    if data:
-                        decoded = base64.urlsafe_b64decode(data)
-                        inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
-                        print(f"Fetched inline image: {content_id}, size: {len(decoded)} bytes")
-                except Exception as e:
-                    print(f"Error fetching attachment {attachment_id}: {e}")
-
-        def find_html(part):
-            if part.get('mimeType') == 'text/html':
-                data = part.get('body', {}).get('data', '')
-                if data:
-                    decoded = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
-                    return decoded
-            for subpart in part.get('parts', []):
-                result = find_html(subpart)
-                if result:
-                    return result
-            return None
-
-        # Check main body first
-        body_data = payload.get('body', {}).get('data', '')
-        html_content = None
-        if body_data and payload.get('mimeType') == 'text/html':
-            html_content = base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
-        else:
-            # Check parts
-            parts = payload.get('parts', [])
-            for part in parts:
-                result = find_html(part)
-                if result:
-                    html_content = result
-                    break
-
-        if not html_content:
-            print("No HTML content found in email")
-            return None
-
-        print(f"Extracted HTML content, length: {len(html_content)}")
-
-        # Replace cid: references with base64 data URLs
-        def replace_cid(match):
-            cid = match.group(1)
-            if cid in inline_images:
-                return inline_images[cid]
-            # Try with angle brackets
-            cid_bracketed = f"<{cid}>"
-            if cid_bracketed in inline_images:
-                return inline_images[cid_bracketed]
-            return match.group(0)  # Return original if not found
-
-        # Replace various cid: formats found in emails
-        # Format 1: src="cid:..."
-        html_content = re.sub(r'src=["\']cid:([^"\']+)["\']', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
-        # Format 2: src=cid:... (no quotes)
-        html_content = re.sub(r'src=cid:([^\s>]+)', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
-        # Format 3: standalone cid:... references
-        html_content = re.sub(r'cid:([^"\s>]+)', replace_cid, html_content)
-
-        print(f"Replaced CID references, inline_images keys: {list(inline_images.keys())}")
-
-        return html_content
-    except Exception as e:
-        print(f"Error extracting HTML body: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+    _, html = extract_email_bodies(message, service)
+    return html
 
 
 def fetch_and_cache_sent_emails(creds, count=10):
@@ -978,6 +974,10 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_execute_command()
         elif self.path.startswith('/scheduling'):
             self.handle_scheduling()
+        elif self.path.startswith('/batch-mark-read'):
+            self.handle_batch_mark_read()
+        elif self.path.startswith('/batch-mark-unread'):
+            self.handle_batch_mark_unread()
         elif self.path.startswith('/mark-unread'):
             self.handle_mark_unread()
         elif self.path.startswith('/mark-read'):
@@ -1154,6 +1154,11 @@ class OAuthHandler(BaseHTTPRequestHandler):
             if 'q' in query_params:
                 query = query_params['q'][0]
 
+            # Get known IDs from query params to skip re-fetching
+            known_ids = set()
+            if 'knownIds' in query_params:
+                known_ids = set(query_params['knownIds'][0].split(','))
+
             # Fetch messages
             results = service.users().messages().list(
                 userId='me',
@@ -1166,7 +1171,11 @@ class OAuthHandler(BaseHTTPRequestHandler):
             emails = []
             for message in messages:
                 try:
-                    # Always get full message to extract body content
+                    # Skip full fetch for emails we already have
+                    if message['id'] in known_ids:
+                        continue
+
+                    # Get full message to extract body content
                     msg = service.users().messages().get(
                         userId='me',
                         id=message['id'],
@@ -1209,9 +1218,10 @@ class OAuthHandler(BaseHTTPRequestHandler):
                         'attachments': attachments
                     }
 
-                    # Always extract body content (both text and HTML)
-                    body_text = extract_email_body(msg) or ''
-                    body_html = extract_email_body_html(msg, service) or ''
+                    # Extract both text and HTML body in a single pass
+                    body_text, body_html = extract_email_bodies(msg, service)
+                    body_text = body_text or ''
+                    body_html = body_html or ''
                     email_data['bodyText'] = body_text
                     email_data['bodyHtml'] = body_html
 
@@ -1317,6 +1327,71 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({'success': True}).encode())
         except Exception as e:
             print(f"Error marking email as unread: {e}")
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+
+    def handle_batch_mark_read(self):
+        """Batch mark multiple emails as read using Gmail batchModify"""
+        try:
+            self.send_header('Content-type', 'application/json')
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+            message_ids = data.get('messageIds', [])
+            if not message_ids:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'messageIds is required'}).encode())
+                return
+            creds = get_stored_credentials()
+            if not creds:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'Not authenticated'}).encode())
+                return
+            service = build('gmail', 'v1', credentials=creds)
+            # batchModify handles up to 1000 IDs per call
+            for i in range(0, len(message_ids), 1000):
+                batch = message_ids[i:i+1000]
+                service.users().messages().batchModify(
+                    userId='me',
+                    body={'ids': batch, 'removeLabelIds': ['UNREAD']}
+                ).execute()
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': True, 'count': len(message_ids)}).encode())
+        except Exception as e:
+            print(f"Error batch marking as read: {e}")
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+
+    def handle_batch_mark_unread(self):
+        """Batch mark multiple emails as unread using Gmail batchModify"""
+        try:
+            self.send_header('Content-type', 'application/json')
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+            message_ids = data.get('messageIds', [])
+            if not message_ids:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'messageIds is required'}).encode())
+                return
+            creds = get_stored_credentials()
+            if not creds:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'Not authenticated'}).encode())
+                return
+            service = build('gmail', 'v1', credentials=creds)
+            for i in range(0, len(message_ids), 1000):
+                batch = message_ids[i:i+1000]
+                service.users().messages().batchModify(
+                    userId='me',
+                    body={'ids': batch, 'addLabelIds': ['UNREAD']}
+                ).execute()
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': True, 'count': len(message_ids)}).encode())
+        except Exception as e:
+            print(f"Error batch marking as unread: {e}")
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
@@ -2725,28 +2800,31 @@ Provide only the summary, no preamble."""
 
                 conflict_results = []
 
+                # Pre-fetch all events for the relevant range (uses cache)
+                all_parsed = []
                 for time_str in proposed_times:
-                    try:
-                        print(f"[DEBUG check_conflict] Parsing time_str='{time_str}'")
-                        # Parse the proposed time string (e.g., "tomorrow at 2pm", "Wednesday at 3pm")
-                        parsed_dt = parse_natural_time(time_str, now_pacific, user_timezone)
-                        print(f"[DEBUG check_conflict] parsed_dt={parsed_dt}")
+                    parsed_dt = parse_natural_time(time_str, now_pacific, user_timezone)
+                    all_parsed.append((time_str, parsed_dt))
 
+                # Determine the full range needed
+                valid_times = [dt for _, dt in all_parsed if dt]
+                if valid_times:
+                    range_start = min(valid_times) - timedelta(hours=1)
+                    range_end = max(valid_times) + timedelta(hours=2)
+                    all_events = get_cached_calendar_events(calendar_service, range_start.isoformat(), range_end.isoformat())
+                else:
+                    all_events = []
+
+                for time_str, parsed_dt in all_parsed:
+                    try:
                         if parsed_dt:
-                            # Check for conflicts in a 2-hour window around the proposed time
+                            # Filter cached events for this time window
                             window_start = parsed_dt - timedelta(minutes=30)
                             window_end = parsed_dt + timedelta(minutes=90)
 
-                            # Query Calendar API for events in this window
-                            events_result = calendar_service.events().list(
-                                calendarId='primary',
-                                timeMin=window_start.isoformat(),
-                                timeMax=window_end.isoformat(),
-                                singleEvents=True,
-                                orderBy='startTime'
-                            ).execute()
-
-                            events = events_result.get('items', [])
+                            events = [ev for ev in all_events
+                                      if (ev.get('start', {}).get('dateTime') and
+                                          window_start <= date_parser.parse(ev['start']['dateTime']).astimezone(pacific) <= window_end)]
 
                             # Check if any events overlap with the proposed time slot
                             slot_end = parsed_dt + timedelta(minutes=duration_minutes)
@@ -2895,6 +2973,7 @@ Provide only the summary, no preamble."""
                 start_datetime = data.get('start_datetime')
                 end_datetime = data.get('end_datetime')
                 attendees = data.get('attendees', [])
+                location = data.get('location')
 
                 if not start_datetime or not end_datetime:
                     self.send_header('Content-type', 'application/json')
@@ -2913,6 +2992,10 @@ Provide only the summary, no preamble."""
                         'dateTime': end_datetime,
                     },
                 }
+
+                # Add location if provided
+                if location:
+                    event_body['location'] = location
 
                 # Add attendees if provided
                 if attendees:
@@ -2979,17 +3062,12 @@ Provide only the summary, no preamble."""
                     # Default to 30 days from start
                     end_datetime = start_datetime + timedelta(days=30)
 
-                # Fetch events
-                events_result = calendar_service.events().list(
-                    calendarId='primary',
-                    timeMin=start_datetime.isoformat(),
-                    timeMax=end_datetime.isoformat(),
-                    singleEvents=True,
-                    orderBy='startTime',
-                    maxResults=100
-                ).execute()
-
-                events = events_result.get('items', [])
+                # Fetch events (uses cache)
+                events = get_cached_calendar_events(
+                    calendar_service,
+                    start_datetime.isoformat(),
+                    end_datetime.isoformat()
+                )
 
                 # Format events for frontend
                 formatted_events = []
