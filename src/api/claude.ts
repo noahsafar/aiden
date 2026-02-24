@@ -1,7 +1,25 @@
-// Direct Claude API calls through Tauri commands
-// Uses ANTHROPIC_API_KEY from environment
+// Claude API calls — routes through GenAI Gateway service when available,
+// falls back to Tauri invoke() for local desktop mode.
 
 import { invoke } from '@tauri-apps/api/core';
+import { GENAI_SERVICE_URL } from './config';
+
+/**
+ * Helper: try GenAI HTTP service first, fall back to Tauri invoke.
+ * Returns the JSON response from the GenAI service.
+ */
+async function genaiPost<T>(path: string, body: unknown): Promise<T> {
+  const resp = await fetch(`${GENAI_SERVICE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`GenAI ${path} error ${resp.status}: ${text}`);
+  }
+  return resp.json() as Promise<T>;
+}
 
 // ==================== TYPES ====================
 
@@ -153,72 +171,90 @@ export interface AnalyzedAttachment {
 // ==================== FUNCTIONS ====================
 
 /**
- * Summarize an email using Claude API (via Tauri)
+ * Summarize an email — tries GenAI Gateway, falls back to Tauri invoke
  */
 export async function summarizeEmail(emailContent: string): Promise<{ summary: string; key_points: string[] }> {
-  const response = await invoke<{ summary: string; key_points: string[] }>('summarize_email', {
-    emailContent,
-    styleContext: null,
-  });
-  return response;
+  try {
+    return await genaiPost<{ summary: string; key_points: string[] }>(
+      '/api/v1/summarize-email',
+      { email_content: emailContent },
+    );
+  } catch {
+    // Fall back to Tauri command
+    return invoke<{ summary: string; key_points: string[] }>('summarize_email', {
+      emailContent,
+      styleContext: null,
+    });
+  }
 }
 
 /**
- * Analyze an email using Claude API
- * Extracts questions, detects meeting requests, suggests formality
+ * Analyze an email — tries GenAI Gateway, falls back to Tauri invoke
  */
 export async function analyzeEmail(request: AnalyzeEmailRequest): Promise<AnalyzeEmailResponse> {
   try {
-    const response = await invoke<AnalyzeEmailResponse>('analyze_email_claude', { request });
-    return response;
-  } catch (error) {
-    console.error('Failed to analyze email with Claude:', error);
-    throw error;
+    return await genaiPost<AnalyzeEmailResponse>('/api/v1/analyze-email', request);
+  } catch {
+    try {
+      return await invoke<AnalyzeEmailResponse>('analyze_email_claude', { request });
+    } catch (error) {
+      console.error('Failed to analyze email:', error);
+      throw error;
+    }
   }
 }
 
 /**
- * Generate a reply using Claude API
+ * Generate a reply — tries GenAI Gateway, falls back to Tauri invoke
  */
 export async function generateReply(request: GenerateReplyRequest): Promise<GenerateReplyResponse> {
   try {
-    const response = await invoke<GenerateReplyResponse>('generate_reply_claude', { request });
-    return response;
-  } catch (error) {
-    console.error('Failed to generate reply with Claude:', error);
-    throw error;
+    return await genaiPost<GenerateReplyResponse>('/api/v1/generate-reply', request);
+  } catch {
+    try {
+      return await invoke<GenerateReplyResponse>('generate_reply_claude', { request });
+    } catch (error) {
+      console.error('Failed to generate reply:', error);
+      throw error;
+    }
   }
 }
 
 /**
- * Edit an existing reply using Claude API
+ * Edit an existing reply — tries GenAI Gateway, falls back to Tauri invoke
  */
 export async function editReply(currentReply: string, editPrompt: string): Promise<string> {
   try {
-    const response = await invoke<string>('edit_reply_claude', {
-      request: {
-        current_reply: currentReply,
-        edit_prompt: editPrompt,
-      },
+    const result = await genaiPost<{ edited_reply: string }>('/api/v1/edit-reply', {
+      current_reply: currentReply,
+      edit_prompt: editPrompt,
     });
-    return response;
-  } catch (error) {
-    console.error('Failed to edit reply with Claude:', error);
-    throw error;
+    return result.edited_reply;
+  } catch {
+    try {
+      return await invoke<string>('edit_reply_claude', {
+        request: { current_reply: currentReply, edit_prompt: editPrompt },
+      });
+    } catch (error) {
+      console.error('Failed to edit reply:', error);
+      throw error;
+    }
   }
 }
 
 /**
- * Analyze an attachment using Claude API
- * Supports images via vision API and text-based documents
+ * Analyze an attachment — tries GenAI Gateway, falls back to Tauri invoke
  */
 export async function analyzeAttachment(request: AnalyzeAttachmentRequest): Promise<AnalyzedAttachment> {
   try {
-    const response = await invoke<AnalyzedAttachment>('analyze_attachment_claude', { request });
-    return response;
-  } catch (error) {
-    console.error('Failed to analyze attachment with Claude:', error);
-    throw error;
+    return await genaiPost<AnalyzedAttachment>('/api/v1/analyze-attachment', request);
+  } catch {
+    try {
+      return await invoke<AnalyzedAttachment>('analyze_attachment_claude', { request });
+    } catch (error) {
+      console.error('Failed to analyze attachment:', error);
+      throw error;
+    }
   }
 }
 

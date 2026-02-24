@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aiden-ingress-canary
+  namespace: aiden
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # Canary annotations — NGINX routes a % of /ai traffic to canary
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "20"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: aiden.local
+      http:
+        paths:
+          # Only /ai paths are canary-routed
+          - path: /ai(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: genai-gateway-canary
+                port:
+                  number: 8090

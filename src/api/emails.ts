@@ -1,4 +1,7 @@
 // API functions for fetching emails from OAuth server
+// LLM endpoints redirect to GenAI service; Gmail/Calendar endpoints stay on Email service
+
+import { GENAI_SERVICE_URL } from './config';
 
 export interface GmailEmail {
   id: string;
@@ -112,13 +115,30 @@ export async function fetchEmails(
   }
 }
 
-// Generate a summary for a single email
+// Generate a summary for a single email — tries GenAI Gateway, falls back to Email service
 export async function summarizeEmail(
   sender: string,
   subject: string,
   bodyText: string,
   snippet: string
 ): Promise<SummarizeResponse> {
+  // Try GenAI Gateway first
+  try {
+    const emailContent = `From: ${sender}\nSubject: ${subject}\n\n${bodyText || snippet}`;
+    const resp = await fetch(`${GENAI_SERVICE_URL}/api/v1/summarize-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_content: emailContent }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      return { success: true, summary: data.summary };
+    }
+  } catch {
+    // GenAI not available, fall back
+  }
+
+  // Fall back to Email service /summarize endpoint
   try {
     const baseURL = await serverURL();
     const response = await fetch(`${baseURL}/summarize`, {
@@ -255,13 +275,28 @@ export async function downloadAttachment(
 }
 
 /**
- * Summarize an attachment (PDF, doc, etc.) using AI
+ * Summarize an attachment — tries GenAI Gateway, falls back to Email service
  */
 export async function summarizeAttachment(
   filename: string,
   attachmentData: string,  // base64 encoded
   mimeType: string
 ): Promise<AttachmentSummarizeResponse> {
+  // Try GenAI Gateway first
+  try {
+    const resp = await fetch(`${GENAI_SERVICE_URL}/api/v1/summarize-attachment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, data: attachmentData, mime_type: mimeType }),
+    });
+    if (resp.ok) {
+      return await resp.json();
+    }
+  } catch {
+    // GenAI not available, fall back
+  }
+
+  // Fall back to Email service
   try {
     const baseURL = await serverURL();
     const response = await fetch(`${baseURL}/summarize-attachment`, {

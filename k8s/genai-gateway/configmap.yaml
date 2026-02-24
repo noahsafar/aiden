@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: genai-gateway-config
+  namespace: aiden
+data:
+  ZAI_ENDPOINT: "https://api.z.ai/api/anthropic/v1/messages"
+  DEFAULT_MODEL: "claude-sonnet-4-20250514"
+  DEFAULT_MAX_TOKENS: "4000"
+  REQUEST_TIMEOUT: "60"

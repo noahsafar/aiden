@@ -213,3 +213,253 @@ Updated the `email_reply_button` test's `routes` to include `"/log-event"` so th
 - **OAuth-protected endpoints:** Most API endpoints (`/emails`, `/send-email`, `/generate-reply`, etc.) require valid Google OAuth tokens, making them impractical to load test without a test account. We focused on unauthenticated endpoints (`/health`, `/`, `/log-event`) that exercise the core server infrastructure and write paths.
 - **Desktop app architecture:** Aiden is a single-user Tauri desktop app, so the "50 concurrent users" scenario is artificial. However, the thread safety issues found (unlocked file writes, token refresh races) are real bugs that could cause data corruption even with a single user if requests overlap (e.g., multiple frontend components firing API calls simultaneously).
 - **Python GIL masking concurrency bugs:** At our test scale, Python's GIL and OS-level append semantics happened to prevent JSONL corruption even without locks. This is dangerous because it creates a false sense of safety — the same code could corrupt data on a different OS or under slightly different timing.
+
+---
+
+## Milestone: Microservices, Minikube Deployment & Canary Releases
+
+### Overview
+
+This milestone decomposes Aiden's backend from a monolithic Python server into two independent microservices, containerizes them with Docker, deploys them on Kubernetes (Minikube), and sets up a canary release pipeline for the AI inference layer.
+
+### Architecture
+
+#### Service 1: Email & Calendar Service (Port 8081)
+
+Handles all Google API interactions — OAuth, Gmail, and Calendar:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/health` | GET | Health check |
+| `/auth` | GET | Initiate Google OAuth flow |
+| `/emails` | GET | Fetch inbox emails via Gmail API |
+| `/send-email` | POST | Send email via Gmail API |
+| `/calendar` | POST | Calendar operations |
+| `/get-attachment` | GET | Download attachment from Gmail |
+| `/search-attachments` | POST | Search sent email attachments |
+| `/mark-read`, `/mark-unread` | POST | Gmail label management |
+| `/summarize` | POST | Proxies to GenAI service |
+| `/analyze-email` | POST | Proxies to GenAI service |
+| `/generate-reply` | POST | Proxies to GenAI service |
+| `/edit-reply` | POST | Proxies to GenAI service |
+| `/summarize-attachment` | POST | Proxies to GenAI service |
+
+LLM-calling endpoints proxy requests to the GenAI Gateway instead of calling AI APIs directly. This cleanly separates the concerns: Email & Calendar owns Google API credentials and OAuth state, while GenAI Gateway owns AI model credentials and prompt engineering.
+
+**Container**: `aiden/email-calendar:latest` — Python 3.11-slim, based on the original `oauth_server.py`.
+
+#### Service 2: GenAI Inference Gateway (Port 8090)
+
+A new FastAPI application that consolidates all LLM/AI operations:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/health` | GET | Health check |
+| `/api/v1/analyze-email` | POST | Extract questions, detect meetings, classify tone |
+| `/api/v1/classify-email` | POST | Priority classification (urgent/important/normal/low) |
+| `/api/v1/summarize-email` | POST | Generate email summary + key points |
+| `/api/v1/generate-reply` | POST | Generate contextual email reply |
+| `/api/v1/edit-reply` | POST | Edit draft based on user instructions |
+| `/api/v1/analyze-attachment` | POST | Analyze attachment content (text + vision) |
+| `/api/v1/summarize-attachment` | POST | Summarize document attachments |
+| `/api/v1/classify-contacts` | POST | Batch contact classification |
+| `/api/v1/chat` | POST | General chat assistant |
+| `/api/v1/completion` | POST | Raw LLM passthrough (used by Email service proxy) |
+
+**Container**: `aiden/genai-gateway:stable` / `aiden/genai-gateway:canary` — Python 3.11-slim + FastAPI + uvicorn.
+
+#### Frontend Changes
+
+The React frontend (`src/api/claude.ts`, `src/api/emails.ts`) now uses a dual-path strategy:
+1. **Primary**: HTTP `fetch()` to the GenAI Gateway service
+2. **Fallback**: Tauri `invoke()` for local desktop mode
+
+This ensures the app works both as a standalone Tauri desktop app and when deployed against the microservices cluster. Configuration is centralized in `src/api/config.ts` with Vite environment variables.
+
+### Service Split Rationale
+
+| Concern | Before (Monolith) | After (Microservices) |
+|---|---|---|
+| **Google OAuth & Gmail** | `oauth_server.py` handled everything | Service 1: Email & Calendar |
+| **AI/LLM inference** | Split between `oauth_server.py` (OpenAI/Anthropic) and `ai.rs` (Claude via z.ai) | Service 2: GenAI Gateway |
+| **Scaling** | All-or-nothing | AI service scales independently |
+| **Model updates** | Redeploy entire server | Canary release on GenAI only |
+| **API keys** | Mixed in one process | Isolated by service |
+| **Prompt engineering** | Scattered across Rust and Python | Centralized in `prompt_templates.py` |
+
+### Code Changes
+
+#### New Files
+
+```
+services/
+  email-calendar/
+    Dockerfile                 # Python 3.11-slim container
+    requirements.txt           # Google API + requests dependencies
+    app/
+      server.py                # Startup wrapper with GenAI proxy patching
+      genai_proxy.py           # HTTP proxy functions for LLM endpoints
+  genai-gateway/
+    Dockerfile                 # Python 3.11-slim + uvicorn
+    requirements.txt           # FastAPI + httpx + pydantic
+    app/
+      main.py                  # FastAPI app, CORS, router registration, /health
+      config.py                # Env-based config (API keys, model, timeouts)
+      routers/
+        email_analysis.py      # /analyze-email, /classify-email
+        email_summary.py       # /summarize-email
+        reply.py               # /generate-reply, /edit-reply
+        attachments.py         # /analyze-attachment, /summarize-attachment
+        contacts.py            # /classify-contacts
+        chat.py                # /chat, /completion
+      services/
+        claude_client.py       # Shared Claude API client (httpx, async)
+        prompt_templates.py    # All prompts ported from ai.rs + oauth_server.py
+        json_parser.py         # JSON extraction from LLM responses
+      models/
+        requests.py            # Pydantic request models
+        responses.py           # Pydantic response models
+k8s/
+  namespace.yaml               # aiden namespace
+  ingress.yaml                 # Stable NGINX ingress (path-based routing)
+  ingress-canary.yaml          # Canary ingress (20% weighted traffic split)
+  email-calendar/
+    deployment.yaml            # 1 replica, health probes, resource limits
+    service.yaml               # ClusterIP on port 8081
+    configmap.yaml             # GENAI_SERVICE_URL, PORT
+    secret.yaml                # Google OAuth + API keys
+  genai-gateway/
+    deployment-stable.yaml     # 2 replicas, track: stable
+    deployment-canary.yaml     # 1 replica, track: canary
+    service.yaml               # ClusterIP on port 8090 (stable pods only)
+    service-canary.yaml        # ClusterIP selecting only canary pods
+    configmap.yaml             # Stable model config
+    configmap-canary.yaml      # Canary model config (can override model/tokens)
+    secret.yaml                # ANTHROPIC_API_KEY
+src/api/
+  config.ts                    # VITE_EMAIL_SERVICE_URL / VITE_GENAI_SERVICE_URL
+```
+
+#### Modified Files
+
+- **`src/api/claude.ts`** — AI functions (`summarizeEmail`, `analyzeEmail`, `generateReply`, `editReply`, `analyzeAttachment`) now try HTTP `fetch()` to GenAI Gateway first, falling back to Tauri `invoke()`. Added `genaiPost<T>()` helper and imported `GENAI_SERVICE_URL` from config.
+
+- **`src/api/emails.ts`** — `summarizeEmail()` and `summarizeAttachment()` now try GenAI Gateway first before falling back to the Email service's `/summarize` and `/summarize-attachment` endpoints. Imported `GENAI_SERVICE_URL` from config.
+
+### Deployment Process
+
+#### Prerequisites
+```bash
+brew install minikube kubectl
+minikube start --driver=docker
+minikube addons enable ingress
+```
+
+#### Build & Deploy
+```bash
+# Build images
+docker build -t aiden/email-calendar:latest -f services/email-calendar/Dockerfile .
+docker build -t aiden/genai-gateway:stable -f services/genai-gateway/Dockerfile services/genai-gateway/
+docker build -t aiden/genai-gateway:canary -f services/genai-gateway/Dockerfile services/genai-gateway/
+
+# Load into Minikube
+minikube image load aiden/email-calendar:latest
+minikube image load aiden/genai-gateway:stable
+minikube image load aiden/genai-gateway:canary
+
+# Deploy (update secrets first with real API keys)
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/email-calendar/
+kubectl apply -f k8s/genai-gateway/
+kubectl apply -f k8s/ingress.yaml
+kubectl apply -f k8s/ingress-canary.yaml
+
+# Add host entry
+echo "$(minikube ip) aiden.local" | sudo tee -a /etc/hosts
+```
+
+#### Verify
+```bash
+kubectl get pods -n aiden
+curl http://aiden.local/email/health   # → {"status":"ok","service":"oauth-server"}
+curl http://aiden.local/ai/health      # → {"status":"ok","service":"genai-gateway"}
+```
+
+### Canary Release Workflow
+
+The canary deployment allows testing new AI models, prompts, or configurations on a subset of traffic before full rollout.
+
+#### Traffic Flow
+```
+                    ┌─────────────────┐
+  Client ──────────►│  NGINX Ingress  │
+                    │  /ai/* routes   │
+                    └────────┬────────┘
+                             │
+                    ┌────────┴────────┐
+                    │                 │
+               80% traffic       20% traffic
+                    │                 │
+           ┌───────▼──────┐  ┌───────▼──────┐
+           │   Stable     │  │   Canary     │
+           │ genai-gw x2  │  │ genai-gw x1  │
+           │  (stable)    │  │  (canary)    │
+           └──────────────┘  └──────────────┘
+```
+
+#### Adjusting Canary Weight
+```bash
+# Increase to 50%
+kubectl annotate ingress aiden-ingress-canary -n aiden \
+  nginx.ingress.kubernetes.io/canary-weight="50" --overwrite
+
+# Promote to 100%
+kubectl annotate ingress aiden-ingress-canary -n aiden \
+  nginx.ingress.kubernetes.io/canary-weight="100" --overwrite
+
+# Rollback to 0%
+kubectl annotate ingress aiden-ingress-canary -n aiden \
+  nginx.ingress.kubernetes.io/canary-weight="0" --overwrite
+```
+
+#### Deploying a New Canary
+```bash
+# 1. Build and load new canary image
+docker build -t aiden/genai-gateway:canary -f services/genai-gateway/Dockerfile services/genai-gateway/
+minikube image load aiden/genai-gateway:canary
+
+# 2. Update canary config if needed
+kubectl apply -f k8s/genai-gateway/configmap-canary.yaml
+
+# 3. Restart canary pods
+kubectl rollout restart deployment genai-gateway-canary -n aiden
+
+# 4. Monitor logs
+kubectl logs -f -l track=canary -n aiden
+
+# 5. Promote: tag canary as stable, restart stable, reset canary weight
+docker tag aiden/genai-gateway:canary aiden/genai-gateway:stable
+minikube image load aiden/genai-gateway:stable
+kubectl rollout restart deployment genai-gateway-stable -n aiden
+kubectl annotate ingress aiden-ingress-canary -n aiden \
+  nginx.ingress.kubernetes.io/canary-weight="0" --overwrite
+```
+
+#### What Can Be A/B Tested via Canary
+
+| Parameter | Stable | Canary Example |
+|---|---|---|
+| `DEFAULT_MODEL` | `claude-sonnet-4-20250514` | `claude-haiku-4-5-20251001` |
+| `DEFAULT_MAX_TOKENS` | `4000` | `2000` |
+| Prompt templates | Production prompts | Experimental prompts |
+| `REQUEST_TIMEOUT` | `60` | `30` |
+
+### Challenges
+
+- **Monolithic server decomposition:** The original `oauth_server.py` is ~4300 lines handling OAuth, Gmail, Calendar, AI, and A/B testing. Rather than rewriting it (risking regressions), we kept it intact as Service 1 and added a thin proxy layer (`genai_proxy.py`) that redirects LLM calls to the GenAI Gateway.
+
+- **Dual-mode frontend:** The app runs as both a Tauri desktop app (using `invoke()` IPC) and a web client against microservices. Each AI function tries HTTP `fetch()` first and falls back to `invoke()`, with configuration via Vite env vars.
+
+- **Prompt consolidation:** AI prompts were scattered across `ai.rs` (Rust) and `oauth_server.py` (Python). The GenAI Gateway centralizes them in `prompt_templates.py`, making them easier to version, test, and A/B test via canary.
+
+- **Stateful OAuth in containers:** The Email & Calendar service stores OAuth tokens in `~/.aiden/token.pickle`. In a container this requires persistent storage. For Minikube dev this is acceptable; production would need a secrets manager or external token store.

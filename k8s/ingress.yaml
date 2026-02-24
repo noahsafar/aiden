@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aiden-ingress
+  namespace: aiden
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: aiden.local
+      http:
+        paths:
+          # Email & Calendar service — /email/...
+          - path: /email(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: email-calendar
+                port:
+                  number: 8081
+          # GenAI Gateway (stable) — /ai/...
+          - path: /ai(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: genai-gateway
+                port:
+                  number: 8090

@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: genai-gateway-canary
+  namespace: aiden
+  labels:
+    app: genai-gateway
+    track: canary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: genai-gateway
+      track: canary
+  template:
+    metadata:
+      labels:
+        app: genai-gateway
+        track: canary
+    spec:
+      containers:
+        - name: genai-gateway
+          image: aiden/genai-gateway:canary
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8090
+          envFrom:
+            - configMapRef:
+                name: genai-gateway-canary-config
+            - secretRef:
+                name: genai-gateway-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

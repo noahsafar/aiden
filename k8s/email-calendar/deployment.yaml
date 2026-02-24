@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email-calendar
+  namespace: aiden
+  labels:
+    app: email-calendar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: email-calendar
+  template:
+    metadata:
+      labels:
+        app: email-calendar
+    spec:
+      containers:
+        - name: email-calendar
+          image: aiden/email-calendar:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: email-calendar-config
+            - secretRef:
+                name: email-calendar-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
