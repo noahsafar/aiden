@@ -1,0 +1,14 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-email-calendar
+  namespace: aiden
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - aiden
+    labelSelectors:
+      app: email-calendar
+  duration: "30s"

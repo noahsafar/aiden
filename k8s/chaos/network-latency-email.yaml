@@ -1,0 +1,19 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-latency-email
+  namespace: aiden
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - aiden
+    labelSelectors:
+      app: email-calendar
+  delay:
+    latency: "500ms"
+    jitter: "100ms"
+    correlation: "50"
+  direction: to
+  duration: "2m"

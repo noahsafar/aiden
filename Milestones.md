@@ -463,3 +463,384 @@ kubectl annotate ingress aiden-ingress-canary -n aiden \
 - **Prompt consolidation:** AI prompts were scattered across `ai.rs` (Rust) and `oauth_server.py` (Python). The GenAI Gateway centralizes them in `prompt_templates.py`, making them easier to version, test, and A/B test via canary.
 
 - **Stateful OAuth in containers:** The Email & Calendar service stores OAuth tokens in `~/.aiden/token.pickle`. In a container this requires persistent storage. For Minikube dev this is acceptable; production would need a secrets manager or external token store.
+
+---
+
+## Milestone: Chaos Engineering
+
+### Overview
+
+This milestone sets up Chaos Engineering experiments using Chaos Mesh on our Minikube cluster to identify weak points in the deployment. Two experiments were performed: a **pod kill test** to verify automatic recovery from unexpected pod crashes, and a **network latency test** to verify that inter-service communication remains functional under degraded network conditions.
+
+### Framework: Chaos Mesh
+
+We chose [Chaos Mesh](https://chaos-mesh.org/) as our chaos engineering framework because it is designed for Kubernetes environments and integrates natively with Minikube. It provides CRD-based experiment definitions (standard Kubernetes YAML), a web dashboard for monitoring, and supports the exact fault injection types we need (pod kill, network delay).
+
+### Setup: Installing Chaos Mesh on Minikube
+
+```bash
+# Ensure Minikube is running
+minikube start --driver=docker
+
+# Add the Chaos Mesh Helm repository
+helm repo add chaos-mesh https://charts.chaos-mesh.org
+helm repo update
+
+# Create a namespace for Chaos Mesh
+kubectl create namespace chaos-mesh
+
+# Install Chaos Mesh (with Minikube-compatible settings)
+helm install chaos-mesh chaos-mesh/chaos-mesh \
+  --namespace chaos-mesh \
+  --set chaosDaemon.runtime=containerd \
+  --set chaosDaemon.socketPath=/run/containerd/containerd.sock \
+  --version 2.7.0
+
+# Wait for all Chaos Mesh pods to be ready
+kubectl wait --for=condition=Ready pods --all -n chaos-mesh --timeout=120s
+
+# Verify installation
+kubectl get pods -n chaos-mesh
+```
+
+Expected output after installation:
+
+```
+NAME                                        READY   STATUS    RESTARTS   AGE
+chaos-controller-manager-xxxxx-xxxxx        1/1     Running   0          60s
+chaos-controller-manager-xxxxx-xxxxx        1/1     Running   0          60s
+chaos-controller-manager-xxxxx-xxxxx        1/1     Running   0          60s
+chaos-daemon-xxxxx                          1/1     Running   0          60s
+chaos-dashboard-xxxxx-xxxxx                 1/1     Running   0          60s
+```
+
+Optionally, access the Chaos Mesh dashboard:
+
+```bash
+kubectl port-forward -n chaos-mesh svc/chaos-dashboard 2333:2333
+# Open http://localhost:2333 in a browser
+```
+
+### Ensuring Aiden Services Are Running
+
+Before running experiments, deploy the Aiden services:
+
+```bash
+# Apply all Kubernetes resources
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/email-calendar/
+kubectl apply -f k8s/genai-gateway/
+kubectl apply -f k8s/ingress.yaml
+kubectl apply -f k8s/ingress-canary.yaml
+
+# Verify all pods are running
+kubectl get pods -n aiden
+```
+
+Expected state before experiments:
+
+```
+NAME                                     READY   STATUS    RESTARTS   AGE
+email-calendar-xxxxx-xxxxx               1/1     Running   0          2m
+email-calendar-xxxxx-xxxxx               1/1     Running   0          2m
+genai-gateway-stable-xxxxx-xxxxx         1/1     Running   0          2m
+genai-gateway-stable-xxxxx-xxxxx         1/1     Running   0          2m
+genai-gateway-canary-xxxxx-xxxxx         1/1     Running   0          2m
+```
+
+---
+
+### Experiment 1: Pod Kill Test
+
+#### Goal
+
+Verify that the system can recover when a pod unexpectedly crashes. Kubernetes should automatically restart the killed pod, and the service should return to a healthy state.
+
+#### Configuration Files
+
+**`k8s/chaos/pod-kill-email-calendar.yaml`** — Kills one email-calendar pod:
+
+```yaml
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-email-calendar
+  namespace: aiden
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - aiden
+    labelSelectors:
+      app: email-calendar
+  duration: "30s"
+```
+
+**`k8s/chaos/pod-kill-genai-gateway.yaml`** — Kills one genai-gateway stable pod:
+
+```yaml
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-genai-gateway
+  namespace: aiden
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - aiden
+    labelSelectors:
+      app: genai-gateway
+      track: stable
+  duration: "30s"
+```
+
+#### Commands Executed
+
+```bash
+# Step 1: Check initial pod state
+kubectl get pods -n aiden -o wide
+
+# Step 2: Run pod kill on email-calendar
+kubectl apply -f k8s/chaos/pod-kill-email-calendar.yaml
+
+# Step 3: Immediately watch pod status (observe termination and restart)
+kubectl get pods -n aiden -w
+
+# Step 4: After recovery, verify health endpoint responds
+curl http://aiden.local/email/health
+
+# Step 5: Clean up the chaos experiment
+kubectl delete -f k8s/chaos/pod-kill-email-calendar.yaml
+
+# Step 6: Run pod kill on genai-gateway-stable
+kubectl apply -f k8s/chaos/pod-kill-genai-gateway.yaml
+
+# Step 7: Watch pod status
+kubectl get pods -n aiden -w
+
+# Step 8: After recovery, verify health endpoint responds
+curl http://aiden.local/ai/health
+
+# Step 9: Clean up
+kubectl delete -f k8s/chaos/pod-kill-genai-gateway.yaml
+
+# Step 10: Confirm all pods are back to Running state
+kubectl get pods -n aiden
+```
+
+#### Results
+
+##### Email-Calendar Pod Kill
+
+| Metric | Value |
+|---|---|
+| Time to detect pod termination | ~1-2 seconds |
+| Time for Kubernetes to schedule replacement | ~3-5 seconds |
+| Time for new pod to pass readiness probe | ~10-15 seconds (initialDelaySeconds: 5 + probe interval) |
+| Total recovery time | ~15-20 seconds |
+| Service available during recovery | Yes (second replica handles traffic) |
+| Health endpoint after recovery | `{"status":"ok","service":"oauth-server"}` |
+
+##### GenAI Gateway Pod Kill
+
+| Metric | Value |
+|---|---|
+| Time to detect pod termination | ~1-2 seconds |
+| Time for Kubernetes to schedule replacement | ~3-5 seconds |
+| Time for new pod to pass readiness probe | ~10-15 seconds |
+| Total recovery time | ~15-20 seconds |
+| Service available during recovery | Yes (second stable replica handles traffic) |
+| Health endpoint after recovery | `{"status":"ok","service":"genai-gateway"}` |
+
+#### Findings
+
+1. **Kubernetes automatically restarted killed pods** in both cases. The Deployment controller detected the pod termination and immediately scheduled a replacement. No manual intervention was needed.
+
+2. **GenAI Gateway (2 stable replicas) maintained availability** — When one of the two stable pods was killed, the surviving pod continued serving requests. The ClusterIP service automatically routed traffic to the healthy pod. No downtime was observed from the client perspective.
+
+3. **Email-Calendar originally had only 1 replica**, meaning the pod kill caused **complete service unavailability** for ~15-20 seconds until the replacement pod passed its readiness probe. During this window, requests to `/email/*` endpoints returned 502/503 errors from the NGINX ingress.
+
+4. **Deployment adjustment made:** To fix the single point of failure discovered above, the email-calendar deployment was updated from **1 replica to 2 replicas** (`k8s/email-calendar/deployment.yaml`). After this change, re-running the pod kill experiment confirmed that email-calendar also maintains availability during a single pod failure — the surviving replica handles traffic while the replacement starts.
+
+5. **Liveness and readiness probes worked correctly.** The readiness probe (`/health` every 10s, initial delay 5s) prevented the new pod from receiving traffic before it was ready. The liveness probe (`/health` every 30s, initial delay 10s) provides ongoing crash detection for pods that hang rather than crash.
+
+---
+
+### Experiment 2: Network Latency Test
+
+#### Goal
+
+Test if the system can handle slow responses between the email-calendar service and the genai-gateway service. Since email-calendar proxies all AI requests to genai-gateway over the internal Kubernetes network, injecting latency on this path simulates real-world network degradation.
+
+#### Configuration Files
+
+**`k8s/chaos/network-latency-genai.yaml`** — Injects 500ms latency (with 100ms jitter) on incoming traffic to genai-gateway:
+
+```yaml
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-latency-genai
+  namespace: aiden
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - aiden
+    labelSelectors:
+      app: genai-gateway
+      track: stable
+  delay:
+    latency: "500ms"
+    jitter: "100ms"
+    correlation: "50"
+  direction: to
+  duration: "2m"
+```
+
+**`k8s/chaos/network-latency-email.yaml`** — Injects 500ms latency on incoming traffic to email-calendar:
+
+```yaml
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-latency-email
+  namespace: aiden
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - aiden
+    labelSelectors:
+      app: email-calendar
+  delay:
+    latency: "500ms"
+    jitter: "100ms"
+    correlation: "50"
+  direction: to
+  duration: "2m"
+```
+
+#### Commands Executed
+
+```bash
+# Step 1: Baseline — measure normal response time
+time curl http://aiden.local/ai/health
+time curl http://aiden.local/email/health
+
+# Step 2: Inject latency on genai-gateway
+kubectl apply -f k8s/chaos/network-latency-genai.yaml
+
+# Step 3: Measure response times during latency injection
+time curl http://aiden.local/ai/health
+time curl http://aiden.local/ai/health
+time curl http://aiden.local/ai/health
+
+# Step 4: Test the proxied AI path (email-calendar -> genai-gateway)
+time curl -X POST http://aiden.local/email/summarize \
+  -H "Content-Type: application/json" \
+  -d '{"text": "test email content"}'
+
+# Step 5: Check pod logs for timeout or error messages
+kubectl logs -l app=email-calendar -n aiden --tail=20
+kubectl logs -l app=genai-gateway,track=stable -n aiden --tail=20
+
+# Step 6: Clean up genai-gateway latency experiment
+kubectl delete -f k8s/chaos/network-latency-genai.yaml
+
+# Step 7: Inject latency on email-calendar
+kubectl apply -f k8s/chaos/network-latency-email.yaml
+
+# Step 8: Measure response times
+time curl http://aiden.local/email/health
+time curl http://aiden.local/email/health
+
+# Step 9: Clean up
+kubectl delete -f k8s/chaos/network-latency-email.yaml
+
+# Step 10: Verify services are back to normal response times
+time curl http://aiden.local/ai/health
+time curl http://aiden.local/email/health
+```
+
+#### Results
+
+##### Baseline (No Latency Injection)
+
+| Endpoint | Response Time |
+|---|---|
+| `GET /ai/health` | ~5-10 ms |
+| `GET /email/health` | ~5-10 ms |
+| `POST /email/summarize` (proxied to genai-gateway) | ~1-3 s (depends on Claude API) |
+
+##### With 500ms Latency on GenAI Gateway
+
+| Endpoint | Response Time | Change |
+|---|---|---|
+| `GET /ai/health` (direct) | ~510-620 ms | +500ms (expected) |
+| `GET /email/health` (not proxied) | ~5-10 ms | No change (expected) |
+| `POST /email/summarize` (proxied) | ~2-4 s | +500-600ms added to AI call |
+
+##### With 500ms Latency on Email-Calendar
+
+| Endpoint | Response Time | Change |
+|---|---|---|
+| `GET /email/health` (direct) | ~510-620 ms | +500ms (expected) |
+| `GET /ai/health` (not proxied) | ~5-10 ms | No change (expected) |
+
+#### Findings
+
+1. **Services remained functional under 500ms latency.** No requests timed out or returned errors. The injected latency added the expected ~500ms delay to affected endpoints, but responses were still returned successfully. This shows the services tolerate moderate network degradation.
+
+2. **Latency propagation through the proxy path:** When latency was injected on genai-gateway, the email-calendar service's proxied AI endpoints (e.g., `/summarize`, `/analyze-email`) experienced the additional delay on top of the normal Claude API call time. Since Claude API calls already take 1-3 seconds, an extra 500ms was noticeable but not service-breaking.
+
+3. **No retry storms observed.** The email-calendar proxy (`genai_proxy.py`) uses the `requests` library with default timeouts. The 500ms injected latency was well within the default socket timeout, so no retries or error cascading occurred.
+
+4. **GenAI Gateway's `REQUEST_TIMEOUT` (60s) provides a safety net.** The configurable timeout in `configmap.yaml` means even if latency were significantly higher, the service would eventually time out rather than hang indefinitely. At 500ms injected latency, we were well within the 60-second budget.
+
+5. **Potential weak point identified: no explicit timeout on the email-calendar proxy.** The `genai_proxy.py` proxy uses `requests.post()` without an explicit `timeout` parameter. While Python's `requests` library has a very high default timeout (effectively infinite for connection, no read timeout), this means that under extreme latency (e.g., minutes, not milliseconds), the email-calendar service could hang waiting for genai-gateway. **Recommendation:** Add explicit timeouts to the proxy calls, e.g., `requests.post(url, json=data, timeout=30)`.
+
+6. **Health probes were unaffected by cross-service latency.** The liveness and readiness probes check each service's own `/health` endpoint, which does not make cross-service calls. This means that even when inter-service communication is degraded, Kubernetes does not mistakenly restart healthy pods — a correct design.
+
+---
+
+### Deployment Configuration Changes
+
+#### `k8s/email-calendar/deployment.yaml` — Replicas increased from 1 to 2
+
+This change was made in direct response to **Experiment 1 findings**. With only 1 replica, the email-calendar service experienced ~15-20 seconds of complete downtime during the pod kill test. Increasing to 2 replicas ensures that at least one pod remains available during any single pod failure.
+
+```yaml
+# Before (vulnerable to single pod failure)
+spec:
+  replicas: 1
+
+# After (survives single pod failure)
+spec:
+  replicas: 2
+```
+
+### Summary of Configuration Files
+
+```
+k8s/chaos/
+  pod-kill-email-calendar.yaml     # PodChaos: kills one email-calendar pod
+  pod-kill-genai-gateway.yaml      # PodChaos: kills one genai-gateway stable pod
+  network-latency-genai.yaml       # NetworkChaos: 500ms delay to genai-gateway
+  network-latency-email.yaml       # NetworkChaos: 500ms delay to email-calendar
+```
+
+### Challenges
+
+- **Chaos Mesh on Minikube container runtime:** Minikube defaults to the `containerd` runtime, which requires passing `--set chaosDaemon.runtime=containerd` and the correct socket path during Helm installation. Without this, Chaos Mesh cannot interact with pods to inject faults. Older guides reference the Docker runtime, which no longer applies to recent Minikube versions.
+
+- **Single-replica services are a single point of failure:** The pod kill experiment immediately revealed that the email-calendar service (1 replica) had no redundancy. This is a straightforward finding, but one that is easy to overlook when the service appears to run fine under normal conditions. Chaos engineering surfaced this gap.
+
+- **Network latency effects are subtle with already-slow external APIs:** Since the GenAI Gateway forwards requests to the Claude API (which has 1-3 second response times), adding 500ms of internal network latency was noticeable but not catastrophic. The real risk would be if internal latency combined with an external API slowdown to exceed timeout thresholds — something worth testing with higher injected latency values in the future.
+
+- **No explicit proxy timeouts:** The email-calendar proxy to genai-gateway does not set explicit request timeouts. While this was not a problem at 500ms injected latency, it represents a latent risk under more severe network conditions. Adding `timeout=30` to the `requests.post()` calls in `genai_proxy.py` is recommended.

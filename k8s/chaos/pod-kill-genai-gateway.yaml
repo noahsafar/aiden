@@ -1,0 +1,15 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-genai-gateway
+  namespace: aiden
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - aiden
+    labelSelectors:
+      app: genai-gateway
+      track: stable
+  duration: "30s"
