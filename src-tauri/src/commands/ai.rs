@@ -396,9 +396,11 @@ pub async fn analyze_email_claude(request: AnalyzeEmailRequest) -> Result<Analyz
 
 Always respond with valid JSON only."#;
 
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let prompt = format!(
         r#"Analyze this email and respond with ONLY valid JSON (no markdown, no explanation):
 
+Today's date: {}
 Sender: {}
 Subject: {}
 Body: {}
@@ -433,41 +435,61 @@ Respond in this exact JSON format:
 }}
 
 Guidelines:
-- Questions: Extract actual questions or decisions needed from the email
+- Questions: Extract questions, decisions needed, AND implicit requests for input/deliverables from the email. Include:
+  1. Direct questions ("What is the status?")
+  2. Requests for documents/files ("Send me the report", "Can you share the file?")
+  3. Requests for status/updates ("Need an update on X")
+  4. Decision prompts ("Can you attend?" → choice with Yes/No)
 - Type: "choice" for questions with clear options (like "yes/no"), "text" for open-ended
 - Formality: 0=very casual, 50=neutral, 100=very formal
-- Meeting/Event: Set is_meeting=true if there's a meeting OR an event the user could attend.
-  * event_type: "meeting" if someone wants to schedule a 1-on-1 or group meeting. "event" if it's a talk, seminar, workshop, webinar, lecture, presentation, panel, networking event, office hours, or any scheduled event the user is invited to attend.
+- Meeting/Event: Set is_meeting=true ONLY if the user is specifically invited to a distinct scheduled occurrence or someone is requesting a specific time slot with the user.
+  * event_type: "meeting" if someone wants to schedule a 1-on-1 or group meeting, or a personal appointment (doctor, dentist, etc.). "event" if it's a talk, seminar, workshop, webinar, lecture, presentation, panel, networking event, office hours, or any distinct scheduled event the user is invited to attend.
+  * EXCLUSION: Do NOT set is_meeting=true for newsletters or marketing emails that merely MENTION events. But DO set is_meeting=true for: company-wide meetings (all-hands, town halls), internal events, workshops/talks the user is invited to attend, any event with a specific RSVP request.
   * proposed_times: For meetings, extract proposed times like "Tuesday at 2pm". For events, extract the event datetime in ISO format (e.g. "2026-02-27T11:30:00"). ALWAYS include the year based on context (use the current year if not specified).
   * duration_minutes: Best guess (60 default for meetings, 90 for talks/seminars, adjust based on context).
   * subject: The event/meeting name (e.g. "Mindset Management with Robin Barstow").
   * location: Extract venue/room/link if mentioned, null otherwise.
   IMPORTANT: Events are NOT deadlines. A talk on Feb 27 is an event to attend, not a deadline.
-- Missing attachment: Warn if they mention "attached file" but no attachments exist
+  NOT events/meetings: Newsletters, digests, and marketing emails that merely MENTION events/dates are NOT meetings or events. Only set is_meeting=true if the email is specifically INVITING the user to attend something or scheduling a meeting with the user. A newsletter saying "WWDC is June 10" is just information, not an event invite.
+  Also NOT events/meetings: Travel confirmations (flights, hotel bookings, rental cars), shipping/delivery notifications, receipts, and transactional emails. A flight booking is logistics, not an event to "attend".
+  Also NOT events/meetings: Government summons (jury duty, court dates), scheduling polls/Doodle links (these are requests for availability, not meeting invites), recruiter outreach mentioning "let's chat" without proposing a time, and emails that just mention meetings in passing without scheduling one. "Let me know by Friday" is a deadline, not a meeting.
+- Missing attachment: Warn if they mention "attached", "attaching", "enclosed", "see attachment" but has_attachments is false. Always flag this — it likely means the sender forgot to attach.
 - Document types: List mentioned file types (resume, PDF, etc.)
 - Attachment requests: Extract files/documents they're asking for. For each, identify:
   * keyword: The main thing they're asking for (e.g., "resume", "portfolio", "transcript", "cover letter")
   * file_type: Specific format if mentioned (pdf, docx, xlsx, jpg), or null if not specified
   * description: Brief description of what they want
 
-- Sender tone: Detect the emotional tone of the email. Use one word like "friendly", "neutral", "frustrated", "angry", "anxious", "excited", "apologetic", "demanding", "grateful", "formal", "casual". This will be used to adapt the reply tone.
-- Deadline: Extract a deadline ONLY if the user personally must complete an action BY that date or face a consequence (missing out, late penalty, expiration). Use ISO format (YYYY-MM-DD). Set to null if no deadline applies.
+- Sender tone: Detect the emotional tone of the email. Choose EXACTLY ONE of: "friendly", "neutral", "professional", "formal", "casual", "urgent", "direct", "apologetic", "excited", "grateful", "anxious", "frustrated", "angry", "demanding", "passive-aggressive", "sarcastic", "annoyed", "sympathetic", "compassionate", "warm". For government/automated emails, use "formal" or "neutral". This will be used to adapt the reply tone.
+- Deadline: Extract a deadline ONLY if the user personally must complete an action BY that date or face a consequence (missing out, late penalty, expiration). This includes payment due dates, warranty expirations, contract renewal deadlines, and registration closing dates. Use ISO format (YYYY-MM-DD). Set to null if no deadline applies.
+  CRITICAL HALLUCINATION CHECK: Do NOT set a deadline unless a specific date or day is written in the email text AND it represents an action cutoff.
+  * DEADLINE NULL: "ASAP", "urgent", "soon", "immediately" WITHOUT a date → null. Appointment dates, prescription pickups, event start times, flight departures → null (these are events, not deadlines). Phishing/scam emails claiming fake urgency → null.
+  * VALID DEADLINE: "by end of day", "by today", "by Friday", "due March 5", "payment due by X", "warranty expires on X", "respond by X".
   A deadline is a CUTOFF DATE for the user's action — not the event itself. Look for any language implying a closing window: "by", "before", "due", "closes on", "closing of", "no later than", "last day to", "must be done by", "reminder to [do X] before [date]".
   YES — these ARE deadlines: application submission deadlines, RSVP-by dates, payment due dates, "please respond by Friday", "schedule a meeting by end of week", renewal dates requiring a decision, registration closing dates, "submit your report by March 1st", filing deadlines, "declare your intent before the closing of X on [date]", any "reminder to do X before [date]", sign-up/enrollment windows closing on a date, form submission cutoffs.
-  NO — these are NOT deadlines: meeting times/invites (a meeting on Tuesday is not a deadline — it's an event), event start dates (conferences, webinars, concerts, talks, seminars, workshops, presentations), sale end dates, shipping/delivery ETAs, informational date mentions, dates in newsletters, someone else's deadline mentioned in passing, FYI dates with no required action. If it's an event someone can attend, set it as a meeting_request with event_type "event" instead of a deadline.
+  NO — these are NOT deadlines: meeting times/invites (a meeting on Tuesday is not a deadline — it's an event), event start dates (conferences, webinars, concerts, talks, seminars, workshops, presentations), sale end dates, shipping/delivery ETAs, informational date mentions, dates in newsletters, someone else's deadline mentioned in passing, FYI dates with no required action. "Confirm your attendance by EOD" for a meeting invite is part of the RSVP, not a separate deadline — set is_meeting=true instead. If it's an event someone can attend, set it as a meeting_request with event_type "event" instead of a deadline.
   KEY DISTINCTION: "Let's meet Tuesday at 2pm" → NOT a deadline (it's a meeting time). "Please confirm your attendance by Monday" → IS a deadline (action required by cutoff). "The conference is March 15" → NOT a deadline. "Register for the conference by March 10" → IS a deadline. "Group formation closes on Friday, March 13th" → IS a deadline (March 13th). "Declare your intent before [date]" → IS a deadline.
   IMPORTANT: When you detect a deadline, you MUST set this field. Do not just classify as Urgent without also extracting the deadline date. If an email is time-sensitive because of a specific date, always extract that date here.
+  For "by end of day", "by today", "by close of business" — use today's date as the deadline. But "ASAP", "immediately", "right now" WITHOUT a specific date → set deadline to null.
+  YEAR INFERENCE: If the email says "March 13" or "Friday" with no year, use the NEXT upcoming occurrence based on Today's date. For example, if today is 2026-02-24 and the email says "March 13", the deadline is 2026-03-13 (NOT 2025-03-13). Never output a past date unless the email explicitly states a past year.
+  Do NOT extract deadlines that have already passed, unless the email explicitly provides a new/extended deadline.
+  Ignore "respond within X business days" or similar boilerplate in email signatures/footers.
 
 - Life data: Extract structured life intelligence items from the email. Each item has a data_type and relevant fields:
   * "subscription" — recurring services (Netflix, Spotify, gym memberships, SaaS). Include amount, currency, frequency, renewal date.
   * "bill" — one-time or recurring bills/invoices (utilities, rent, insurance). Include amount, currency, date (due date), frequency.
-  * "travel" — flights, hotel bookings, trip confirmations. Include carrier (airline/hotel), date (departure), end_date (return), details (confirmation #).
+  * "travel" — flights, hotel bookings, trip confirmations. Include carrier (airline/hotel), date (departure), end_date (return), confirmation_number (record locator, booking ref, e-ticket number e.g. "XYZ789"), details.
   * "package" — shipping/delivery notifications. Include carrier (UPS, FedEx, USPS, Amazon), tracking_number, date (delivery date), details (item description).
+  * "order" — e-commerce order confirmations (Amazon, etc.). Include confirmation_code, order_number, details.
+  * "purchase" — digital purchases or receipts (App Store, etc.). Include amount, currency, date, details (item name).
+  * "insurance" — insurance claims, policy changes, coverage notices. Include amount, currency, date, details (claim #, policy info).
+  * "financial" — tax refunds, deposits, bank notifications, investment updates. Include amount, currency, date, details.
   * "deadline" — any actionable cutoff date requiring the user's action (application deadlines, payment due dates, renewal deadlines, RSVP-by dates, respond-by dates). NOT event/meeting times. Always include here even if also set in the top-level deadline field. Include date, details.
   Only include items with clear, concrete data. Do not fabricate amounts or dates. Leave fields null if not explicitly stated in the email.
 
 IMPORTANT - Set requires_reply to FALSE for:
 - Newsletters, marketing emails, notifications, or automated emails
+- Mass marketing or promotional emails (conference early birds, sale announcements, webinars) even if they contain rhetorical calls-to-action like "Register now" or "Buy tickets". These are not personal requests.
 - Emails that are purely informational with no questions asked
 - Receipts, confirmations, order updates, or shipping notifications
 - Emails from noreply/automated addresses
@@ -481,8 +503,15 @@ Set requires_reply to TRUE ONLY for:
 - A real person directly asking the user a question and expecting an answer
 - Meeting requests that need a yes/no
 - Explicit requests for the user's input, approval, deliverables, or action
-- Messages where ignoring would be socially or professionally inappropriate"#,
-        request.sender, request.subject, request.body_text, request.has_attachments
+- Messages where ignoring would be socially or professionally inappropriate
+- Code review requests (e.g. GitHub PR review requested — the reviewer is expected to act)
+- Emails asking the user to send files, documents, or attachments
+- Emails where the sender mentions "attached" but no attachments are present (user should let them know)
+- Condolence, sympathy, or deeply personal messages where not responding would be inappropriate
+- Vendor quotes, proposals, or bids that need a decision/acceptance
+- Calendar invites (Google Calendar, Outlook) where the user needs to accept/decline
+- Scheduling polls (Doodle, When2meet) where the user should vote"#,
+        today, request.sender, request.subject, request.body_text, request.has_attachments
     );
 
     let response = call_claude_api_with_system(prompt, Some(system_prompt.to_string())).await?;
@@ -497,7 +526,7 @@ Set requires_reply to TRUE ONLY for:
         .unwrap_or_default();
 
     let suggested_formality_score = parsed["suggested_formality_score"].as_i64().unwrap_or(50) as i32;
-    let requires_reply = parsed["requires_reply"].as_bool().unwrap_or(true);
+    let requires_reply = parsed["requires_reply"].as_bool().unwrap_or(false);
     let reply_reasoning = parsed["reply_reasoning"].as_str().unwrap_or("").to_string();
 
     let meeting_request: Option<MeetingRequest> = parsed["meeting_request"].as_object()
@@ -834,9 +863,11 @@ Focus on the most important information and action items."#,
 
 #[command]
 pub async fn classify_email(email_content: String, sender: String, subject: String) -> Result<EmailClassification, String> {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let prompt = format!(
         r#"Classify this email's priority. Be CONSERVATIVE — most emails are "normal". Only escalate when truly warranted.
 
+Today's date: {}
 From: {}
 Subject: {}
 Content: {}
@@ -855,15 +886,17 @@ STRICT classification rules:
   - Immediate time pressure (within 24-48 hours: "ASAP", "immediately", "today", "tomorrow", due date is tomorrow or today)
   - Requires the user's personal action (not just FYI about something time-sensitive)
   - From a real person or organization that matters (not automated/marketing)
+  NOT urgent: Automated reminders (doctor appointments, subscription renewals), standard professional requests, 2FA/verification codes, password reset emails, or transactional notifications.
   Examples: "Your rent is due tomorrow", boss asking for something ASAP, interview time confirmation needed today
-  NOT urgent: Deadlines more than 2 days away (those are "important"), sale ending soon, shipping updates, social media notifications, event reminders
+  NOT urgent: Deadlines more than 2 days away (those are "important"), sale ending soon, shipping updates, social media notifications, event reminders, 2FA codes, password resets
 
 "important" — Requires the user's personal action or decision, but not immediately:
   - Direct questions from real people expecting a response
   - Requests for your input, approval, or deliverables
   - Financial matters needing action (bills, account issues)
   - Deadlines or closing dates more than 2 days away (e.g. "submit by next Friday", "group formation closes March 13th")
-  Examples: Colleague asking for feedback, invoice requiring payment this week, job application follow-up, registration deadline next week
+  - Scheduled interviews, confirmed meetings, or calendar invites the user needs to attend or prepare for
+  Examples: Colleague asking for feedback, invoice requiring payment this week, job application follow-up, registration deadline next week, interview confirmation, scheduled meeting with Zoom link
   NOT important: Newsletters from important sources, FYI updates from work tools, read receipts
 
 "normal" — Default category. Regular emails that may or may not need action:
@@ -873,15 +906,18 @@ STRICT classification rules:
 
 "low" — Clearly does not need attention:
   - Newsletters, marketing, promotions, digests
-  - Automated notifications (GitHub, Jira, Slack digests, social media)
-  - Receipts, order confirmations, shipping updates (informational only)
+  - Automated notifications that are purely informational (Slack digests, social media, CI build notifications)
+  - Receipts, order confirmations, shipping updates, travel confirmations (informational only)
+  - Password resets, 2FA codes, verification emails
   - Mailing lists where user is just a subscriber
+  NOTE: GitHub PR review requests and Jira tickets assigned to the user are NOT "low" — they require action. Only purely informational notifications (e.g. "someone pushed to main") are low.
 
 requires_reply rules:
   - TRUE only if the sender is a real person directly asking the user to respond, provide info, or take action
-  - FALSE for: newsletters, automated emails, notifications, receipts, confirmations, FYI updates, CC'd emails where someone else is the primary recipient
+  - TRUE for: code review requests (e.g. GitHub PR review requested), emails asking the user to send files/documents/attachments, emails where the sender mentions attaching something but the attachment is missing (user should notify them)
+  - FALSE for: newsletters, marketing emails, automated notifications (EXCEPT review requests), receipts, confirmations, FYI updates, CC'd emails where someone else is the primary recipient, Slack/Jira/LinkedIn notifications that are purely informational
   - When in doubt, set FALSE — it's better to miss a reply prompt than to nag about newsletters"#,
-        sender, subject, email_content
+        today, sender, subject, email_content
     );
 
     let response = call_claude_api(prompt).await?;

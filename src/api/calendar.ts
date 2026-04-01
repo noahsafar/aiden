@@ -116,3 +116,37 @@ export async function fetchEvents(
   // Unreachable, but TypeScript needs it
   return { success: false, events: [], error: 'Unexpected error' };
 }
+
+export interface CreateEventParams {
+  summary: string;
+  start_datetime: string; // ISO 8601
+  end_datetime: string;   // ISO 8601
+  description?: string;
+  location?: string;
+  attendees?: string[];   // email addresses
+}
+
+export interface CreateEventResponse {
+  success: boolean;
+  event_id?: string;
+  html_link?: string;
+  error?: string;
+}
+
+export async function createEvent(params: CreateEventParams): Promise<CreateEventResponse> {
+  const baseURL = await serverURL();
+  const response = await fetch(`${baseURL}/calendar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'create_event',
+      ...params,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return response.json();
+}

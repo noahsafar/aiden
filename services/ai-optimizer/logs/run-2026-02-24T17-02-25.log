@@ -1,0 +1,21 @@
+[17:02:25] 
+[17:02:25] ========================================
+[17:02:25]   AIDEN UNIFIED AI PIPELINE TESTER
+[17:02:25] ========================================
+[17:02:25] 
+[17:02:25] Mode: dry-run
+[17:02:25] JSON report: no
+[17:02:25] API: https://api.z.ai/api/anthropic/v1/messages / claude-sonnet-4-20250514
+[17:02:25] Test cases: 5
+[17:02:25] 
+[17:02:25] DRY RUN: Validating test cases and assertions without API calls...
+[17:02:25] 
+[17:02:25] 
+[17:02:25] Validated 5 test cases. 0 issues found.
+[17:02:25] 
+[17:02:25] Test cases by category:
+[17:02:25]   deadline: 1
+[17:02:25]   financial: 1
+[17:02:25]   meeting: 1
+[17:02:25]   newsletter: 1
+[17:02:25]   tone: 1
