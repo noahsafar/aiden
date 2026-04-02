@@ -15,7 +15,9 @@ import { chromium, Page } from 'playwright';
 import Anthropic from '@anthropic-ai/sdk';
 
 const APP_URL = process.env.APP_URL || 'http://localhost:1420';
-const client = new Anthropic();
+const client = new Anthropic({
+  baseURL: 'https://api.z.ai/api/anthropic',
+});
 
 interface PageContext {
   url: string;
