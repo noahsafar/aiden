@@ -1,0 +1,465 @@
+[17:57:39] 
+[17:57:39] ========================================
+[17:57:39]   AIDEN UNIFIED AI PIPELINE TESTER
+[17:57:39] ========================================
+[17:57:39] 
+[17:57:39] Mode: full (120 tests)
+[17:57:39] JSON report: yes
+[17:57:39] Optimize: yes
+[17:57:39] API: https://api.z.ai/api/anthropic/v1/messages / claude-sonnet-4-20250514
+[17:57:39] Test cases: 120
+[17:57:39] 
+[17:57:39] Read prompts from ai.rs
+[17:57:39] 
+[17:57:39] Running test suite...
+[17:57:39]   [1/120] A1: 1-on-1 meeting request
+[17:57:42]     PASS (all passed) [2.6s]
+[17:57:43]   [2/120] A2: Group meeting invite
+[17:57:45]     PASS (all passed) [1.7s]
+[17:57:46]   [3/120] A3: Meeting reschedule
+[17:57:48]     PASS (all passed) [1.9s]
+[17:57:49]   [4/120] A4: Zoom invite with link
+[17:57:51]     PASS (all passed) [1.9s]
+[17:57:52]   [5/120] B1: Tech talk announcement
+[17:57:55]     PASS (all passed) [3.2s]
+[17:57:56]   [6/120] B2: Workshop with RSVP deadline
+[17:57:59]     FAIL (1 failed) [2.3s]
+[17:57:59]       X [requires_reply_class] expected: true -> got: false
+[17:58:00]   [7/120] B3: Conference early bird
+[17:58:02]     FAIL (1 failed) [1.9s]
+[17:58:02]       X [meeting_detection] expected: meeting detected -> got: no meeting
+[17:58:03]   [8/120] C1: Application deadline
+[17:58:06]     PASS (all passed) [2.9s]
+[17:58:07]   [9/120] C2: RSVP-by deadline
+[17:58:09]     PASS (all passed) [2.3s]
+[17:58:11]   [10/120] C3: Payment due date
+[17:58:13]     PASS (all passed) [2.2s]
+[17:58:14]   [11/120] C4: Respond-by deadline from boss
+[17:58:17]     PASS (all passed) [3.1s]
+[17:58:18]   [12/120] C5: Registration closing soon
+[17:58:22]     FAIL (1 failed) [3.5s]
+[17:58:22]       X [requires_reply_class] expected: false -> got: true
+[17:58:23]   [13/120] D1: Event date (not a deadline)
+[17:58:25]     PASS (all passed) [1.9s]
+[17:58:26]   [14/120] D2: Sale ending date
+[17:58:28]     PASS (all passed) [1.6s]
+[17:58:29]   [15/120] D3: FYI date in newsletter
+[17:58:30]     PASS (all passed) [1.5s]
+[17:58:32]   [16/120] E1: Tech digest newsletter
+[17:58:33]     PASS (all passed) [1.6s]
+[17:58:34]   [17/120] E2: Promotional email
+[17:58:37]     PASS (all passed) [2.2s]
+[17:58:38]   [18/120] E3: Substack post
+[17:58:39]     PASS (all passed) [1.6s]
+[17:58:41]   [19/120] F1: GitHub PR notification
+[17:58:43]     PASS (all passed) [2.1s]
+[17:58:44]   [20/120] F2: Jira ticket assigned
+[17:58:45]     PASS (all passed) [1.6s]
+[17:58:47]   [21/120] F3: LinkedIn connection request
+[17:58:53]     PASS (all passed) [6.3s]
+[17:58:54]   [22/120] F4: Slack digest
+[17:58:57]     PASS (all passed) [2.6s]
+[17:58:58]   [23/120] G1: Invoice / bill
+[17:59:01]     FAIL (1 failed) [2.5s]
+[17:59:01]       X [deadline_detection] expected: deadline present -> got: no deadline
+[17:59:02]   [24/120] G2: Subscription renewal notice
+[17:59:04]     FAIL (1 failed) [2.0s]
+[17:59:04]       X [classification] expected: Low (or Normal) -> got: important
+[17:59:05]   [25/120] G3: Package delivery notification
+[17:59:07]     PASS (all passed) [1.9s]
+[17:59:08]   [26/120] G4: Travel confirmation
+[17:59:10]     FAIL (1 failed) [2.1s]
+[17:59:10]       X [classification] expected: Normal (or Low) -> got: important
+[17:59:11]   [27/120] H1: Colleague asking a question
+[17:59:14]     PASS (all passed) [2.2s]
+[17:59:15]   [28/120] H2: Boss asking for deliverable
+[17:59:17]     PASS (all passed) [2.7s]
+[17:59:19]   [29/120] H3: External contact follow-up
+[17:59:21]     PASS (all passed) [2.3s]
+[17:59:22]   [30/120] I1: CC'd on team thread
+[17:59:25]     FAIL (2 failed) [3.0s]
+[17:59:25]       X [requires_reply_analysis] expected: false -> got: true
+[17:59:25]       X [no_false_deadline] expected: no deadline -> got: "2026-02-27"
+[17:59:26]   [31/120] I2: CC'd FYI announcement
+[17:59:29]     PASS (all passed) [2.7s]
+[17:59:30]   [32/120] J1: Frustrated customer/colleague
+[17:59:32]     PASS (all passed) [1.9s]
+[17:59:33]   [33/120] J2: Excited announcement
+[17:59:35]     FAIL (2 failed) [1.8s]
+[17:59:35]       X [requires_reply_class] expected: true -> got: false
+[17:59:35]       X [requires_reply_analysis] expected: true -> got: false
+[17:59:36]   [34/120] J3: Apologetic late response
+[17:59:39]     PASS (all passed) [2.4s]
+[17:59:40]   [35/120] K1: Missing attachment warning
+[17:59:42]     FAIL (1 failed) [1.8s]
+[17:59:42]       X [requires_reply_class] expected: true -> got: false
+[17:59:43]   [36/120] K2: Requesting attachment from recipient
+[17:59:45]     FAIL (1 failed) [1.9s]
+[17:59:45]       X [questions] expected: 1-6 -> got: 0
+[17:59:46]   [37/120] L1: ASAP / today urgency
+[17:59:50]     PASS (all passed) [3.7s]
+[17:59:51]   [38/120] L2: Next week low urgency
+[17:59:54]     FAIL (1 failed) [2.8s]
+[17:59:54]       X [requires_reply_class] expected: false -> got: true
+[17:59:55]   [39/120] L3: Register-by vs event-on confusion
+[18:00:05]     PASS (all passed) [10.0s]
+[18:00:06]   [40/120] M1: Past meeting reference (no scheduling)
+[18:00:12]     ERROR: Could not extract JSON from: ```json
+{
+  "category": "important```json
+{
+  "category": "normal",
+  "confidence```json
+{
+  "category": "normal",
+  "```json
+{
+  "category": "normal",
+  "confidence```json
+{
+  "category": "normal",
+ 
+[18:00:13]   [41/120] M2: Past deadline with extension
+[18:00:17]     FAIL (1 failed) [3.7s]
+[18:00:17]       X [requires_reply_class] expected: false -> got: true
+[18:00:18]   [42/120] M3: Deadline in email signature (should ignore)
+[18:00:27]     PASS (all passed) [9.1s]
+[18:00:28]   [43/120] M4: Multiple deadlines in one email
+[18:00:32]     FAIL (1 failed) [4.1s]
+[18:00:32]       X [deadline_detection] expected: deadline present -> got: no deadline
+[18:00:33]   [44/120] M5: Empty body email (subject only)
+[18:00:37]     PASS (all passed) [3.7s]
+[18:00:38]   [45/120] M6: Phishing / scam email
+[18:00:42]     FAIL (3 failed) [3.5s]
+[18:00:42]       X [classification] expected: Low (or Normal) -> got: urgent
+[18:00:42]       X [requires_reply_class] expected: false -> got: true
+[18:00:42]       X [no_false_deadline] expected: no deadline -> got: "2026-02-24"
+[18:00:43]   [46/120] M7: Forwarded email chain
+[18:00:47]     PASS (all passed) [3.6s]
+[18:00:48]   [47/120] M8: Decision needed without explicit question
+[18:00:52]     PASS (all passed) [4.0s]
+[18:00:53]   [48/120] M9: "Let me know" in newsletter (false positive test)
+[18:00:57]     PASS (all passed) [4.0s]
+[18:00:58]   [49/120] M10: Job change life intel buried in email
+[18:01:02]     PASS (all passed) [3.9s]
+[18:01:03]   [50/120] M11: Auto-reply / out of office
+[18:01:06]     PASS (all passed) [2.9s]
+[18:01:08]   [51/120] M12: Subscription renewal requiring cancellation decision
+[18:01:12]     PASS (all passed) [4.5s]
+[18:01:13]   [52/120] N1: Deadline is today
+[18:01:17]     PASS (all passed) [3.3s]
+[18:01:18]   [53/120] N2: Deadline is tomorrow
+[18:01:21]     PASS (all passed) [3.3s]
+[18:01:22]   [54/120] N3: Deadline was yesterday (overdue)
+[18:01:26]     FAIL (3 failed) [3.5s]
+[18:01:26]       X [requires_reply_class] expected: false -> got: true
+[18:01:26]       X [requires_reply_analysis] expected: false -> got: true
+[18:01:26]       X [deadline_display] expected: Overdue by 1 day -> got: Due today
+[18:01:27]   [55/120] N4: Deadline in 14 days (not urgent)
+[18:01:31]     PASS (all passed) [3.5s]
+[18:01:32]   [56/120] O1: Email from named sender for CRM parsing
+[18:01:35]     PASS (all passed) [3.7s]
+[18:01:37]   [57/120] O2: Noreply sender should not create CRM contact
+[18:01:40]     PASS (all passed) [3.3s]
+[18:01:41]   [58/120] O3: Recurring sender with relationship context
+[18:01:45]     FAIL (1 failed) [3.7s]
+[18:01:45]       X [crm_sender_parse] expected: parseable sender (name or noreply) -> got: name=null, email=alice.wong@team.company.com, noreply=false
+[18:01:46]   [59/120] P1: Netflix subscription renewal with amount
+[18:01:48]     PASS (all passed) [1.7s]
+[18:01:49]   [60/120] P2: Flight confirmation with full travel details
+[18:01:53]     FAIL (1 failed) [3.7s]
+[18:01:53]       X [life_data_confirmation] expected: XYZ789 -> got: null
+[18:01:54]   [61/120] P3: Package tracking with carrier details
+[18:01:58]     PASS (all passed) [4.2s]
+[18:01:59]   [62/120] P4: Email with NO life data (no hallucination)
+[18:02:03]     FAIL (1 failed) [3.3s]
+[18:02:03]       X [no_false_deadline] expected: no deadline -> got: "2026-02-27"
+[18:02:04]   [63/120] Q1: Urgent email with deadline — both must be set
+[18:02:08]     FAIL (1 failed) [4.0s]
+[18:02:08]       X [tone] expected: urgent / direct / professional / formal -> got: demanding
+[18:02:09]   [64/120] Q2: Newsletter mentioning dates — no deadline, no meeting
+[18:02:14]     PASS (all passed) [4.6s]
+[18:02:15]   [65/120] Q3: Event invite (not a meeting) — correct event_type
+[18:02:18]     PASS (all passed) [3.2s]
+[18:02:19]   [66/120] Q4: Informal "let me know by Friday" is a real deadline
+[18:02:22]     FAIL (1 failed) [3.2s]
+[18:02:22]       X [meeting_detection] expected: no meeting -> got: meeting detected
+[18:02:24]   [67/120] R1: Amazon order confirmation
+[18:02:27]     FAIL (1 failed) [3.2s]
+[18:02:27]       X [life_data] expected: order, package -> got: package
+[18:02:28]   [68/120] R2: App Store digital receipt
+[18:02:31]     FAIL (1 failed) [3.1s]
+[18:02:31]       X [life_data] expected: purchase -> got: bill
+[18:02:32]   [69/120] R3: Refund processed notification
+[18:02:35]     PASS (all passed) [2.9s]
+[18:02:36]   [70/120] R4: Return shipping label ready
+[18:02:41]     PASS (all passed) [4.5s]
+[18:02:42]   [71/120] R5: Order delayed with new ETA
+[18:02:50]     FAIL (1 failed) [8.1s]
+[18:02:50]       X [life_data] expected: package, order -> got: package
+[18:02:51]   [72/120] S1: Doctor appointment reminder
+[18:02:56]     FAIL (4 failed) [4.0s]
+[18:02:56]       X [classification] expected: Important (or Normal) -> got: urgent
+[18:02:56]       X [no_false_deadline] expected: no deadline -> got: "2026-02-24"
+[18:02:56]       X [event_type] expected: meeting -> got: event
+[18:02:56]       X [deadline_display] expected: Due tomorrow -> got: Due today
+[18:02:57]   [73/120] S2: Prescription ready for pickup
+[18:03:00]     PASS (all passed) [3.0s]
+[18:03:01]   [74/120] S3: Insurance claim processed
+[18:03:07]     FAIL (1 failed) [6.0s]
+[18:03:07]       X [life_data] expected: insurance -> got: bill
+[18:03:08]   [75/120] S4: Lab results available via portal
+[18:03:11]     FAIL (1 failed) [3.2s]
+[18:03:11]       X [classification] expected: Normal (or Low) -> got: important
+[18:03:13]   [76/120] T1: Jury duty summons
+[18:03:55]     FAIL (2 failed) [42.8s]
+[18:03:55]       X [requires_reply_class] expected: false -> got: true
+[18:03:55]       X [meeting_detection] expected: no meeting -> got: meeting detected
+[18:03:56]   [77/120] T2: Vehicle registration renewal
+[18:04:00]     PASS (all passed) [3.3s]
+[18:04:01]   [78/120] T3: Tax refund deposited
+[18:04:04]     FAIL (1 failed) [2.9s]
+[18:04:04]       X [life_data] expected: financial -> got: none
+[18:04:05]   [79/120] T4: Lease renewal offer with decision deadline
+[18:04:11]     PASS (all passed) [6.3s]
+[18:04:13]   [80/120] U1: Job offer with response deadline
+[18:04:17]     PASS (all passed) [4.0s]
+[18:04:18]   [81/120] U2: Job rejection email
+[18:04:21]     PASS (all passed) [3.3s]
+[18:04:22]   [82/120] U3: Performance review scheduled
+[18:04:28]     FAIL (1 failed) [6.0s]
+[18:04:28]       X [no_false_deadline] expected: no deadline -> got: "2026-03-03"
+[18:04:30]   [83/120] U4: Recruiter cold outreach
+[18:04:34]     FAIL (1 failed) [4.4s]
+[18:04:34]       X [requires_reply_analysis] expected: false -> got: true
+[18:04:35]   [84/120] V1: Birthday party invite with RSVP date
+[18:04:49]     ERROR: Could not extract JSON from: {
+  "questions": [
+    {"  "questions: [
+    {
+      "type": "choice",
+      "question": "Will you attend Jake's surprise party?",
+      "options": [
+        "Yes",
+        "No",
+        "Maybe"
+     
+[18:04:50]   [85/120] V2: Baby shower invitation
+[18:04:56]     PASS (all passed) [5.9s]
+[18:04:57]   [86/120] V3: Condolence / sympathy message
+[18:05:01]     FAIL (1 failed) [4.1s]
+[18:05:01]       X [requires_reply_analysis] expected: true -> got: false
+[18:05:02]   [87/120] V4: Friend "let's catch up" with no specific plan
+[18:05:07]     FAIL (2 failed) [4.9s]
+[18:05:07]       X [requires_reply_class] expected: true -> got: false
+[18:05:07]       X [meeting_detection] expected: no meeting -> got: meeting detected
+[18:05:08]   [88/120] V5: Moving announcement / new address
+[18:05:26]     PASS (all passed) [17.4s]
+[18:05:27]   [89/120] W1: Calendly booking confirmation
+[18:05:30]     PASS (all passed) [3.2s]
+[18:05:31]   [90/120] W2: Doodle poll "vote for a time"
+[18:05:33]     FAIL (1 failed) [2.0s]
+[18:05:33]       X [meeting_detection] expected: no meeting -> got: meeting detected
+[18:05:35]   [91/120] W3: Google Calendar invite format
+[18:05:36]     PASS (all passed) [1.9s]
+[18:05:38]   [92/120] W4: Meeting cancelled notification
+[18:05:40]     PASS (all passed) [1.9s]
+[18:05:41]   [93/120] X1: Support ticket response "we're looking into it"
+[18:05:43]     PASS (all passed) [2.1s]
+[18:05:44]   [94/120] X2: Satisfaction survey
+[18:05:46]     PASS (all passed) [2.0s]
+[18:05:47]   [95/120] X3: Feature request acknowledged
+[18:05:49]     PASS (all passed) [2.1s]
+[18:05:51]   [96/120] X4: Warranty expiration notice
+[18:05:53]     PASS (all passed) [2.5s]
+[18:05:54]   [97/120] Y1: Contractor invoice with NET 30 terms
+[18:05:57]     PASS (all passed) [2.5s]
+[18:05:58]   [98/120] Y2: Vendor quote with validity deadline
+[18:06:01]     FAIL (2 failed) [3.1s]
+[18:06:01]       X [requires_reply_class] expected: true -> got: false
+[18:06:01]       X [requires_reply_analysis] expected: true -> got: false
+[18:06:02]   [99/120] Y3: SLA violation warning
+[18:06:06]     FAIL (2 failed) [3.4s]
+[18:06:06]       X [requires_reply_analysis] expected: true -> got: false
+[18:06:06]       X [no_false_deadline] expected: no deadline -> got: "2026-03-26"
+[18:06:07]   [100/120] Y4: Contract auto-renewal reminder
+[18:06:12]     FAIL (1 failed) [5.0s]
+[18:06:12]       X [requires_reply_analysis] expected: false -> got: true
+[18:06:13]   [101/120] Z1: Fake urgency in promo email
+[18:06:15]     PASS (all passed) [1.7s]
+[18:06:16]   [102/120] Z2: Deadline buried in long email
+[18:06:18]     FAIL (1 failed) [2.1s]
+[18:06:18]       X [requires_reply_class] expected: true -> got: false
+[18:06:19]   [103/120] Z3: One-word reply "Thanks"
+[18:06:21]     PASS (all passed) [1.6s]
+[18:06:22]   [104/120] Z4: Subject-only email with realistic subject
+[18:06:24]     FAIL (1 failed) [1.8s]
+[18:06:24]       X [requires_reply_class] expected: false -> got: true
+[18:06:25]   [105/120] Z5: Casual tone but hard deadline
+[18:06:27]     PASS (all passed) [1.9s]
+[18:06:28]   [106/120] Z6: Passive-aggressive email
+[18:06:31]     FAIL (2 failed) [3.1s]
+[18:06:31]       X [no_false_deadline] expected: no deadline -> got: "2026-02-24"
+[18:06:31]       X [questions] expected: 1-3 -> got: 0
+[18:06:33]   [107/120] AA1: All-hands meeting announcement
+[18:06:35]     PASS (all passed) [2.4s]
+[18:06:36]   [108/120] AA2: Team reorg / reporting change
+[18:06:38]     PASS (all passed) [2.1s]
+[18:06:40]   [109/120] AA3: Office closure / holiday notice
+[18:06:42]     PASS (all passed) [2.2s]
+[18:06:43]   [110/120] AA4: IT maintenance window notification
+[18:06:46]     PASS (all passed) [3.2s]
+[18:06:47]   [111/120] AA5: Expense policy update with compliance deadline
+[18:06:51]     PASS (all passed) [3.2s]
+[18:06:52]   [112/120] AB1: Password reset request (legitimate)
+[18:07:00]     FAIL (2 failed) [8.2s]
+[18:07:00]       X [classification] expected: Low (or Normal) -> got: important
+[18:07:00]       X [no_false_deadline] expected: no deadline -> got: "2026-02-24"
+[18:07:01]   [113/120] AB2: 2FA code email
+[18:07:03]     PASS (all passed) [2.1s]
+[18:07:05]   [114/120] AB3: Suspicious login alert (real, not phishing)
+[18:07:07]     PASS (all passed) [2.5s]
+[18:07:08]   [115/120] AB4: Data breach notification with action deadline
+[18:07:11]     PASS (all passed) [2.9s]
+[18:07:12]   [116/120] AC1: Email with both a meeting AND a separate deadline
+[18:07:15]     PASS (all passed) [2.7s]
+[18:07:16]   [117/120] AC2: Email with 3+ questions requiring different answer types
+[18:07:19]     PASS (all passed) [2.7s]
+[18:07:20]   [118/120] AC3: Forwarded chain where only top message matters
+[18:07:22]     FAIL (2 failed) [1.9s]
+[18:07:22]       X [requires_reply_class] expected: false -> got: true
+[18:07:22]       X [deadline_detection] expected: deadline present -> got: no deadline
+[18:07:23]   [119/120] AC4: Action items for multiple people, only some for you
+[18:07:27]     FAIL (2 failed) [3.5s]
+[18:07:27]       X [requires_reply_class] expected: false -> got: true
+[18:07:27]       X [requires_reply_analysis] expected: false -> got: true
+[18:07:28]   [120/120] AC5: Reply-all thread with direct question to you mid-chain
+[18:07:30]     FAIL (1 failed) [2.3s]
+[18:07:30]       X [meeting_detection] expected: no meeting -> got: meeting detected
+[18:07:30] 
+[18:07:30] ============================================================
+[18:07:30]   AI PIPELINE TEST REPORT
+[18:07:30] ============================================================
+[18:07:30] Tests: 120 total, 75 passed, 45 failed
+[18:07:30] Overall accuracy: 92.9%
+[18:07:30] 
+[18:07:30] --- Accuracy by Dimension ---
+[18:07:30] [OK] attachment_keywords            100.0%  (1/1)
+[18:07:30] [OK] classification                  94.9%  (112/118)
+[18:07:30] [XX] crm_sender_parse                50.0%  (1/2)
+[18:07:30] [OK] deadline_accuracy              100.0%  (37/37)
+[18:07:30] [OK] deadline_category_consistency  100.0%  (4/4)
+[18:07:30] [OK] deadline_detection              93.0%  (40/43)
+[18:07:30] [XX] deadline_display                66.7%  (4/6)
+[18:07:30] [OK] event_type                      95.5%  (21/22)
+[18:07:30] [!!] life_data                       73.7%  (14/19)
+[18:07:30] [OK] life_data_amount               100.0%  (1/1)
+[18:07:30] [OK] life_data_carrier              100.0%  (2/2)
+[18:07:30] [XX] life_data_confirmation           0.0%  (0/1)
+[18:07:30] [OK] life_data_frequency            100.0%  (1/1)
+[18:07:30] [OK] life_data_no_hallucination     100.0%  (1/1)
+[18:07:30] [OK] life_data_tracking             100.0%  (1/1)
+[18:07:30] [OK] meeting_detection               94.9%  (112/118)
+[18:07:30] [OK] missing_attachment             100.0%  (1/1)
+[18:07:30] [!!] no_false_deadline               89.3%  (67/75)
+[18:07:30] [OK] questions                       94.3%  (33/35)
+[18:07:30] [OK] reply_reasoning                100.0%  (1/1)
+[18:07:30] [OK] requires_reply_analysis         92.4%  (109/118)
+[18:07:30] [!!] requires_reply_class            87.3%  (103/118)
+[18:07:30] [OK] tone                            99.2%  (117/118)
+[18:07:30] 
+[18:07:30] --- Failures ---
+[18:07:30]   [FAIL]  B2: Workshop with RSVP deadline -- [requires_reply_class] expected: true -> got: false
+[18:07:30]   [FAIL]  B3: Conference early bird -- [meeting_detection] expected: meeting detected -> got: no meeting
+[18:07:30]   [FAIL]  C5: Registration closing soon -- [requires_reply_class] expected: false -> got: true
+[18:07:30]   [FAIL]  G1: Invoice / bill -- [deadline_detection] expected: deadline present -> got: no deadline
+[18:07:30]   [FAIL]  G2: Subscription renewal notice -- [classification] expected: Low (or Normal) -> got: important
+[18:07:30]   [FAIL]  G4: Travel confirmation -- [classification] expected: Normal (or Low) -> got: important
+[18:07:30]   [FAIL]  I1: CC'd on team thread -- [requires_reply_analysis] expected: false -> got: true
+[18:07:30]   [FAIL]  I1: CC'd on team thread -- [no_false_deadline] expected: no deadline -> got: "2026-02-27"
+[18:07:30]   [FAIL]  J2: Excited announcement -- [requires_reply_class] expected: true -> got: false
+[18:07:30]   [FAIL]  J2: Excited announcement -- [requires_reply_analysis] expected: true -> got: false
+[18:07:30]   [FAIL]  K1: Missing attachment warning -- [requires_reply_class] expected: true -> got: false
+[18:07:30]   [FAIL]  K2: Requesting attachment from recipient -- [questions] expected: 1-6 -> got: 0
+[18:07:30]   [FAIL]  L2: Next week low urgency -- [requires_reply_class] expected: false -> got: true
+[18:07:30]   [ERROR] M1: Past meeting reference (no scheduling) -- Could not extract JSON from: ```json
+{
+  "category": "important```json
+{
+  "category": "normal",
+  "confidence```json
+{
+  "category": "normal",
+  "```json
+{
+  "category": "normal",
+  "confidence```json
+{
+  "category": "normal",
+ 
+[18:07:30]   [FAIL]  M2: Past deadline with extension -- [requires_reply_class] expected: false -> got: true
+[18:07:30]   [FAIL]  M4: Multiple deadlines in one email -- [deadline_detection] expected: deadline present -> got: no deadline
+[18:07:30]   [FAIL]  M6: Phishing / scam email -- [classification] expected: Low (or Normal) -> got: urgent
+[18:07:30]   [FAIL]  M6: Phishing / scam email -- [requires_reply_class] expected: false -> got: true
+[18:07:30]   [FAIL]  M6: Phishing / scam email -- [no_false_deadline] expected: no deadline -> got: "2026-02-24"
+[18:07:30]   [FAIL]  N3: Deadline was yesterday (overdue) -- [requires_reply_class] expected: false -> got: true
+[18:07:30]   [FAIL]  N3: Deadline was yesterday (overdue) -- [requires_reply_analysis] expected: false -> got: true
+[18:07:30]   [FAIL]  N3: Deadline was yesterday (overdue) -- [deadline_display] expected: Overdue by 1 day -> got: Due today
+[18:07:30]   [FAIL]  O3: Recurring sender with relationship context -- [crm_sender_parse] expected: parseable sender (name or noreply) -> got: name=null, email=alice.wong@team.company.com, noreply=false
+[18:07:30]   [FAIL]  P2: Flight confirmation with full travel details -- [life_data_confirmation] expected: XYZ789 -> got: null
+[18:07:30]   [FAIL]  P4: Email with NO life data (no hallucination) -- [no_false_deadline] expected: no deadline -> got: "2026-02-27"
+[18:07:30]   [FAIL]  Q1: Urgent email with deadline — both must be set -- [tone] expected: urgent / direct / professional / formal -> got: demanding
+[18:07:30]   [FAIL]  Q4: Informal "let me know by Friday" is a real deadline -- [meeting_detection] expected: no meeting -> got: meeting detected
+[18:07:30]   [FAIL]  R1: Amazon order confirmation -- [life_data] expected: order, package -> got: package
+[18:07:30]   [FAIL]  R2: App Store digital receipt -- [life_data] expected: purchase -> got: bill
+[18:07:30]   [FAIL]  R5: Order delayed with new ETA -- [life_data] expected: package, order -> got: package
+[18:07:30]   [FAIL]  S1: Doctor appointment reminder -- [classification] expected: Important (or Normal) -> got: urgent
+[18:07:30]   [FAIL]  S1: Doctor appointment reminder -- [no_false_deadline] expected: no deadline -> got: "2026-02-24"
+[18:07:30]   [FAIL]  S1: Doctor appointment reminder -- [event_type] expected: meeting -> got: event
+[18:07:30]   [FAIL]  S1: Doctor appointment reminder -- [deadline_display] expected: Due tomorrow -> got: Due today
+[18:07:30]   [FAIL]  S3: Insurance claim processed -- [life_data] expected: insurance -> got: bill
+[18:07:30]   [FAIL]  S4: Lab results available via portal -- [classification] expected: Normal (or Low) -> got: important
+[18:07:30]   [FAIL]  T1: Jury duty summons -- [requires_reply_class] expected: false -> got: true
+[18:07:30]   [FAIL]  T1: Jury duty summons -- [meeting_detection] expected: no meeting -> got: meeting detected
+[18:07:30]   [FAIL]  T3: Tax refund deposited -- [life_data] expected: financial -> got: none
+[18:07:30]   [FAIL]  U3: Performance review scheduled -- [no_false_deadline] expected: no deadline -> got: "2026-03-03"
+[18:07:30]   [FAIL]  U4: Recruiter cold outreach -- [requires_reply_analysis] expected: false -> got: true
+[18:07:30]   [ERROR] V1: Birthday party invite with RSVP date -- Could not extract JSON from: {
+  "questions": [
+    {"  "questions: [
+    {
+      "type": "choice",
+      "question": "Will you attend Jake's surprise party?",
+      "options": [
+        "Yes",
+        "No",
+        "Maybe"
+     
+[18:07:30]   [FAIL]  V3: Condolence / sympathy message -- [requires_reply_analysis] expected: true -> got: false
+[18:07:30]   [FAIL]  V4: Friend "let's catch up" with no specific plan -- [requires_reply_class] expected: true -> got: false
+[18:07:30]   [FAIL]  V4: Friend "let's catch up" with no specific plan -- [meeting_detection] expected: no meeting -> got: meeting detected
+[18:07:30]   [FAIL]  W2: Doodle poll "vote for a time" -- [meeting_detection] expected: no meeting -> got: meeting detected
+[18:07:30]   [FAIL]  Y2: Vendor quote with validity deadline -- [requires_reply_class] expected: true -> got: false
+[18:07:30]   [FAIL]  Y2: Vendor quote with validity deadline -- [requires_reply_analysis] expected: true -> got: false
+[18:07:30]   [FAIL]  Y3: SLA violation warning -- [requires_reply_analysis] expected: true -> got: false
+[18:07:30]   [FAIL]  Y3: SLA violation warning -- [no_false_deadline] expected: no deadline -> got: "2026-03-26"
+[18:07:30]   [FAIL]  Y4: Contract auto-renewal reminder -- [requires_reply_analysis] expected: false -> got: true
+[18:07:30]   [FAIL]  Z2: Deadline buried in long email -- [requires_reply_class] expected: true -> got: false
+[18:07:30]   [FAIL]  Z4: Subject-only email with realistic subject -- [requires_reply_class] expected: false -> got: true
+[18:07:30]   [FAIL]  Z6: Passive-aggressive email -- [no_false_deadline] expected: no deadline -> got: "2026-02-24"
+[18:07:30]   [FAIL]  Z6: Passive-aggressive email -- [questions] expected: 1-3 -> got: 0
+[18:07:30]   [FAIL]  AB1: Password reset request (legitimate) -- [classification] expected: Low (or Normal) -> got: important
+[18:07:30]   [FAIL]  AB1: Password reset request (legitimate) -- [no_false_deadline] expected: no deadline -> got: "2026-02-24"
+[18:07:30]   [FAIL]  AC3: Forwarded chain where only top message matters -- [requires_reply_class] expected: false -> got: true
+[18:07:30]   [FAIL]  AC3: Forwarded chain where only top message matters -- [deadline_detection] expected: deadline present -> got: no deadline
+[18:07:30]   [FAIL]  AC4: Action items for multiple people, only some for you -- [requires_reply_class] expected: false -> got: true
+[18:07:30]   [FAIL]  AC4: Action items for multiple people, only some for you -- [requires_reply_analysis] expected: false -> got: true
+[18:07:30]   [FAIL]  AC5: Reply-all thread with direct question to you mid-chain -- [meeting_detection] expected: no meeting -> got: meeting detected
+[18:07:30] ============================================================
+[18:07:30] JSON report saved: /Users/noahsafar/Projects/aiden/services/ai-optimizer/reports/report-2026-02-24T18-07-30.json
+[18:07:30] 
+[18:07:30] Report: /Users/noahsafar/Projects/aiden/services/ai-optimizer/reports/report-2026-02-24T18-07-30.json
+[18:07:30] 
+[18:07:30] Running optimization step (calling Claude for prompt suggestions)...
+[18:07:40] Optimization report saved: /Users/noahsafar/Projects/aiden/services/ai-optimizer/reports/optimize-2026-02-24T18-07-40.md
+[18:07:40] Optimize report: /Users/noahsafar/Projects/aiden/services/ai-optimizer/reports/optimize-2026-02-24T18-07-40.md

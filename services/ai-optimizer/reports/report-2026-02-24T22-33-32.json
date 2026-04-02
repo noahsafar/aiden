@@ -1,0 +1,1707 @@
+{
+  "timestamp": "2026-02-24T22:33:32.041Z",
+  "overall_accuracy": 95.1,
+  "total_tests": 120,
+  "passed": 90,
+  "failed": 30,
+  "dimensions": {
+    "attachment_keywords": {
+      "total": 1,
+      "passed": 1,
+      "pct": 100
+    },
+    "classification": {
+      "total": 120,
+      "passed": 118,
+      "pct": 98.3
+    },
+    "crm_sender_parse": {
+      "total": 2,
+      "passed": 1,
+      "pct": 50
+    },
+    "deadline_accuracy": {
+      "total": 40,
+      "passed": 40,
+      "pct": 100
+    },
+    "deadline_category_consistency": {
+      "total": 4,
+      "passed": 4,
+      "pct": 100
+    },
+    "deadline_detection": {
+      "total": 44,
+      "passed": 41,
+      "pct": 93.2
+    },
+    "deadline_display": {
+      "total": 5,
+      "passed": 5,
+      "pct": 100
+    },
+    "event_type": {
+      "total": 23,
+      "passed": 23,
+      "pct": 100
+    },
+    "life_data": {
+      "total": 19,
+      "passed": 16,
+      "pct": 84.2
+    },
+    "life_data_amount": {
+      "total": 1,
+      "passed": 1,
+      "pct": 100
+    },
+    "life_data_carrier": {
+      "total": 2,
+      "passed": 2,
+      "pct": 100
+    },
+    "life_data_confirmation": {
+      "total": 1,
+      "passed": 1,
+      "pct": 100
+    },
+    "life_data_frequency": {
+      "total": 1,
+      "passed": 1,
+      "pct": 100
+    },
+    "life_data_no_hallucination": {
+      "total": 1,
+      "passed": 1,
+      "pct": 100
+    },
+    "life_data_tracking": {
+      "total": 1,
+      "passed": 1,
+      "pct": 100
+    },
+    "meeting_detection": {
+      "total": 120,
+      "passed": 114,
+      "pct": 95
+    },
+    "missing_attachment": {
+      "total": 1,
+      "passed": 1,
+      "pct": 100
+    },
+    "no_false_deadline": {
+      "total": 76,
+      "passed": 70,
+      "pct": 92.1
+    },
+    "questions": {
+      "total": 37,
+      "passed": 36,
+      "pct": 97.3
+    },
+    "reply_reasoning": {
+      "total": 1,
+      "passed": 1,
+      "pct": 100
+    },
+    "requires_reply_analysis": {
+      "total": 120,
+      "passed": 113,
+      "pct": 94.2
+    },
+    "requires_reply_class": {
+      "total": 120,
+      "passed": 107,
+      "pct": 89.2
+    },
+    "tone": {
+      "total": 120,
+      "passed": 120,
+      "pct": 100
+    }
+  },
+  "failures": [
+    {
+      "test_id": "A2",
+      "test_name": "Group meeting invite",
+      "scenario_category": "meeting",
+      "failed_dimensions": [
+        {
+          "dimension": "deadline_detection",
+          "expected": "deadline present",
+          "actual": "no deadline"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Please confirm your attendance for the sprint retrospective",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          }
+        ],
+        "suggested_formality_score": 40,
+        "requires_reply": true,
+        "reply_reasoning": "The sender is requesting attendance confirmation for a scheduled team meeting.",
+        "meeting_request": {
+          "is_meeting": true,
+          "event_type": "meeting",
+          "proposed_times": [
+            "2026-02-26T14:00:00"
+          ],
+          "duration_minutes": 60,
+          "subject": "Team retrospective",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "professional",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "normal",
+        "confidence": 0.95,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "B3",
+      "test_name": "Conference early bird",
+      "scenario_category": "event",
+      "failed_dimensions": [
+        {
+          "dimension": "deadline_detection",
+          "expected": "deadline present",
+          "actual": "no deadline"
+        },
+        {
+          "dimension": "meeting_detection",
+          "expected": "meeting detected",
+          "actual": "no meeting"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [],
+        "suggested_formality_score": 30,
+        "requires_reply": false,
+        "reply_reasoning": "This is a mass marketing email promoting an event. No direct questions were asked and no personal response is required from the user.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "event",
+          "proposed_times": [],
+          "duration_minutes": 0,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "excited",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "low",
+        "confidence": 1,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "E2",
+      "test_name": "Promotional email",
+      "scenario_category": "newsletter",
+      "failed_dimensions": [
+        {
+          "dimension": "no_false_deadline",
+          "expected": "no deadline",
+          "actual": "\"2026-03-03\""
+        }
+      ],
+      "raw_analysis": {
+        "questions": [],
+        "suggested_formality_score": 30,
+        "requires_reply": false,
+        "reply_reasoning": "This is an automated marketing email promoting a discount, not a personal message requiring a response.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-03-03",
+        "sender_tone": "friendly",
+        "life_data": [
+          {
+            "data_type": "subscription",
+            "amount": null,
+            "currency": null,
+            "frequency": null,
+            "renewal_date": null,
+            "details": "50% off upgrade offer for SaaSProduct Premium"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "low",
+        "confidence": 1,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "J2",
+      "test_name": "Excited announcement",
+      "scenario_category": "tone",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "true",
+          "actual": "false"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Will you be attending the celebration?",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          }
+        ],
+        "suggested_formality_score": 10,
+        "requires_reply": true,
+        "reply_reasoning": "The sender is announcing a major company milestone and inviting the team to a celebration. While no formal question is asked, social norms and team culture suggest a reply acknowledging the news and confirming attendance (RSVP) is expected.",
+        "meeting_request": {
+          "is_meeting": true,
+          "event_type": "event",
+          "proposed_times": [
+            "2026-02-27T19:00:00"
+          ],
+          "duration_minutes": 120,
+          "subject": "Series A Funding Celebration",
+          "location": "The Rooftop Bar"
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "excited",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "normal",
+        "confidence": 0.85,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "K1",
+      "test_name": "Missing attachment warning",
+      "scenario_category": "attachment",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "true",
+          "actual": "false"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "text",
+            "question": "Do you have any questions about the updated product spec?"
+          }
+        ],
+        "suggested_formality_score": 50,
+        "requires_reply": true,
+        "reply_reasoning": "The sender mentioned attaching a document but Has Attachments is false. You should let them know the file is missing.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": null,
+          "proposed_times": [],
+          "duration_minutes": null,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": "Emily mentioned attaching the updated product spec, but no file was attached to this email.",
+        "mentioned_document_types": [
+          "spec document",
+          "product spec",
+          "wireframes"
+        ],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "professional",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "normal",
+        "confidence": 0.95,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "L1",
+      "test_name": "ASAP / today urgency",
+      "scenario_category": "urgency",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_analysis",
+          "expected": "true",
+          "actual": "false"
+        },
+        {
+          "dimension": "meeting_detection",
+          "expected": "meeting detected",
+          "actual": "no meeting"
+        },
+        {
+          "dimension": "questions",
+          "expected": "1-3",
+          "actual": "0"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [],
+        "suggested_formality_score": 20,
+        "requires_reply": false,
+        "reply_reasoning": "This email appears to be an urgent task notification or directive rather than a direct invitation for a conversational reply. It is instructing the recipient to fix a dashboard error immediately. While the task requires action, a verbal reply is likely secondary to resolving the issue.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": "Acme Corp Client Presentation",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-02-24",
+        "sender_tone": "urgent",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "urgent",
+        "confidence": 1,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "L2",
+      "test_name": "Next week low urgency",
+      "scenario_category": "urgency",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "false",
+          "actual": "true"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "text",
+            "question": "Complete peer reviews for Sarah Chen, Mike Johnson, and Lisa Park"
+          }
+        ],
+        "suggested_formality_score": 60,
+        "requires_reply": false,
+        "reply_reasoning": "This is a general notification about a task and deadline rather than a direct conversation requiring a verbal response. The required action is completing the reviews in the portal, not replying to the email.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": null,
+          "proposed_times": [],
+          "duration_minutes": null,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-03-04",
+        "sender_tone": "neutral",
+        "life_data": [
+          {
+            "data_type": "deadline",
+            "date": "2026-03-04",
+            "details": "Q1 peer reviews due"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 1,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "L3",
+      "test_name": "Register-by vs event-on confusion",
+      "scenario_category": "urgency",
+      "failed_dimensions": [
+        {
+          "dimension": "meeting_detection",
+          "expected": "meeting detected",
+          "actual": "no meeting"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [],
+        "suggested_formality_score": 40,
+        "requires_reply": false,
+        "reply_reasoning": "This is a mass marketing/announcement email about a hackathon. It does not contain any direct questions, personal requests, or expectations of a reply from the user.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "event",
+          "proposed_times": [],
+          "duration_minutes": null,
+          "subject": "Annual Hackathon",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-02-27",
+        "sender_tone": "excited",
+        "life_data": [
+          {
+            "data_type": "deadline",
+            "date": "2026-02-27",
+            "details": "Registration deadline for Annual Hackathon"
+          },
+          {
+            "data_type": "deadline",
+            "date": "2026-03-10",
+            "details": "Team formation mixer for Annual Hackathon"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "normal",
+        "confidence": 0.95,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "M1",
+      "test_name": "Past meeting reference (no scheduling)",
+      "scenario_category": "edge-case",
+      "failed_dimensions": [
+        {
+          "dimension": "no_false_deadline",
+          "expected": "no deadline",
+          "actual": "\"2026-03-03\""
+        },
+        {
+          "dimension": "meeting_detection",
+          "expected": "no meeting",
+          "actual": "meeting detected"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "text",
+            "question": "Did I miss anything from the meeting notes?"
+          }
+        ],
+        "suggested_formality_score": 30,
+        "requires_reply": true,
+        "reply_reasoning": "The sender is a teammate asking for confirmation on the accuracy of compiled action items and explicitly asking if anything was missed. Ignoring this would leave the team's next steps unverified.",
+        "meeting_request": {
+          "is_meeting": true,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": null,
+          "subject": "Follow-up demo",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [
+          "updated proposal",
+          "meeting notes",
+          "contract"
+        ],
+        "attachment_requests": [],
+        "deadline": "2026-03-03",
+        "sender_tone": "friendly",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 0.95,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "M5",
+      "test_name": "Empty body email (subject only)",
+      "scenario_category": "edge-case",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_analysis",
+          "expected": "false",
+          "actual": "true"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "text",
+            "question": "What is the update you are looking for?"
+          }
+        ],
+        "suggested_formality_score": 50,
+        "requires_reply": true,
+        "reply_reasoning": "The email is a direct check-in from a person. Although the specific question is open-ended, ignoring it would likely be socially or professionally inappropriate given the expectation of a status update or response.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "neutral",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "low",
+        "confidence": 0.85,
+        "requires_reply": false,
+        "can_auto_archive": true
+      }
+    },
+    {
+      "test_id": "N3",
+      "test_name": "Deadline was yesterday (overdue)",
+      "scenario_category": "deadline-display",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "false",
+          "actual": "true"
+        },
+        {
+          "dimension": "requires_reply_analysis",
+          "expected": "false",
+          "actual": "true"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "text",
+            "question": "Please submit your expense report ASAP"
+          }
+        ],
+        "suggested_formality_score": 40,
+        "requires_reply": true,
+        "reply_reasoning": "The sender is explicitly requesting a deliverable (expense report) and it is overdue. A reply with the submission or a status update is professionally required.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [
+          "expense report"
+        ],
+        "attachment_requests": [
+          {
+            "keyword": "expense report",
+            "file_type": null,
+            "description": "They are requesting your overdue expense report"
+          }
+        ],
+        "deadline": "2026-02-23",
+        "sender_tone": "direct",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "urgent",
+        "confidence": 1,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "O3",
+      "test_name": "Recurring sender with relationship context",
+      "scenario_category": "crm",
+      "failed_dimensions": [
+        {
+          "dimension": "crm_sender_parse",
+          "expected": "parseable sender (name or noreply)",
+          "actual": "name=null, email=alice.wong@team.company.com, noreply=false"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "text",
+            "question": "Do you have any updates regarding resource allocation to discuss in the 1:1?"
+          }
+        ],
+        "suggested_formality_score": 30,
+        "requires_reply": false,
+        "reply_reasoning": "This email provides a status update (sync notes) and flags a topic for a future 1:1 meeting. It does not ask any direct questions or require an immediate response.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": "Weekly sync notes",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "casual",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "normal",
+        "confidence": 0.95,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "P4",
+      "test_name": "Email with NO life data (no hallucination)",
+      "scenario_category": "life-intel",
+      "failed_dimensions": [
+        {
+          "dimension": "no_false_deadline",
+          "expected": "no deadline",
+          "actual": "\"2026-02-27\""
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "What do you think of the new logo options?",
+            "options": [
+              "Option A",
+              "Option B",
+              "Option C"
+            ]
+          }
+        ],
+        "suggested_formality_score": 40,
+        "requires_reply": true,
+        "reply_reasoning": "A colleague is directly asking for your opinion and input on a decision (choosing a logo) that needs to be made by the end of the week.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": "The sender mentions 'three options' but no attachments are present. They likely forgot to attach the designs.",
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-02-27",
+        "sender_tone": "casual",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 0.98,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "R1",
+      "test_name": "Amazon order confirmation",
+      "scenario_category": "ecommerce",
+      "failed_dimensions": [
+        {
+          "dimension": "life_data",
+          "expected": "order, package",
+          "actual": "package, purchase"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [],
+        "suggested_formality_score": 20,
+        "requires_reply": false,
+        "reply_reasoning": "This is an automated order confirmation email from Amazon. It is informational only, containing order details and a tracking link, with no questions asked or actions required from the user.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": "Meeting/event subject extracted from email",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "neutral",
+        "life_data": [
+          {
+            "data_type": "package",
+            "carrier": "Amazon",
+            "tracking_number": "12345",
+            "date": "2026-02-28",
+            "details": "Anker USB-C Hub, 7-in-1 Adapter (Order #112-9876543-2109876) to 123 Main St, San Francisco, CA 94102"
+          },
+          {
+            "data_type": "purchase",
+            "amount": 38.87,
+            "currency": "USD",
+            "date": "2026-02-24",
+            "details": "Amazon Order #112-9876543-2109876 - Anker USB-C Hub, 7-in-1 Adapter ($35.99 + $2.88 tax)"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "low",
+        "confidence": 1,
+        "requires_reply": false,
+        "can_auto_archive": true
+      }
+    },
+    {
+      "test_id": "R4",
+      "test_name": "Return shipping label ready",
+      "scenario_category": "ecommerce",
+      "failed_dimensions": [
+        {
+          "dimension": "deadline_detection",
+          "expected": "deadline present",
+          "actual": "no deadline"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [],
+        "suggested_formality_score": 50,
+        "requires_reply": false,
+        "reply_reasoning": "This is an automated transactional email confirming a return approval. It provides information (label attached, deadline to ship) but asks no questions and requires no response from the user other than the implied action of shipping the item.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": "Meeting/event subject extracted from email",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "professional",
+        "life_data": [
+          {
+            "data_type": "order",
+            "confirmation_code": "#RET-55102",
+            "order_number": "#RET-55102",
+            "details": "Return approved for Running Shoes - Size 10 due to wrong size. Refund to be processed within 3-5 business days."
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "low",
+        "confidence": 0.95,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "R5",
+      "test_name": "Order delayed with new ETA",
+      "scenario_category": "ecommerce",
+      "failed_dimensions": [
+        {
+          "dimension": "life_data",
+          "expected": "package, order",
+          "actual": "package"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [],
+        "suggested_formality_score": 50,
+        "requires_reply": false,
+        "reply_reasoning": "This is an automated shipping notification informing the user of a delay. It explicitly states 'No action is needed on your part' unless the user chooses to cancel via the website, which is a self-service action, not a conversation reply.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "apologetic",
+        "life_data": [
+          {
+            "data_type": "package",
+            "carrier": "Shop Customer Care",
+            "tracking_number": "#SH-90213",
+            "date": "2026-03-01",
+            "details": "Standing Desk Converter - Delayed due to shipping carrier delay"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "low",
+        "confidence": 1,
+        "requires_reply": false,
+        "can_auto_archive": true
+      }
+    },
+    {
+      "test_id": "S2",
+      "test_name": "Prescription ready for pickup",
+      "scenario_category": "healthcare",
+      "failed_dimensions": [
+        {
+          "dimension": "no_false_deadline",
+          "expected": "no deadline",
+          "actual": "\"2026-03-06\""
+        }
+      ],
+      "raw_analysis": {
+        "questions": [],
+        "suggested_formality_score": 50,
+        "requires_reply": false,
+        "reply_reasoning": "This is an automated notification from CVS Pharmacy confirming that a prescription is ready for pickup. No action or response is required from the user.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": "Meeting/event subject extracted from email",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-03-06",
+        "sender_tone": "neutral",
+        "life_data": [
+          {
+            "data_type": "deadline",
+            "date": "2026-03-06",
+            "details": "Prescription #7654321 (Amoxicillin 500mg) must be picked up by this date or it will be returned to stock."
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "normal",
+        "confidence": 0.95,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Jury duty summons",
+      "scenario_category": "government",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "false",
+          "actual": "true"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Do you have a hardship or scheduling conflict that requires a postponement?",
+            "options": [
+              "Yes, I need to request a postponement",
+              "No, I will appear as summoned"
+            ]
+          }
+        ],
+        "suggested_formality_score": 90,
+        "requires_reply": false,
+        "reply_reasoning": "This is an automated government summons/instructional email (noreply/official notice), not a personal conversation. While there is an action item (appear or postpone), there is no person to 'reply' to directly via email; the action is taken through the web portal or by appearing in court.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "event",
+          "proposed_times": [],
+          "duration_minutes": 480,
+          "subject": "Jury Duty Summons",
+          "location": "County Courthouse, 200 Court St, Room 101"
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-03-10",
+        "sender_tone": "formal",
+        "life_data": [
+          {
+            "data_type": "deadline",
+            "date": "2026-03-10",
+            "details": "Deadline to request a postponement for Jury Duty Summons JUR-2026-88456"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 1,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "U3",
+      "test_name": "Performance review scheduled",
+      "scenario_category": "career",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "false",
+          "actual": "true"
+        },
+        {
+          "dimension": "requires_reply_analysis",
+          "expected": "false",
+          "actual": "true"
+        },
+        {
+          "dimension": "no_false_deadline",
+          "expected": "no deadline",
+          "actual": "\"2026-03-03\""
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Can you attend your performance review on March 3rd at 10:00 AM?",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          },
+          {
+            "type": "text",
+            "question": "Please provide your self-assessment (due before the meeting)."
+          },
+          {
+            "type": "text",
+            "question": "What are your key accomplishments from the past year?"
+          },
+          {
+            "type": "text",
+            "question": "What are your goals for the upcoming year?"
+          }
+        ],
+        "suggested_formality_score": 50,
+        "requires_reply": true,
+        "reply_reasoning": "The email schedules a specific meeting and explicitly requests preparation materials (self-assessment) before the meeting date.",
+        "meeting_request": {
+          "is_meeting": true,
+          "event_type": "meeting",
+          "proposed_times": [
+            "2026-03-03T10:00:00"
+          ],
+          "duration_minutes": 45,
+          "subject": "Performance review",
+          "location": "Conference Room B / Zoom"
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [
+          {
+            "keyword": "self-assessment",
+            "file_type": null,
+            "description": "They want your self-assessment document"
+          }
+        ],
+        "deadline": "2026-03-03",
+        "sender_tone": "neutral",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 0.95,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "V4",
+      "test_name": "Friend \"let's catch up\" with no specific plan",
+      "scenario_category": "personal",
+      "failed_dimensions": [
+        {
+          "dimension": "meeting_detection",
+          "expected": "no meeting",
+          "actual": "meeting detected"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Do you want to hang out with Tina?",
+            "options": [
+              "Yes, let's schedule something",
+              "No, I'm busy",
+              "Maybe later"
+            ]
+          },
+          {
+            "type": "choice",
+            "question": "What activity sounds good?",
+            "options": [
+              "Coffee",
+              "Something else"
+            ]
+          }
+        ],
+        "suggested_formality_score": 10,
+        "requires_reply": true,
+        "reply_reasoning": "This is a personal email from a friend trying to reconnect and suggesting a meetup. While there is no strict deadline, failing to reply would be socially inappropriate.",
+        "meeting_request": {
+          "is_meeting": true,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": "Hang out / Coffee",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "casual",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "normal",
+        "confidence": 0.95,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "W2",
+      "test_name": "Doodle poll \"vote for a time\"",
+      "scenario_category": "scheduling",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "true",
+          "actual": "false"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Which time works for you?",
+            "options": [
+              "2026-03-06 10:00 AM",
+              "2026-03-07 2:00 PM",
+              "2026-03-08 10:00 AM"
+            ]
+          }
+        ],
+        "suggested_formality_score": 40,
+        "requires_reply": true,
+        "reply_reasoning": "This is a scheduling poll (Doodle) initiated by a colleague. The sender expects input to finalize the schedule.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": "Team Offsite Planning",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-03-01",
+        "sender_tone": "neutral",
+        "life_data": [
+          {
+            "data_type": "deadline",
+            "date": "2026-03-01",
+            "details": "Vote by deadline for Team Offsite Planning"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "normal",
+        "confidence": 0.95,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "X4",
+      "test_name": "Warranty expiration notice",
+      "scenario_category": "support",
+      "failed_dimensions": [
+        {
+          "dimension": "life_data",
+          "expected": "subscription",
+          "actual": "deadline"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Would you like to extend your warranty for an additional 2 years for $149.99?",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          }
+        ],
+        "suggested_formality_score": 50,
+        "requires_reply": false,
+        "reply_reasoning": "This is an automated marketing notification about a warranty expiration. It is not a personal email requiring a response, although the user may choose to click the link if they wish to renew.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-03-11",
+        "sender_tone": "neutral",
+        "life_data": [
+          {
+            "data_type": "deadline",
+            "date": "2026-03-11",
+            "details": "Warranty expiration for ProBook Laptop 15 (Serial: PB-2024-78901)"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "normal",
+        "confidence": 0.95,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "Y3",
+      "test_name": "SLA violation warning",
+      "scenario_category": "vendor",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "true",
+          "actual": "false"
+        },
+        {
+          "dimension": "requires_reply_analysis",
+          "expected": "true",
+          "actual": "false"
+        },
+        {
+          "dimension": "no_false_deadline",
+          "expected": "no deadline",
+          "actual": "\"2026-03-26\""
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Do you want to submit a claim for service credits based on this SLA violation?",
+            "options": [
+              "Yes, submit a claim",
+              "No, ignore"
+            ]
+          },
+          {
+            "type": "choice",
+            "question": "Would you like to discuss remediation steps with your account manager?",
+            "options": [
+              "Yes, contact manager",
+              "No"
+            ]
+          }
+        ],
+        "suggested_formality_score": 75,
+        "requires_reply": false,
+        "reply_reasoning": "This is an automated notification/email from a system (alerts@hostingprovider.com). While it offers an action (service credit claim), replying to the automated alert email is typically not possible or required. The user needs to take action on a website (hostingprovider.com/sla-claims) or contact their account manager separately, not reply to this email address.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": null,
+          "proposed_times": [],
+          "duration_minutes": null,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-03-26",
+        "sender_tone": "neutral",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 0.9,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "Y4",
+      "test_name": "Contract auto-renewal reminder",
+      "scenario_category": "vendor",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "false",
+          "actual": "true"
+        },
+        {
+          "dimension": "requires_reply_analysis",
+          "expected": "false",
+          "actual": "true"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Do you want to renew, modify, or cancel your software license?",
+            "options": [
+              "Renew under same terms",
+              "Make changes to subscription",
+              "Cancel subscription"
+            ]
+          }
+        ],
+        "suggested_formality_score": 80,
+        "requires_reply": true,
+        "reply_reasoning": "The email requires a decision regarding the contract renewal. If you wish to cancel or make changes, you must respond in writing by 2026-03-11, otherwise, the auto-renewal will proceed.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": "Contract renewal notice - Annual license",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [
+          "software license agreement"
+        ],
+        "attachment_requests": [],
+        "deadline": "2026-03-11",
+        "sender_tone": "formal",
+        "life_data": [
+          {
+            "data_type": "subscription",
+            "service_name": "SoftwareVendor Enterprise Suite",
+            "amount": 24000,
+            "currency": "USD",
+            "frequency": "annually",
+            "renewal_date": "2026-03-26",
+            "details": "Contract ENT-2025-4490"
+          },
+          {
+            "data_type": "deadline",
+            "date": "2026-03-11",
+            "details": "Last day to notify for cancellation or changes to SoftwareVendor license ENT-2025-4490"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 1,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "Z2",
+      "test_name": "Deadline buried in long email",
+      "scenario_category": "ambiguous",
+      "failed_dimensions": [
+        {
+          "dimension": "meeting_detection",
+          "expected": "no meeting",
+          "actual": "meeting detected"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "text",
+            "question": "Who are your proposed external reviewers?"
+          }
+        ],
+        "suggested_formality_score": 70,
+        "requires_reply": true,
+        "reply_reasoning": "The email explicitly requests a list of proposed external reviewers to be submitted by 2026-03-06, which requires the user to compile and send information.",
+        "meeting_request": {
+          "is_meeting": true,
+          "event_type": "event",
+          "proposed_times": [
+            "2026-06-15"
+          ],
+          "duration_minutes": 120,
+          "subject": "Annual Awards Ceremony",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [
+          {
+            "keyword": "external reviewers",
+            "file_type": null,
+            "description": "List of proposed external reviewers for submissions"
+          }
+        ],
+        "deadline": "2026-03-06",
+        "sender_tone": "professional",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 0.95,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "AA5",
+      "test_name": "Expense policy update with compliance deadline",
+      "scenario_category": "internal",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "false",
+          "actual": "true"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Have you reviewed the updated expense policy?",
+            "options": [
+              "Yes",
+              "No",
+              "Will do by deadline"
+            ]
+          },
+          {
+            "type": "choice",
+            "question": "Do you have outstanding Q1 expenses to submit?",
+            "options": [
+              "Yes",
+              "No",
+              "Need to check"
+            ]
+          }
+        ],
+        "suggested_formality_score": 50,
+        "requires_reply": false,
+        "reply_reasoning": "This is a general announcement/automated notification from a department (finance@company.com) regarding policy updates. While there is an action required (submitting expenses), it is a mass directive to the team rather than a direct personal question expecting an immediate conversational reply. The appropriate action is for the user to perform the task by the deadline, not reply to the email.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": null,
+          "proposed_times": [],
+          "duration_minutes": null,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [
+          "expense report",
+          "receipt"
+        ],
+        "attachment_requests": [],
+        "deadline": "2026-03-10",
+        "sender_tone": "professional",
+        "life_data": [
+          {
+            "data_type": "deadline",
+            "date": "2026-03-10",
+            "details": "Submit all outstanding Q1 expenses"
+          },
+          {
+            "data_type": "deadline",
+            "date": "2026-03-10",
+            "details": "Switch from Expensify to Ramp expense tool"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 0.95,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "AB3",
+      "test_name": "Suspicious login alert (real, not phishing)",
+      "scenario_category": "security",
+      "failed_dimensions": [
+        {
+          "dimension": "classification",
+          "expected": "Important (or Normal, Urgent)",
+          "actual": "low"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Was this sign-in you?",
+            "options": [
+              "Yes, it was me",
+              "No, secure my account"
+            ]
+          }
+        ],
+        "suggested_formality_score": 50,
+        "requires_reply": false,
+        "reply_reasoning": "This is an automated security notification from a no-reply address requiring user action only if the sign-in was suspicious, not a conversational reply.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": null,
+        "sender_tone": "neutral",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "low",
+        "confidence": 1,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "AC1",
+      "test_name": "Email with both a meeting AND a separate deadline",
+      "scenario_category": "complex",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "true",
+          "actual": "false"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Can you attend the Sprint Planning Meeting on Feb 27?",
+            "options": [
+              "Yes",
+              "No"
+            ]
+          },
+          {
+            "type": "text",
+            "question": "What are your capacity estimates for the sprint?"
+          },
+          {
+            "type": "text",
+            "question": "Do you have any questions about the product spec or sign-off?"
+          }
+        ],
+        "suggested_formality_score": 50,
+        "requires_reply": true,
+        "reply_reasoning": "The sender is requesting attendance at a specific meeting and asking for deliverables (capacity estimates, final review/sign-off) with a firm deadline. Ignoring this would impact team planning and the marketing timeline.",
+        "meeting_request": {
+          "is_meeting": true,
+          "event_type": "meeting",
+          "proposed_times": [
+            "2026-02-27T10:00:00"
+          ],
+          "duration_minutes": 60,
+          "subject": "Sprint Planning Meeting",
+          "location": "Conference Room A"
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [
+          "product spec"
+        ],
+        "attachment_requests": [],
+        "deadline": "2026-03-01",
+        "sender_tone": "direct",
+        "life_data": []
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 0.95,
+        "requires_reply": false,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "AC3",
+      "test_name": "Forwarded chain where only top message matters",
+      "scenario_category": "complex",
+      "failed_dimensions": [
+        {
+          "dimension": "classification",
+          "expected": "Normal (or Important)",
+          "actual": "urgent"
+        },
+        {
+          "dimension": "requires_reply_class",
+          "expected": "false",
+          "actual": "true"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [],
+        "suggested_formality_score": 20,
+        "requires_reply": false,
+        "reply_reasoning": "This is a notification that the budget has been fully approved. No questions are asked and no further action is required from the recipient other than to proceed with the order internally.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": null,
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [],
+        "attachment_requests": [],
+        "deadline": "2026-03-06",
+        "sender_tone": "direct",
+        "life_data": [
+          {
+            "data_type": "deadline",
+            "date": "2026-03-06",
+            "details": "Quote valid until 2026-03-06 for TechDirect workstations"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "urgent",
+        "confidence": 0.95,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    },
+    {
+      "test_id": "AC4",
+      "test_name": "Action items for multiple people, only some for you",
+      "scenario_category": "complex",
+      "failed_dimensions": [
+        {
+          "dimension": "requires_reply_class",
+          "expected": "false",
+          "actual": "true"
+        },
+        {
+          "dimension": "requires_reply_analysis",
+          "expected": "false",
+          "actual": "true"
+        }
+      ],
+      "raw_analysis": {
+        "questions": [
+          {
+            "type": "choice",
+            "question": "Do you have bandwidth issues with the assigned action items?",
+            "options": [
+              "Yes, I have bandwidth issues",
+              "No, I am good to proceed"
+            ]
+          }
+        ],
+        "suggested_formality_score": 50,
+        "requires_reply": true,
+        "reply_reasoning": "Action items are explicitly assigned to the user (PR review and scheduling a meeting), and the sender is asking for confirmation regarding bandwidth.",
+        "meeting_request": {
+          "is_meeting": false,
+          "event_type": "meeting",
+          "proposed_times": [],
+          "duration_minutes": 60,
+          "subject": "Schedule a meeting with the design team re: mobile redesign",
+          "location": null
+        },
+        "missing_attachment_warning": null,
+        "mentioned_document_types": [
+          "PR",
+          "API docs"
+        ],
+        "attachment_requests": [],
+        "deadline": "2026-03-01",
+        "sender_tone": "professional",
+        "life_data": [
+          {
+            "data_type": "deadline",
+            "date": "2026-03-01",
+            "details": "Schedule a meeting with the design team regarding mobile redesign"
+          }
+        ]
+      },
+      "raw_classification": {
+        "category": "important",
+        "confidence": 1,
+        "requires_reply": true,
+        "can_auto_archive": false
+      }
+    }
+  ],
+  "suggestions": [
+    "CRM parsing: verify that the \"Display Name <email>\" format is parsed correctly in crmStore.ts extractContacts",
+    "Life data: review prompt instructions for life_data extraction — avoid hallucinating data from non-transactional emails"
+  ]
+}
