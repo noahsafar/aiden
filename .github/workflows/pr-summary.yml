@@ -23,18 +23,42 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
           script: |
-            // Fetch the PR diff
-            const { data: diff } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-              mediaType: { format: 'diff' }
-            });
-
-            // Truncate diff if too large (keep under ~10K chars for API limits)
-            const MAX_DIFF_LENGTH = 10000;
-            let truncatedDiff = diff;
+            // Fetch the PR diff — fall back to file list if diff is too large
+            let diff = '';
             let wasTruncated = false;
+            const MAX_DIFF_LENGTH = 10000;
+
+            try {
+              const { data: rawDiff } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                mediaType: { format: 'diff' }
+              });
+              diff = rawDiff;
+            } catch (e) {
+              // Diff too large (>20K lines) — build a summary from the file list instead
+              core.info(`Full diff unavailable (${e.message}), falling back to file list.`);
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                per_page: 100
+              });
+              const fileSummaries = files.map(f =>
+                `${f.status} ${f.filename} (+${f.additions} -${f.deletions})`
+              );
+              diff = `File list (full diff too large):\n${fileSummaries.join('\n')}`;
+              // Include patches for the most important files (non-log, non-json)
+              const importantFiles = files
+                .filter(f => f.patch && !f.filename.match(/\.(log|json)$/) && !f.filename.includes('/logs/'))
+                .slice(0, 10);
+              for (const f of importantFiles) {
+                diff += `\n\n--- ${f.filename} ---\n${f.patch}`;
+              }
+            }
+
+            let truncatedDiff = diff;
             if (diff.length > MAX_DIFF_LENGTH) {
               truncatedDiff = diff.substring(0, MAX_DIFF_LENGTH);
               wasTruncated = true;
