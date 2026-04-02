@@ -1,0 +1,144 @@
+[16:36:14] 
+[16:36:14] ╔══════════════════════════════════════════════════╗
+[16:36:14] ║   AIDEN AI OPTIMIZER AGENT                       ║
+[16:36:14] ╚══════════════════════════════════════════════════╝
+[16:36:14] 
+[16:36:14] Mode: full (39 tests)
+[16:36:14] Dry run: true
+[16:36:14] Max iterations: 5
+[16:36:14] Target accuracy: 92%
+[16:36:14] API: https://api.z.ai/api/anthropic/v1/messages / claude-sonnet-4-20250514
+[16:36:14] 
+[16:36:14] ✅ Read prompts from ai.rs
+[16:36:14] 
+[16:36:14] ━━━ ITERATION 1/5 ━━━
+[16:36:14] 
+[16:36:14] Running test suite...
+[16:36:14]   [1/39] A1: 1-on-1 meeting request
+[16:36:19]     ✅ PASS [4.4s]
+[16:36:20]   [2/39] A2: Group meeting invite
+[16:36:22]     ✅ PASS [2.1s]
+[16:36:23]   [3/39] A3: Meeting reschedule
+[16:36:27]     ✅ PASS [3.5s]
+[16:36:28]   [4/39] A4: Zoom invite with link
+[16:36:30]     ✅ PASS [1.9s]
+[16:36:31]   [5/39] B1: Tech talk announcement
+[16:36:34]     ✅ PASS [2.7s]
+[16:36:35]   [6/39] B2: Workshop with RSVP deadline
+[16:36:37]     ❌ FAIL (1) [2.1s]
+[16:36:37]       ✗ [requires_reply] expected: true → got: false
+[16:36:38]   [7/39] B3: Conference early bird
+[16:36:45]     ❌ FAIL (1) [7.1s]
+[16:36:45]       ✗ [meeting_detection] expected: meeting detected → got: no meeting
+[16:36:47]   [8/39] C1: Application deadline
+[16:36:49]     ✅ PASS [2.3s]
+[16:36:50]   [9/39] C2: RSVP-by deadline
+[16:36:53]     ✅ PASS [2.6s]
+[16:36:54]   [10/39] C3: Payment due date
+[16:36:56]     ✅ PASS [2.2s]
+[16:36:57]   [11/39] C4: Respond-by deadline from boss
+[16:36:59]     ✅ PASS [2.3s]
+[16:37:01]   [12/39] C5: Registration closing soon
+[16:37:04]     ✅ PASS [3.0s]
+[16:37:05]   [13/39] D1: Event date (not a deadline)
+[16:37:07]     ❌ FAIL (1) [2.1s]
+[16:37:07]       ✗ [requires_reply] expected: false → got: true
+[16:37:08]   [14/39] D2: Sale ending date
+[16:37:10]     ✅ PASS [1.8s]
+[16:37:11]   [15/39] D3: FYI date in newsletter
+[16:37:14]     ✅ PASS [3.1s]
+[16:37:15]   [16/39] E1: Tech digest newsletter
+[16:37:18]     ✅ PASS [2.6s]
+[16:37:19]   [17/39] E2: Promotional email
+[16:37:21]     ✅ PASS [2.0s]
+[16:37:22]   [18/39] E3: Substack post
+[16:37:25]     ✅ PASS [3.0s]
+[16:37:27]   [19/39] F1: GitHub PR notification
+[16:37:29]     ❌ FAIL (1) [2.4s]
+[16:37:29]       ✗ [requires_reply] expected: true → got: false
+[16:37:30]   [20/39] F2: Jira ticket assigned
+[16:37:33]     ❌ FAIL (1) [2.8s]
+[16:37:33]       ✗ [requires_reply] expected: false → got: true
+[16:37:34]   [21/39] F3: LinkedIn connection request
+[16:37:37]     ✅ PASS [2.4s]
+[16:37:38]   [22/39] F4: Slack digest
+[16:37:40]     ✅ PASS [1.8s]
+[16:37:41]   [23/39] G1: Invoice / bill
+[16:37:43]     ❌ FAIL (1) [2.1s]
+[16:37:43]       ✗ [deadline_detection] expected: deadline present → got: no deadline
+[16:37:44]   [24/39] G2: Subscription renewal notice
+[16:37:47]     ❌ FAIL (1) [3.3s]
+[16:37:47]       ✗ [classification] expected: Low (or Normal) → got: important
+[16:37:49]   [25/39] G3: Package delivery notification
+[16:37:50]     ✅ PASS [1.8s]
+[16:37:52]   [26/39] G4: Travel confirmation
+[16:37:56]     ✅ PASS [4.1s]
+[16:37:57]   [27/39] H1: Colleague asking a question
+[16:37:59]     ✅ PASS [2.0s]
+[16:38:00]   [28/39] H2: Boss asking for deliverable
+[16:38:03]     ✅ PASS [2.6s]
+[16:38:04]   [29/39] H3: External contact follow-up
+[16:38:06]     ✅ PASS [2.5s]
+[16:38:08]   [30/39] I1: CC'd on team thread
+[16:38:09]     ❌ FAIL (2) [1.9s]
+[16:38:09]       ✗ [requires_reply] expected: false → got: true
+[16:38:09]       ✗ [deadline_detection] expected: no deadline → got: "2026-02-27"
+[16:38:11]   [31/39] I2: CC'd FYI announcement
+[16:38:12]     ✅ PASS [1.6s]
+[16:38:14]   [32/39] J1: Frustrated customer/colleague
+[16:38:16]     ✅ PASS [2.6s]
+[16:38:17]   [33/39] J2: Excited announcement
+[16:38:19]     ❌ FAIL (2) [2.0s]
+[16:38:19]       ✗ [requires_reply] expected: true → got: false
+[16:38:19]       ✗ [requires_reply] expected: true → got: false
+[16:38:21]   [34/39] J3: Apologetic late response
+[16:38:23]     ✅ PASS [2.3s]
+[16:38:24]   [35/39] K1: Missing attachment warning
+[16:38:28]     ❌ FAIL (1) [3.5s]
+[16:38:28]       ✗ [requires_reply] expected: true → got: false
+[16:38:29]   [36/39] K2: Requesting attachment from recipient
+[16:38:31]     ❌ FAIL (1) [2.6s]
+[16:38:31]       ✗ [questions] expected: 1-6 → got: 0
+[16:38:33]   [37/39] L1: ASAP / today urgency
+[16:38:34]     ✅ PASS [1.9s]
+[16:38:36]   [38/39] L2: Next week low urgency
+[16:38:38]     ✅ PASS [2.5s]
+[16:38:39]   [39/39] L3: Register-by vs event-on confusion
+[16:38:41]     ✅ PASS [2.1s]
+[16:38:41] 
+[16:38:41] ════════════════════════════════════════════════════════════
+[16:38:41]   ITERATION 1 — AI TEST REPORT
+[16:38:41] ════════════════════════════════════════════════════════════
+[16:38:41] Tests: 39 total, 28 passed, 11 failed
+[16:38:41] Overall accuracy: 95.1%
+[16:38:41] 
+[16:38:41] --- Accuracy by Dimension ---
+[16:38:41] 🟢 attachment_keywords    100.0%  (1/1)
+[16:38:41] 🟢 classification          97.4%  (38/39)
+[16:38:41] 🟢 deadline_accuracy      100.0%  (12/12)
+[16:38:41] 🟢 deadline_detection      94.9%  (37/39)
+[16:38:41] 🟢 life_data              100.0%  (5/5)
+[16:38:41] 🟢 meeting_detection       97.4%  (38/39)
+[16:38:41] 🟢 missing_attachment     100.0%  (1/1)
+[16:38:41] 🟢 questions               92.9%  (13/14)
+[16:38:41] 🟡 requires_reply          89.7%  (70/78)
+[16:38:41] 🟢 tone                   100.0%  (39/39)
+[16:38:41] 
+[16:38:41] --- Failures ---
+[16:38:41]   [FAIL]  B2: Workshop with RSVP deadline — [requires_reply] expected: true → got: false
+[16:38:41]   [FAIL]  B3: Conference early bird — [meeting_detection] expected: meeting detected → got: no meeting
+[16:38:41]   [FAIL]  D1: Event date (not a deadline) — [requires_reply] expected: false → got: true
+[16:38:41]   [FAIL]  F1: GitHub PR notification — [requires_reply] expected: true → got: false
+[16:38:41]   [FAIL]  F2: Jira ticket assigned — [requires_reply] expected: false → got: true
+[16:38:41]   [FAIL]  G1: Invoice / bill — [deadline_detection] expected: deadline present → got: no deadline
+[16:38:41]   [FAIL]  G2: Subscription renewal notice — [classification] expected: Low (or Normal) → got: important
+[16:38:41]   [FAIL]  I1: CC'd on team thread — [requires_reply] expected: false → got: true
+[16:38:41]   [FAIL]  I1: CC'd on team thread — [deadline_detection] expected: no deadline → got: "2026-02-27"
+[16:38:41]   [FAIL]  J2: Excited announcement — [requires_reply] expected: true → got: false
+[16:38:41]   [FAIL]  J2: Excited announcement — [requires_reply] expected: true → got: false
+[16:38:41]   [FAIL]  K1: Missing attachment warning — [requires_reply] expected: true → got: false
+[16:38:41]   [FAIL]  K2: Requesting attachment from recipient — [questions] expected: 1-6 → got: 0
+[16:38:41] ════════════════════════════════════════════════════════════
+[16:38:41] 
+[16:38:41] 🎉 Target accuracy 92% reached! (95.1%)
+[16:38:41] Optimization complete.

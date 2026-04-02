@@ -844,3 +844,207 @@ k8s/chaos/
 - **Network latency effects are subtle with already-slow external APIs:** Since the GenAI Gateway forwards requests to the Claude API (which has 1-3 second response times), adding 500ms of internal network latency was noticeable but not catastrophic. The real risk would be if internal latency combined with an external API slowdown to exceed timeout thresholds — something worth testing with higher injected latency values in the future.
 
 - **No explicit proxy timeouts:** The email-calendar proxy to genai-gateway does not set explicit request timeouts. While this was not a problem at 500ms injected latency, it represents a latent risk under more severe network conditions. Adding `timeout=30` to the `requests.post()` calls in `genai_proxy.py` is recommended.
+
+---
+
+## Milestone: Software Development with LLMs
+
+### Overview
+
+This milestone explores four ways LLMs can enhance the software development workflow: automated PR summarization via GitHub Actions, PR code review with Claude Code, building a new feature with AI assistance, and LLM-driven browser testing with Playwright.
+
+---
+
+### Deliverable 1: GitHub Actions PR Summarizer
+
+#### What It Does
+
+A GitHub Actions workflow (`.github/workflows/pr-summary.yml`) that automatically summarizes pull requests using the Claude API. When a PR is opened or updated, the workflow:
+
+1. Fetches the PR diff via the GitHub API
+2. Sends the diff (truncated to 10K chars if needed) to Claude Sonnet for analysis
+3. Posts an AI-generated summary as a comment on the PR
+4. Updates the existing comment on subsequent pushes (avoids comment spam)
+
+#### Implementation Details
+
+**Trigger:** `pull_request` events (`opened`, `synchronize`)
+
+**Key design decisions:**
+- Uses `actions/github-script@v7` to combine GitHub API calls and the Anthropic API call in a single step, avoiding extra dependencies
+- Diff truncation at 10K characters keeps API costs low and avoids token limits
+- A hidden HTML comment marker (`<!-- pr-summary-bot -->`) identifies the bot's comment so it can be updated rather than duplicated on subsequent pushes
+- Uses `claude-sonnet-4-5-20250929` for a good balance of speed, cost, and quality
+
+**Prompt structure asks Claude to provide:**
+1. A 2-3 sentence summary of what the PR does
+2. A bulleted list of key changes
+3. Any potential concerns or suggestions
+
+**Required setup:** Add `ANTHROPIC_API_KEY` as a repository secret in GitHub Settings > Secrets and variables > Actions.
+
+#### Code
+
+```yaml
+# .github/workflows/pr-summary.yml
+name: PR Summary with Claude
+on:
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  pull-requests: write
+  contents: read
+```
+
+The workflow uses a single `actions/github-script` step that:
+- Calls `github.rest.pulls.get()` with `mediaType: { format: 'diff' }` to get the raw diff
+- Calls the Anthropic Messages API via `fetch()`
+- Posts or updates a comment via `github.rest.issues.createComment()` / `updateComment()`
+
+---
+
+### Deliverable 2: PR Review with Claude Code
+
+#### Process
+
+Claude Code was used to review code changes in the Aiden project. The review process involved:
+
+1. **Opening the PR context** — Claude Code can read PR diffs, understand the full codebase context, and identify issues that span multiple files.
+2. **Automated analysis** — Claude identified potential issues including:
+   - Missing error handling in async operations
+   - Type safety concerns with optional chaining
+   - Suggestions for more defensive API response handling
+3. **Contextual suggestions** — Because Claude Code has access to the full repository, it could suggest improvements that account for existing patterns and conventions in the codebase.
+
+#### Assessment
+
+**Strengths:**
+- Catches issues humans commonly miss (edge cases, type safety, error handling)
+- Understands the full codebase context, not just the diff
+- Fast — reviews arrive in seconds vs. minutes/hours for human reviewers
+
+**Limitations:**
+- Can be overly cautious, flagging non-issues or suggesting unnecessary changes
+- Doesn't understand business context or product requirements
+- Works best as a complement to human review, not a replacement
+
+---
+
+### Deliverable 3: New Feature — Calendar Event Creation
+
+#### Overview
+
+Added the ability to create Google Calendar events directly from Aiden's Calendar page. This feature was built with Claude Code assistance, spanning 3 files across the frontend API layer, a new modal component, and the Calendar page.
+
+#### Assistant Used
+
+Claude Code (Claude Opus 4.6)
+
+#### Instructions Given
+
+"Create a calendar event creation feature. Add a CreateEventModal component with form fields for title, date, start/end time, description, location, and attendees. Wire it into Calendar.tsx with a 'New Event' button. The backend already supports create_event via POST /calendar."
+
+#### Files Created/Modified
+
+| File | Change |
+|---|---|
+| `src/api/calendar.ts` | Added `createEvent()` function, `CreateEventParams` and `CreateEventResponse` interfaces |
+| `src/components/calendar/CreateEventModal.tsx` | New modal component with full event creation form |
+| `src/pages/Calendar.tsx` | Added "New Event" button, modal state, and refresh-on-create logic |
+
+#### Implementation Details
+
+**`src/api/calendar.ts` additions:**
+- `CreateEventParams` interface: `summary`, `start_datetime`, `end_datetime`, optional `description`, `location`, `attendees`
+- `createEvent()` function: POSTs to `/calendar` with `action: 'create_event'`
+- Reuses the existing `serverURL()` helper for port discovery
+
+**`CreateEventModal` component:**
+- Form fields: Title (required), Date, Start Time, End Time, Location, Description, Attendees (comma-separated)
+- Validation: title required, end time must be after start time
+- Success state: shows confirmation with link to Google Calendar
+- Auto-closes after 1.5s on success, triggers parent refresh
+- Dark mode support matching existing UI patterns
+
+**`Calendar.tsx` changes:**
+- "New Event" button in the toolbar next to view mode selector
+- `refreshKey` state triggers event reload after creation
+- Modal receives the current timezone for correct event scheduling
+
+**Backend (no changes needed):**
+- `oauth_server.py` `create_event` action (line ~2970) already accepts `summary`, `start_datetime`, `end_datetime`, `attendees`, `location`
+- Returns `event_id` and `html_link` on success
+
+#### Assessment
+
+Claude Code correctly identified that the backend already supported event creation and focused entirely on the frontend implementation. It matched existing patterns (dark mode classes, modal structure, API patterns) and produced working code that needed no manual fixes. The only area where human judgment was needed was deciding the UX flow (auto-close vs. manual close after creation).
+
+---
+
+### Deliverable 4: Playwright + LLM Browser Assistant
+
+#### Overview
+
+A Playwright script (`playwright/browser-assistant.ts`) that combines browser automation with Claude to create an LLM-directed browser assistant. The script navigates Aiden's web UI, extracts page context, asks Claude what to do, and executes the recommended actions.
+
+#### Architecture
+
+```
+┌──────────────┐     ┌───────────────┐     ┌──────────────┐
+│   Playwright │────►│  Page Context │────►│  Claude API  │
+│   Browser    │     │  Extraction   │     │  (Sonnet)    │
+│              │◄────│               │◄────│              │
+│  Execute     │     │  Parse JSON   │     │  Recommend   │
+│  Action      │     │  Response     │     │  Action      │
+└──────────────┘     └───────────────┘     └──────────────┘
+```
+
+**Loop (up to 5 steps):**
+1. Extract structured page context (URL, visible text, buttons, links, inputs)
+2. Send context + goal to Claude, asking for a JSON action recommendation
+3. Parse the response and execute the action (click button, click link, type text, navigate)
+4. Wait for page to settle, repeat
+
+#### Implementation Details
+
+**Page context extraction** gathers:
+- Current URL and page title
+- First 3000 chars of visible text
+- All button labels (up to 20)
+- All link text + hrefs (up to 20)
+- All input field descriptors (type, placeholder, label)
+
+**LLM response format:** Claude returns structured JSON with:
+- `observation`: what it sees on the page
+- `recommended_action`: one of `click_button`, `click_link`, `type_text`, `navigate`, `done`
+- `target`: the element to interact with
+- `value`: text to type (for `type_text` actions)
+- `reasoning`: why this action was chosen
+
+**Action execution** uses Playwright's role-based and placeholder-based selectors for robustness.
+
+#### Usage
+
+```bash
+cd playwright
+npm install
+ANTHROPIC_API_KEY=sk-... npx ts-node browser-assistant.ts "Navigate to Calendar and describe the events"
+```
+
+The default goal (if no argument provided) is "Navigate to the Calendar page and describe what you see."
+
+#### Assessment
+
+This demonstrates a minimal but extensible architecture for LLM-driven browser testing. The structured context extraction + JSON action format makes the loop predictable and debuggable. Extensions could include screenshot-based visual analysis, form filling workflows, or multi-page test scenarios.
+
+---
+
+### Challenges
+
+1. **Diff size limits in PR summarizer:** Large PRs can produce diffs exceeding API token limits. The 10K character truncation is a pragmatic solution, but means very large PRs may get incomplete summaries. A more sophisticated approach would summarize file-by-file.
+
+2. **Calendar timezone handling:** The event creation form needs to produce ISO datetimes that the Google Calendar API interprets correctly in the user's timezone. We rely on the timezone setting already stored in Aiden's preferences and pass it through to the backend.
+
+3. **Playwright + auth state:** Aiden requires Google OAuth login, so the browser assistant works best when the dev server is already authenticated. In a CI/CD context, this would require pre-configured auth tokens or a test account.
+
+4. **LLM action reliability:** The browser assistant's JSON parsing of Claude's responses is inherently fragile — model output formatting can vary. The regex-based JSON extraction handles most cases, but production use would benefit from structured output or tool-use APIs.

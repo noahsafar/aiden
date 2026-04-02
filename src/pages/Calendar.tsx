@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Loader2, List, Calendar as CalendarView, Columns, LogOut } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Loader2, List, Calendar as CalendarView, Columns, LogOut, Plus } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { invoke } from '@tauri-apps/api/core';
 import { fetchEvents, CalendarEvent } from '@/api/calendar';
 import { useChatStore } from '@/stores/chatStore';
+import { CreateEventModal } from '@/components/calendar/CreateEventModal';
 import logo from '/aiden-logo.png';
 
 type ViewMode = 'list' | 'month' | 'week';
@@ -27,6 +28,8 @@ export function Calendar() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [error, setError] = useState<string | null>(null);
   const [timezone, setTimezone] = useState<string>('America/New_York');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Load settings to get timezone
   useEffect(() => {
@@ -94,7 +97,7 @@ export function Calendar() {
     }
 
     loadEvents(start, end);
-  }, [viewDate, viewMode, timezone]);
+  }, [viewDate, viewMode, timezone, refreshKey]);
 
   const navigateDate = (direction: 'prev' | 'next') => {
     const newDate = new Date(viewDate);
@@ -438,6 +441,15 @@ export function Calendar() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* New Event button */}
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              New Event
+            </button>
+
             {/* View mode selector */}
             <div className="flex items-center bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
               <button
@@ -515,6 +527,13 @@ export function Calendar() {
           )}
         </div>
       </main>
+
+      <CreateEventModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onEventCreated={() => setRefreshKey(k => k + 1)}
+        timezone={timezone}
+      />
     </div>
   );
 }

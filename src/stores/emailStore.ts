@@ -584,16 +584,7 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
       if (!(window as any).emailQuestionData) {
         (window as any).emailQuestionData = new Map();
       }
-      // Handle both old categorical format and new score format
-      let suggestedScore = 50; // default neutral
-      if (result.suggested_formality_score !== undefined) {
-        suggestedScore = result.suggested_formality_score;
-      } else if (result.suggested_formality) {
-        const categorical = result.suggested_formality;
-        if (categorical === 'casual') suggestedScore = 20;
-        else if (categorical === 'formal') suggestedScore = 80;
-        else suggestedScore = 50;
-      }
+      const suggestedScore = result.suggested_formality_score ?? 50;
       (window as any).emailQuestionData.set(emailId, {
         questions: result.questions || [],
         suggestedFormalityScore: suggestedScore,
@@ -611,7 +602,7 @@ async function generateQuestionsForEmail(emailId: string): Promise<void> {
         emails: state.emails.map(e =>
           e.id === emailId ? {
             ...e,
-            deadline: result.deadline || e.deadline || null,
+            deadline: result.deadline != null ? result.deadline : (e.deadline || null),
             sender_tone: result.sender_tone || e.sender_tone || null,
             requires_reply: result.requires_reply ?? e.requires_reply,
           } : e
@@ -758,7 +749,7 @@ async function classifyEmailPriority(emailId: string): Promise<void> {
 
     useEmailStore.setState((state) => ({
       emails: state.emails.map(e =>
-        e.id === emailId ? { ...e, category, requires_reply: result.requires_reply } : e
+        e.id === emailId ? { ...e, category } : e
       ),
     }));
     persistEmailsToDisk();
