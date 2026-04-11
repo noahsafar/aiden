@@ -53,8 +53,11 @@ import {
   Paperclip,
   Send,
   Lightbulb,
+  Mic,
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import { VoiceOverlay } from '@/components/ui/VoiceOverlay';
 
 interface Email {
   id: string;
@@ -115,7 +118,7 @@ function App() {
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
   const { emails, fetchEmails, loadFromDisk, isLoading: emailsLoading, hasInitialized: emailsInitialized, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode, searchQuery, setSearchQuery, getFilteredEmails, setSelectedEmail, readFilter, setReadFilter } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
-  const { isOpen: isChatOpen, openChat: openChatPanel, closeChat: closeChatPanel, composeData: chatComposeData, clearComposeData } = useChatStore();
+  const { isOpen: isChatOpen, openChat: openChatPanel, closeChat: closeChatPanel, composeData: chatComposeData, clearComposeData, sendMessage: chatSendMessage, isProcessing: chatIsProcessing } = useChatStore();
 
   // Animation state for focused view
   const [isAnimatingToFocused, setIsAnimatingToFocused] = useState(false);
@@ -132,6 +135,26 @@ function App() {
   const [analysisPanelHeight, setAnalysisPanelHeight] = useState(0);
   const [emailPanelTopPosition, setEmailPanelTopPosition] = useState<number | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
+
+  // Voice command support
+  const { isListening, isSupported: voiceSupported, transcript, toggleListening, stopListening } = useSpeechRecognition({
+    onResult: (text) => {
+      chatSendMessage(text, 'voice');
+      setToasts(prev => [...prev, {
+        id: `voice-${Date.now()}`,
+        message: `Voice command: "${text}"`,
+        duration: 3000,
+      }]);
+    },
+    onError: (error) => {
+      setToasts(prev => [...prev, {
+        id: `voice-error-${Date.now()}`,
+        message: error,
+        duration: 4000,
+      }]);
+    },
+  });
+
   const [showResponseOptions, setShowResponseOptions] = useState(false);
   const [bumpGenerating, setBumpGenerating] = useState<string | null>(null);
   const [bumpDraft, setBumpDraft] = useState<{ emailId: string; threadId: string; recipient: string; subject: string; body: string } | null>(null);
@@ -639,6 +662,13 @@ function App() {
         return;
       }
 
+      // Cmd+Shift+V to toggle voice input
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'v') {
+        e.preventDefault();
+        handleVoiceCompose();
+        return;
+      }
+
       // r to trigger Respond button (inbox only, not sent)
       if (e.key === 'r' && selectedEmail && !showResponseOptions && currentFilter !== 'sent') {
         // Only trigger when not typing in an input field
@@ -664,7 +694,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isChatOpen, openChatPanel, closeChatPanel, selectedEmail, selectedEmailId, sentEmails, currentFilter, showResponseOptions]);
+  }, [isChatOpen, openChatPanel, closeChatPanel, selectedEmail, selectedEmailId, sentEmails, currentFilter, showResponseOptions, voiceSupported, toggleListening, handleVoiceCompose]);
 
   // Handle chat compose data to open AIComposeModal with pre-filled data
   useEffect(() => {
@@ -835,8 +865,15 @@ function App() {
   };
 
   const handleVoiceCompose = () => {
-    console.log('Start voice compose');
-    // Start voice recognition for composing
+    if (!voiceSupported) {
+      setToasts(prev => [...prev, {
+        id: `voice-unsupported-${Date.now()}`,
+        message: 'Voice commands not supported in this browser',
+        duration: 4000,
+      }]);
+      return;
+    }
+    toggleListening();
   };
 
   const handleBump = async (emailData: any, allThreadEmails: any[], threadEmail: any, instruction?: string) => {
@@ -1078,6 +1115,15 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                       <CalendarIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                     </Button>
                   </Link>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-8 w-8 ${isListening ? 'text-red-500 bg-red-50 dark:bg-red-900/20 animate-voice-pulse' : ''}`}
+                    title="Voice Command (⌘⇧V)"
+                    onClick={handleVoiceCompose}
+                  >
+                    <Mic className={`h-4 w-4 ${isListening ? 'text-red-500' : 'text-gray-600 dark:text-gray-400'}`} />
+                  </Button>
                   <Link to="/settings">
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="Settings">
                       <SettingsIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
@@ -1869,6 +1915,12 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
       />
       </Routes>
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      <VoiceOverlay
+        isListening={isListening}
+        transcript={transcript}
+        onStop={stopListening}
+        isProcessing={isListening && chatIsProcessing}
+      />
       <AIComposeModal
         isOpen={isComposeModalOpen}
         onClose={() => {
