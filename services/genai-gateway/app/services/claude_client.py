@@ -1,7 +1,13 @@
 """Shared Claude API client using httpx — ported from ai.rs call_claude_api_with_system."""
 
+import logging
+
 import httpx
+
 from app.config import ANTHROPIC_API_KEY, ZAI_ENDPOINT, DEFAULT_MODEL, DEFAULT_MAX_TOKENS, REQUEST_TIMEOUT
+from app.services.prompt_guard import screen_input, sanitize_prompt_input
+
+logger = logging.getLogger(__name__)
 
 
 async def call_claude(
@@ -12,6 +18,12 @@ async def call_claude(
     temperature: float | None = None,
 ) -> str:
     """Send a text-only message to the Claude API and return the response text."""
+    # --- Prompt injection defense ---
+    prompt = sanitize_prompt_input(prompt)
+    screen = await screen_input(prompt)
+    if screen.flagged:
+        raise RuntimeError(f"Request blocked by prompt injection guard: {screen.reason}")
+
     messages = [{"role": "user", "content": prompt}]
     body: dict = {"model": model, "max_tokens": max_tokens, "messages": messages}
     if system:
@@ -49,6 +61,12 @@ async def call_claude_vision(
     model: str = DEFAULT_MODEL,
 ) -> str:
     """Send a message with an image to the Claude API (vision)."""
+    # --- Prompt injection defense ---
+    prompt = sanitize_prompt_input(prompt)
+    screen = await screen_input(prompt)
+    if screen.flagged:
+        raise RuntimeError(f"Request blocked by prompt injection guard: {screen.reason}")
+
     content = [
         {"type": "text", "text": prompt},
         {
