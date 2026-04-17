@@ -31,7 +31,7 @@ interface ChatState {
   // Actions
   openChat: () => void;
   closeChat: () => void;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, source?: 'voice' | 'typed') => Promise<void>;
   executeAction: (action: ChatAction) => Promise<void>;
   clearComposeData: () => void;
   clearSearchResults: () => void;
@@ -49,11 +49,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   closeChat: () => set({ isOpen: false }),
 
-  sendMessage: async (text: string) => {
+  sendMessage: async (text: string, source?: 'voice' | 'typed') => {
     if (!text.trim()) return;
 
     // Add user message
-    const userMessage: ChatMessage = { role: 'user', content: text };
+    const userMessage: ChatMessage = { role: 'user', content: text, source };
     set(state => ({
       messages: [...state.messages, userMessage],
       isProcessing: true,

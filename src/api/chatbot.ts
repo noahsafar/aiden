@@ -29,6 +29,7 @@ export interface ChatContext {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  source?: 'voice' | 'typed';
 }
 
 export interface ChatAction {

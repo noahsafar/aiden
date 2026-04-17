@@ -1,6 +1,6 @@
 import React from 'react';
 import { ChatMessage as ChatMessageType } from '@/api/chatbot';
-import { UserIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { UserIcon, SparklesIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -8,6 +8,7 @@ interface ChatMessageProps {
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
+  const isVoice = message.source === 'voice';
 
   return (
     <div className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -25,7 +26,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
       </div>
 
       {/* Message bubble */}
-      <div className={`flex-1 ${isUser ? 'flex justify-end' : ''}`}>
+      <div className={`flex-1 ${isUser ? 'flex flex-col items-end' : ''}`}>
         <div className={`max-w-[85%] rounded-lg px-3 py-2 ${
           isUser
             ? 'bg-purple-600 text-white'
@@ -33,6 +34,12 @@ export function ChatMessage({ message }: ChatMessageProps) {
         }`}>
           <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
         </div>
+        {isUser && isVoice && (
+          <div className="flex items-center gap-1 mt-1 mr-1">
+            <MicrophoneIcon className="h-3 w-3 text-gray-400 dark:text-gray-500" />
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">Voice</span>
+          </div>
+        )}
       </div>
     </div>
   );

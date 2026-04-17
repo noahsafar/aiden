@@ -8,7 +8,7 @@ export function ChatInput() {
 
   const handleSend = () => {
     if (input.trim() && !isProcessing) {
-      sendMessage(input.trim());
+      sendMessage(input.trim(), 'typed');
       setInput('');
     }
   };
