@@ -21,6 +21,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from ab_testing import ab_test_assign, ab_test_log, event_logger
+import genai_approaches
+import elo_ranking
+import uuid
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -935,6 +938,10 @@ class OAuthHandler(BaseHTTPRequestHandler):
             # Root endpoint with simple status
             self.end_headers()
             self.wfile.write(b'OAuth server is running')
+        elif self.path.startswith('/genai-rankings'):
+            self.handle_genai_rankings()
+        elif self.path.startswith('/genai-approaches'):
+            self.handle_genai_approaches()
         elif self.path.startswith('/book/'):
             # Public booking page
             self.handle_booking_page()
@@ -958,6 +965,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_send_email()
         elif self.path.startswith('/analyze-email'):
             self.handle_analyze_email()
+        elif self.path.startswith('/genai-preference'):
+            self.handle_genai_preference()
         elif self.path.startswith('/generate-reply'):
             self.handle_generate_reply()
         elif self.path.startswith('/edit-reply'):
@@ -2105,6 +2114,10 @@ Return ONLY valid JSON."""
             formality_level = data.get('formality_level', 'neutral')  # User's chosen formality level: casual, neutral, or formal
             additional_context = data.get('additional_context', '')  # Additional context/instructions from user
 
+            # GenAI evaluation parameters (Milestone 6)
+            requested_approach = data.get('approach')  # If unspecified, dispatcher picks the default
+            compare_mode = bool(data.get('compare'))   # When true, return two responses from different approaches
+
             if not os.getenv('ANTHROPIC_API_KEY'):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
@@ -2173,88 +2186,100 @@ Return ONLY valid JSON."""
             else:  # neutral
                 style_instruction = "Use a professional but approachable tone. Balance friendliness with professionalism."
 
-            # Build context-aware prompt
-            if recipient_emails:
-                # Use recipient-specific emails as primary examples
-                examples = "\n\n---\n\n".join(recipient_emails[:4])
-
-                recipient_name_note = f"\n- Address them as '{recipient_first_name}' or by their preferred name" if recipient_first_name else ""
-
-                prompt = f"""You are {user_name} writing an email reply. STUDY the examples below which are YOUR past emails to THIS SAME PERSON.
-
-CRITICAL: You are {user_name}. The email is FROM them, TO you. Sign with YOUR name ({user_name}), NOT theirs.
-
-INCOMING EMAIL:
-{sender} wrote: {subject}
-
-{body_text[:1500]}
-{user_answers_context}{additional_context_section}{sender_tone_section}{sender_tone_section}
-YOUR PAST EMAILS TO THIS PERSON (your writing style - study tone and format):
-{examples}
-
-CRITICAL RULES:
-1. {"***If the user has provided choices above (in USER'S CHOICES), USE THEIR CHOICE and state it clearly in your reply.***" if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Instead ask them to clarify or say you're flexible."}
-2. {"***The user has already made their choice - use it! Say things like 'I would like [CHOICE]' or 'I'll go with [CHOICE]'.***" if user_answers else "NEVER decide on behalf of " + user_name + ". If asked 'A or B?' and no choice provided, respond asking what they prefer or say either works."}
-3. You are {user_name} - sign the email with YOUR NAME, never the recipient's name
-4. {style_instruction}
-5. Match the writing style from your past emails, but ALWAYS sign as "{user_name}"
-6. {f'Address them as "{recipient_first_name}"' if recipient_first_name else 'Use the same salutation style'}
-7. NEVER use placeholders like [Your Name], [Your Position], etc.
-8. Keep it under 100 words
-9. Start with a salutation (Hi, Hey, Dear, etc.)
-10. Output ONLY the email body - no subject line, no preamble
-11. {"***IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above.***" if additional_context else ""}
-
-Now write the reply as {user_name}:"""
-            elif user_name:
-                prompt = f"""Generate a short, professional reply to this email. Your name is {user_name} - sign the email with this name.
-
-Email from {sender}:
-Subject: {subject}
-
-{body_text[:1000]}
-{user_answers_context}{additional_context_section}{sender_tone_section}
-
-CRITICAL: {"If user choices are provided above, USE THEM! State your choice clearly like 'I would like [choice]' or 'I'll go with [choice]'." if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Ask them to clarify or say you're flexible."}
-{"IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above." if additional_context else ""}
-
-Write a concise reply (under 100 words). Be professional and helpful. Sign off with "{user_name}". Start with a salutation. Do not include a subject line - just the email body."""
-            else:
-                prompt = f"""Generate a short, professional reply to this email:
-
-Email from {sender}:
-Subject: {subject}
-
-{body_text[:1000]}
-{user_answers_context}{additional_context_section}{sender_tone_section}
-
-CRITICAL: {"If user choices are provided above, USE THEM! State your choice clearly like 'I would like [choice]' or 'I'll go with [choice]'." if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Ask them to clarify or say you're flexible."}
-{"IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above." if additional_context else ""}
-
-Write a concise reply (under 100 words). Be professional and helpful. Start with a salutation. Do not include a subject line - just the email body."""
-
-            messages = [{"role": "user", "content": prompt}]
-            reply, error = call_anthropic_with_retry(messages, max_tokens=300, temperature=0.7, timeout=30)
+            # Build the shared context dict consumed by every approach in
+            # genai_approaches.APPROACHES. Each approach picks the keys it
+            # needs - the dict is a superset.
+            approach_context = {
+                "user_name": user_name,
+                "sender": sender,
+                "subject": subject,
+                "body_text": body_text,
+                "recipient_first_name": recipient_first_name,
+                "recipient_emails": recipient_emails,
+                "user_answers": user_answers,
+                "user_answers_context": user_answers_context,
+                "additional_context": additional_context,
+                "additional_context_section": additional_context_section,
+                "sender_tone_section": sender_tone_section,
+                "style_instruction": style_instruction,
+            }
 
             # Send response headers before writing body
             self.send_header('Content-type', 'application/json')
             self.end_headers()
 
-            if reply:
-                # Clean up the reply - remove any repeated subject line at the beginning
-                reply = clean_reply(reply)
-                print(f"AI reply generated successfully!")
+            if compare_mode:
+                # Pick two distinct approaches and run them sequentially.
+                # (Sequential keeps the rate-limiter happy; parallel would
+                # require care to keep ordering deterministic.)
+                approach_a, approach_b = genai_approaches.pick_random_pair()
+                reply_a, err_a, _ = genai_approaches.generate(
+                    approach_a, approach_context, call_anthropic_with_retry
+                )
+                reply_b, err_b, _ = genai_approaches.generate(
+                    approach_b, approach_context, call_anthropic_with_retry
+                )
 
-                # A/B test: log that a reply was generated (target event)
-                event_logger(self, event_name="reply_button_click",
-                             metadata={"subject": subject[:50]})
+                if reply_a:
+                    reply_a = clean_reply(reply_a)
+                if reply_b:
+                    reply_b = clean_reply(reply_b)
 
-                resp = {'success': True, 'reply': reply}
+                if not reply_a or not reply_b:
+                    resp = {
+                        'success': False,
+                        'error': f'Comparison failed: A={err_a or "ok"}, B={err_b or "ok"}',
+                    }
+                    self.wfile.write(json.dumps(resp).encode())
+                    return
+
+                comparison_id = str(uuid.uuid4())
+                # Track that both approaches were shown to the user
+                elo_ranking.record_exposure([approach_a, approach_b])
+
+                event_logger(self, event_name="reply_compare_shown",
+                             metadata={"subject": subject[:50],
+                                       "comparison_id": comparison_id,
+                                       "approach_a": approach_a,
+                                       "approach_b": approach_b})
+
+                resp = {
+                    'success': True,
+                    'comparison': True,
+                    'comparison_id': comparison_id,
+                    'responses': [
+                        {'approach_id': approach_a, 'reply': reply_a},
+                        {'approach_id': approach_b, 'reply': reply_b},
+                    ],
+                }
                 self.wfile.write(json.dumps(resp).encode())
             else:
-                print(f"Failed to generate reply: {error}")
-                resp = {'success': False, 'error': f'Failed to generate reply: {error}'}
-                self.wfile.write(json.dumps(resp).encode())
+                # Single-approach mode (default behavior). If the caller
+                # didn't specify an approach, the dispatcher uses
+                # DEFAULT_APPROACH ("few_shot") - this preserves the
+                # current production UX.
+                reply, error, approach_used = genai_approaches.generate(
+                    requested_approach, approach_context, call_anthropic_with_retry
+                )
+
+                if reply:
+                    reply = clean_reply(reply)
+                    print(f"AI reply generated successfully via approach={approach_used}!")
+
+                    elo_ranking.record_exposure([approach_used])
+
+                    # A/B test: log that a reply was generated (target event)
+                    event_logger(self, event_name="reply_button_click",
+                                 metadata={"subject": subject[:50],
+                                           "approach": approach_used})
+
+                    resp = {'success': True, 'reply': reply, 'approach': approach_used}
+                    self.wfile.write(json.dumps(resp).encode())
+                else:
+                    print(f"Failed to generate reply ({approach_used}): {error}")
+                    resp = {'success': False, 'error': f'Failed to generate reply: {error}',
+                            'approach': approach_used}
+                    self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:
             print(f"Error generating reply: {e}")
@@ -2268,6 +2293,106 @@ Write a concise reply (under 100 words). Be professional and helpful. Start with
                 pass  # Headers already sent
             response = {'success': False, 'error': f'Failed to generate reply: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
+
+    # ------------------------------------------------------------------
+    # Milestone 6: GenAI evaluation endpoints
+    # ------------------------------------------------------------------
+
+    def handle_genai_preference(self):
+        """Record a user preference between two approach outputs and update ELO.
+
+        Request body:
+            {
+              "approach_a": "<id>",
+              "approach_b": "<id>",
+              "preferred":  "<id> | 'tie'",
+              "comparison_id": "<uuid from /generate-reply compare response>",
+              "metadata": { ... }   # optional
+            }
+        """
+        try:
+            self.send_header('Content-type', 'application/json')
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+
+            approach_a = data.get('approach_a')
+            approach_b = data.get('approach_b')
+            preferred = data.get('preferred')
+
+            if not approach_a or not approach_b or not preferred:
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': False,
+                    'error': 'approach_a, approach_b, and preferred are required',
+                }).encode())
+                return
+
+            user_id = None
+            if USER_INFO_FILE.exists():
+                try:
+                    with open(USER_INFO_FILE, 'r') as f:
+                        user_id = json.load(f).get('email')
+                except Exception:
+                    pass
+
+            metadata = data.get('metadata', {}) or {}
+            if data.get('comparison_id'):
+                metadata['comparison_id'] = data['comparison_id']
+
+            result = elo_ranking.record_preference(
+                approach_a=approach_a,
+                approach_b=approach_b,
+                preferred=preferred,
+                user_id=user_id,
+                metadata=metadata,
+            )
+
+            event_logger(self, event_name="genai_preference",
+                         metadata={'approach_a': approach_a,
+                                   'approach_b': approach_b,
+                                   'preferred': preferred,
+                                   'comparison_id': data.get('comparison_id')})
+
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': True, **result}).encode())
+        except ValueError as e:
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+        except Exception as e:
+            print(f"Error recording GenAI preference: {e}")
+            import traceback
+            traceback.print_exc()
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+
+    def handle_genai_rankings(self):
+        """Return the current ELO ranking of approaches (sorted desc)."""
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        try:
+            ratings = elo_ranking.get_ratings()
+            self.wfile.write(json.dumps({
+                'success': True,
+                'rankings': ratings,
+                'k_factor': elo_ranking.K_FACTOR,
+                'initial_rating': elo_ranking.INITIAL_RATING,
+            }).encode())
+        except Exception as e:
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+
+    def handle_genai_approaches(self):
+        """Return the registered set of GenAI approaches and their metadata."""
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        try:
+            self.wfile.write(json.dumps({
+                'success': True,
+                'default': genai_approaches.DEFAULT_APPROACH,
+                'approaches': genai_approaches.list_approaches(),
+            }).encode())
+        except Exception as e:
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
 
     def handle_edit_reply(self):
         """Edit an email reply using AI based on user's edit prompt"""

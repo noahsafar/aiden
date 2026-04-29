@@ -1051,6 +1051,137 @@ This demonstrates a minimal but extensible architecture for LLM-driven browser t
 
 ---
 
+## Milestone: Evaluating GenAI Outputs (ELO-ranked Approaches)
+
+### Overview
+
+This milestone introduces the minimal infrastructure needed to evaluate the outputs of multiple GenAI pipelines for the same task and to rank those pipelines using head-to-head user preferences. The chosen GenAI feature is email reply generation (`POST /generate-reply`), i.e., Aiden's most prominent user-facing LLM feature, used every time a user clicks the "AI Reply" button.
+
+Three distinct approaches are now registered behind a single endpoint, the same endpoint can return one or two responses depending on a request flag, and a new pair of endpoints records user preferences and exposes a live ELO leaderboard.
+
+### The GenAI Feature & the Three Approaches
+
+All three approaches call Claude Sonnet 4 via the existing `call_anthropic_with_retry` helper but vary along the two axes most likely to change reply quality: prompting strategy and generation parameters (temperature, max_tokens). Using the same model isolates the prompt/parameter variable and means the comparisons stay within the existing API quota and rate limit.
+
+| ID | Strategy | Temp | Max tokens | Prompt highlights |
+|---|---|---|---|---|
+| `few_shot` (default) | Few-shot with recipient-specific past emails as in-context examples | 0.7 | 300 | Personalized — uses up to 4 of the user's past emails to the same recipient as voice/style examples; strict 11-rule formatting block; honors formality + tone |
+| `zero_shot` | Zero-shot, no examples | 0.3 | 300 | Stripped-down generic prompt; lower temperature for more deterministic output; faster cold-start since it ignores recipient history |
+| `chain_of_thought` | CoT — model reasons in a `<thinking>` block, writes the reply in a `<reply>` block | 0.5 | 600 | Explicit step-by-step analysis (purpose / key questions / tone / required info) before drafting; output parsed by `_extract_reply_block` to strip the thinking trace |
+
+The default approach is `few_shot` — the production-quality strategy that existed before this milestone — so when the frontend issues a plain `/generate-reply` request without an `approach` field it gets the same UX as before.
+
+### Code Changes
+
+#### 1. `genai_approaches.py` (new file)
+
+Approach **registry + dispatcher** that decouples the prompt-building logic from the HTTP handler. Each approach is one entry in the `APPROACHES` dict containing a label, model name, temperature, max_tokens, a `build_prompt(context)` function, and an optional `post_process` hook. Three helpers:
+
+- `list_approaches()` — JSON-serializable metadata for `/genai-approaches`
+- `pick_random_pair(seed=None)` — picks two distinct approach IDs for comparison mode
+- `generate(approach_id, context, call_anthropic)` — the single entry point. Falls back to `DEFAULT_APPROACH` when `approach_id` is `None` or unknown (per the milestone's "If an approach is not specified, the backend service should choose one"). Injects the LLM caller so the module stays decoupled from `oauth_server`.
+
+The CoT approach's `post_process` runs `_extract_reply_block`, which strips the `<thinking>...</thinking>` prefix and pulls out `<reply>...</reply>` so the user never sees the reasoning trace.
+
+#### 2. `elo_ranking.py` (new file)
+
+Standalone **ELO scoring** module. Tracks a rating per approach in `~/.aiden/genai_eval/ratings.json`; appends every recorded preference to `~/.aiden/genai_eval/preferences.jsonl` for audit / re-computation.
+
+| Function | Role |
+|---|---|
+| `get_ratings()` | Returns the leaderboard (sorted by rating desc) — for the `/genai-rankings` endpoint |
+| `record_exposure(approach_ids)` | Bumps the exposure counter when an approach's output is shown to the user |
+| `record_preference(approach_a, approach_b, preferred, user_id, metadata)` | Applies the standard ELO update — `R'_a = R_a + K * (S_a − E_a)` with `K=32` and `E_a = 1 / (1 + 10^((R_b − R_a) / 400))`. `preferred` is one of `approach_a`, `approach_b`, or `'tie'` (`S_a = 0.5`). Persists the new ratings, then appends to the JSONL audit log outside the lock to avoid holding it during disk I/O. |
+
+A single module-level `threading.Lock` guards both the cache and the on-disk JSON file — the OAuth server is multi-threaded (`ThreadingHTTPServer`), so all mutating operations must be serialized.
+
+#### 3. `oauth_server.py` (modified)
+
+- **`handle_generate_reply`** — replaced the inline 90-line prompt block with a single dispatcher call. The handler now packs everything previous prompts read (sender, subject, body, recipient examples, user_name, formality style, etc.) into one `approach_context` dict and passes it to `genai_approaches.generate(...)`.
+  - Reads two new optional body fields: `approach` (string ID) and `compare` (bool).
+  - **Single-approach mode** (default): same response shape as before plus an `approach` field. Frontend ignores unknown fields, so this is fully backward-compatible.
+  - **Compare mode** (`compare: true`): picks two distinct approaches via `pick_random_pair`, runs them sequentially, returns `{success, comparison: true, comparison_id, responses: [{approach_id, reply}, {approach_id, reply}]}`. The `comparison_id` (uuid4) lets a later preference vote refer back to the exact pair shown.
+  - Each rendered reply triggers `elo_ranking.record_exposure(...)` so the leaderboard tracks how often each approach has actually been seen.
+- **`POST /genai-preference`** (new) — records a preference between two approaches and returns the resulting rating delta:
+  ```json
+  { "approach_a": "few_shot", "approach_b": "zero_shot",
+    "preferred": "few_shot", "comparison_id": "<uuid>" }
+  ```
+  Returns `{success, before:{...}, after:{...}, expected_a, ...}`. Also emits a `genai_preference` event through the existing `event_logger` so the A/B testing infrastructure can correlate preferences with other signals.
+- **`GET /genai-rankings`** (new) — returns the live ELO leaderboard plus `K_FACTOR` and `INITIAL_RATING` so clients can render the math.
+- **`GET /genai-approaches`** (new) — returns the approach registry (id, label, description, model, temperature) and the default approach ID.
+
+### How to Use
+
+1. **Get a single reply** (legacy behavior — still works):
+   ```bash
+   curl -X POST http://localhost:5000/generate-reply \
+     -d '{"sender": "alice@x.com", "subject": "Lunch?", "body_text": "..."}'
+   # -> { "success": true, "reply": "...", "approach": "few_shot" }
+   ```
+
+2. **Get a reply from a specific approach**:
+   ```bash
+   curl -X POST http://localhost:5000/generate-reply \
+     -d '{"approach": "chain_of_thought", "sender": "...", "subject": "...", "body_text": "..."}'
+   ```
+
+3. **Get two replies for head-to-head comparison**:
+   ```bash
+   curl -X POST http://localhost:5000/generate-reply \
+     -d '{"compare": true, "sender": "...", "subject": "...", "body_text": "..."}'
+   # -> { "success": true, "comparison": true, "comparison_id": "<uuid>",
+   #      "responses": [
+   #         {"approach_id": "few_shot",  "reply": "..."},
+   #         {"approach_id": "zero_shot", "reply": "..."}
+   #      ] }
+   ```
+
+4. **Record a preference**:
+   ```bash
+   curl -X POST http://localhost:5000/genai-preference \
+     -d '{"approach_a":"few_shot","approach_b":"zero_shot",
+          "preferred":"few_shot","comparison_id":"<uuid>"}'
+   ```
+
+5. **Inspect the leaderboard**:
+   ```bash
+   curl http://localhost:5000/genai-rankings
+   ```
+
+### Configuration Pointers
+
+| File | Purpose |
+|---|---|
+| `genai_approaches.py` | Approach registry — add a new one by appending to `APPROACHES` (and writing a `_build_*_prompt(context)` helper). Three approaches ship by default. |
+| `elo_ranking.py` | ELO parameters (`INITIAL_RATING=1200`, `K_FACTOR=32`) at the top of the file. |
+| `~/.aiden/genai_eval/ratings.json` | Persisted ratings (`{approach_id: {rating, wins, losses, ties, exposures, updated_at}}`). |
+| `~/.aiden/genai_eval/preferences.jsonl` | Append-only audit log of every preference vote. Each line includes the before/after ratings and the `expected_a` probability for re-computing the leaderboard from scratch if K is ever retuned. |
+
+### Adding a New Approach
+
+1. Write a `_build_<id>_prompt(context)` function in `genai_approaches.py` that returns a string. The `context` dict already contains `sender`, `subject`, `body_text`, `user_name`, `recipient_emails`, `recipient_first_name`, `user_answers`, `style_instruction`, etc.
+2. Append an entry to `APPROACHES` with `label`, `description`, `model`, `temperature`, `max_tokens`, `build_prompt`, and an optional `post_process`.
+3. Restart the server. The new approach is immediately available via the `approach` parameter and is included in `pick_random_pair`.
+4. The new approach starts at `INITIAL_RATING` and naturally rises/falls as users vote.
+
+### Findings
+
+- **Sequential calls in compare mode keep the rate limiter happy.** The two LLM calls are issued back-to-back (not in parallel) so the existing per-process `RateLimiter` (`min_delay=0.5s`) can serialize them naturally — no special-casing needed.
+- **CoT response parsing is the riskiest piece.** `_extract_reply_block` falls back to stripping `<thinking>` tags if the model omits explicit `<reply>` tags. In practice Claude Sonnet 4 follows the schema reliably, but a lazy regex was preferred over rejecting/retrying so a bad parse never blocks the user.
+- **Default approach is preserved.** Because `genai_approaches.generate(None, ...)` falls through to `DEFAULT_APPROACH = "few_shot"`, the existing frontend (which doesn't know about approaches yet) gets exactly the same reply quality it had before this milestone — the new infrastructure is opt-in via the `approach` and `compare` fields.
+- **ELO updates are O(1) per vote.** A single SHA-free arithmetic operation plus one JSON-file rewrite (the file is tiny — three entries). For three approaches the file is ~600 bytes; the rewrite cost is invisible compared to a 1–3 second LLM call.
+- **The audit JSONL doubles as a recovery file.** If `K_FACTOR` is ever changed, ratings.json can be reconstructed by replaying `preferences.jsonl` from `INITIAL_RATING`. This is the same pattern as a write-ahead log.
+
+### Challenges
+
+1. **Preserving production UX while changing the default code path.** The existing `/generate-reply` is the most-hit AI endpoint in the app. The refactor had to keep the prompt that existed before this milestone available *unchanged* as the default, otherwise users would see a regression on every reply. Solution: extracted the original prompt verbatim into `_build_few_shot_prompt` and made it `DEFAULT_APPROACH`. The dispatcher returns the approach ID it actually used so the frontend (and logs) can verify nothing silently changed.
+2. **Decoupling the dispatcher from `oauth_server.py`.** `genai_approaches.generate(...)` injects the LLM caller as an argument rather than importing it directly, so the module is unit-testable without spinning up the OAuth server. Smoke-tested end-to-end with a mock callable.
+3. **Concurrency on the rating file.** Two near-simultaneous preference votes could otherwise interleave reads/writes and lose updates. Wrapped all mutating logic in a single `threading.Lock`; only the JSONL append (which uses its own OS-level append guarantee) is allowed outside the lock.
+4. **No frontend wiring (yet).** This milestone delivers the infrastructure. A small UI affordance (two side-by-side reply cards with thumbs-up buttons) would be a natural next step but out of scope here since the assignment specifies backend evaluation infrastructure. The endpoints are usable today via curl / the load-test scripts and the leaderboard is observable at `/genai-rankings`.
+
+---
+
 ## Milestone: LLM Security — Prompt Injection Defense
 
 ### Overview
