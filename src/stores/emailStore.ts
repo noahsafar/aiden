@@ -7,6 +7,9 @@ import { analyzeEmail as analyzeEmailClaude, summarizeEmail as summarizeEmailCla
 // Check if running in Tauri
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
 
+// Helper function to get store state (will be initialized after store creation)
+let getStoreState: () => any;
+
 // Helper function to fetch with timeout (Ollama can take 20+ seconds on first load)
 export async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 90000): Promise<Response> {
   const controller = new AbortController();
@@ -440,11 +443,11 @@ let aiOperationQueue: Array<() => void> = [];
 // Queue an AI operation to limit concurrency
 function queueAIOperation(operation: () => Promise<void>) {
   aiOperationQueue.push(operation);
-  processAIQueue();
+  processAIQueueHelper();
 }
 
 // Process the AI operation queue
-async function processAIQueue() {
+async function processAIQueueHelper() {
   if (activeAIOperations >= MAX_CONCURRENT_AI_OPERATIONS || aiOperationQueue.length === 0) {
     return;
   }
@@ -455,7 +458,7 @@ async function processAIQueue() {
     // Don't await - let it run in the background
     operation().finally(() => {
       activeAIOperations--;
-      processAIQueue();
+      processAIQueueHelper();
     });
   }
 }
@@ -463,351 +466,37 @@ async function processAIQueue() {
 // Generate summary for a single email via Tauri/Claude (bypasses Python server)
 const MAX_SUMMARY_RETRIES = 2;
 
-async function generateSummaryForEmail(emailId: string, attempt = 0): Promise<void> {
-  if (processingEmails.has(`${emailId}-summary`)) {
-    return;
-  }
-  processingEmails.add(`${emailId}-summary`);
+// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
+// async function generateSummaryForEmail(emailId: string, attempt = 0): Promise<void> { ... }
 
-  try {
-    const store = useEmailStore.getState();
-    const email = store.emails.find(e => e.id === emailId);
-    if (!email || email.summary) {
-      return;
-    }
+// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
+// async function generateQuestionsForEmail(emailId: string): Promise<void> { ... }
 
-    const emailContent = `From: ${email.sender}\nSubject: ${email.subject}\n\n${email.body_text || email.snippet || ''}`;
-    const result = await summarizeEmailClaude(emailContent);
+// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
+// async function generateReplyForEmail(emailId: string): Promise<void> { ... }
 
-    if (result.summary) {
-      useEmailStore.setState((state) => ({
-        emails: state.emails.map(e =>
-          e.id === emailId ? {
-            ...e,
-            summary: result.summary,
-            key_points: result.key_points || [],
-          } : e
-        ),
-      }));
-      // Persist updated summary to disk
-      persistEmailsToDisk();
+// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
+// async function classifyEmailPriority(emailId: string): Promise<void> { ... }
 
-      // Send notification for new emails with summary
-      const currentStore = useEmailStore.getState();
-      const emailTime = new Date(email.date).getTime();
-      const shouldNotify = !currentStore.notifiedEmailIds.has(emailId) &&
-        (emailTime >= currentStore.appStartTime);
+// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
+// async function processEmailCore(emailId: string) { ... }
 
-      if (shouldNotify) {
-        const senderName = email.sender.split('<')[0].trim() || email.sender;
-        const summaryText = result.summary.length > 150
-          ? result.summary.substring(0, 147) + '...'
-          : result.summary;
+// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
+// function processEmail(emailId: string) { ... }
 
-        const notifCheck = await shouldSendNotification(
-          email.sender,
-          email.subject,
-          email.category || 'Normal'
-        );
+// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
+// function processEmailImmediately(emailId: string) { ... }
 
-        if (notifCheck.should_notify) {
-          sendNotification(`New email from ${senderName}`, summaryText);
-          useEmailStore.setState((state) => ({
-            notifiedEmailIds: new Set(state.notifiedEmailIds).add(emailId),
-          }));
-        } else if (notifCheck.should_batch) {
-          queueNotification(emailId, senderName, email.subject, summaryText);
-        }
-      }
-    }
-  } catch (e) {
-    console.error(`[AI Processing] Failed to generate summary (attempt ${attempt + 1}/${MAX_SUMMARY_RETRIES + 1}):`, e);
-    // Auto-retry with backoff
-    if (attempt < MAX_SUMMARY_RETRIES) {
-      const delay = (attempt + 1) * 3000; // 3s, 6s
-      processingEmails.delete(`${emailId}-summary`);
-      await new Promise(r => setTimeout(r, delay));
-      return generateSummaryForEmail(emailId, attempt + 1);
-    }
-  } finally {
-    processingEmails.delete(`${emailId}-summary`);
-    useEmailStore.setState((state) => {
-      const newSet = new Set(state.generatingSummaries);
-      newSet.delete(emailId);
-      return { generatingSummaries: newSet };
-    });
-  }
-}
+// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
+// function backfillQuestionData(emailIds: string[]) { ... }
 
-// Generate questions for a single email (fire and forget - stores in emailStateMap via EmailView)
-// This is called after summary generation completes
-async function generateQuestionsForEmail(emailId: string): Promise<void> {
-  if (processingEmails.has(`${emailId}-questions`)) {
-    console.log(`[AI Processing] Questions already in progress for ${emailId}`);
-    return;
-  }
-  processingEmails.add(`${emailId}-questions`);
-  console.log(`[AI Processing] Starting question generation for ${emailId}`);
-
-  try {
-    const store = useEmailStore.getState();
-    const email = store.emails.find(e => e.id === emailId);
-    if (!email) {
-      console.log(`[AI Processing] Email ${emailId} not found in store`);
-      return;
-    }
-
-    // Use Claude API directly through Tauri (bypasses Python server)
-    const claudeResponse = await analyzeEmailClaude({
-      sender: email.sender,
-      subject: email.subject,
-      body_text: email.body_text,
-      has_attachments: email.has_attachments || false,
-    });
-
-    const result = {
-      success: true,
-      questions: claudeResponse.questions,
-      suggested_formality_score: claudeResponse.suggested_formality_score,
-      meeting_request: claudeResponse.meeting_request,
-      missing_attachment_warning: claudeResponse.missing_attachment_warning,
-      requires_reply: claudeResponse.requires_reply,
-      reply_reasoning: claudeResponse.reply_reasoning,
-      deadline: claudeResponse.deadline,
-      sender_tone: claudeResponse.sender_tone,
-    };
-
-    if (result.success) {
-      console.log(`[AI Processing] Questions generated for ${emailId}:`, result.questions);
-      // Store questions in the email state map (accessed by EmailView)
-      // We use a window global to share this data with EmailView component
-      if (!(window as any).emailQuestionData) {
-        (window as any).emailQuestionData = new Map();
-      }
-      const suggestedScore = result.suggested_formality_score ?? 50;
-      (window as any).emailQuestionData.set(emailId, {
-        questions: result.questions || [],
-        suggestedFormalityScore: suggestedScore,
-        requiresReply: result.requires_reply,
-        replyReasoning: result.reply_reasoning,
-        meetingRequest: result.meeting_request || { is_meeting: false },
-        deadline: result.deadline || null,
-        senderTone: result.sender_tone || null,
-        loaded: true,
-      });
-
-      // Persist deadline and sender_tone to the email store so they survive reloads
-      // Always write deadline (null = "analyzed, no deadline") so backfill doesn't re-trigger
-      useEmailStore.setState((state) => ({
-        emails: state.emails.map(e =>
-          e.id === emailId ? {
-            ...e,
-            deadline: result.deadline != null ? result.deadline : (e.deadline || null),
-            sender_tone: result.sender_tone || e.sender_tone || null,
-            requires_reply: result.requires_reply ?? e.requires_reply,
-          } : e
-        ),
-      }));
-      persistEmailsToDisk();
-
-      // Forward life intelligence data to lifeStore (always call to track processed emails)
-      // Also bridge top-level deadline to a life_data item so it appears in Life Intel
-      const lifeItems = [...(claudeResponse.life_data || [])];
-      if (claudeResponse.deadline) {
-        const alreadyHasDeadline = lifeItems.some(
-          (item) => item.data_type === 'deadline' && item.date === claudeResponse.deadline
-        );
-        if (!alreadyHasDeadline) {
-          lifeItems.push({
-            data_type: 'deadline',
-            title: email.subject,
-            date: claudeResponse.deadline,
-            details: claudeResponse.reply_reasoning || null,
-          });
-        }
-      }
-      import('@/stores/lifeStore').then(({ useLifeStore }) => {
-        useLifeStore.getState().addItemsFromEmail(emailId, lifeItems);
-      }).catch(() => {});
-    } else {
-      console.log(`[AI Processing] Question API returned no data for ${emailId}:`, result);
-    }
-  } catch (e) {
-    console.error('[AI Processing] Failed to generate questions:', e);
-  } finally {
-    processingEmails.delete(`${emailId}-questions`);
-  }
-}
-
-// Generate reply for a single email (fire and forget - updates store directly)
-async function generateReplyForEmail(emailId: string): Promise<void> {
-  if (processingEmails.has(`${emailId}-reply`)) {
-    console.log(`[AI Processing] Reply already in progress for ${emailId}`);
-    return;
-  }
-  processingEmails.add(`${emailId}-reply`);
-  console.log(`[AI Processing] Starting reply generation for ${emailId}`);
-
-  try {
-    const store = useEmailStore.getState();
-    const email = store.emails.find(e => e.id === emailId);
-    if (!email) {
-      console.log(`[AI Processing] Email ${emailId} not found in store`);
-      return;
-    }
-    if (email.ai_generated_reply) {
-      console.log(`[AI Processing] Email ${emailId} already has reply`);
-      return;
-    }
-
-    // Get user's name for sign-off
-    const authStore = useAuthStore.getState();
-    const userName = authStore.user?.name || 'Your Name';
-
-    // Get sender tone from AI analysis if available
-    const questionData = (window as any).emailQuestionData?.get(emailId);
-    const senderTone = questionData?.senderTone || null;
-
-    console.log(`[AI Processing] Calling reply API for ${emailId}`, senderTone ? `(sender tone: ${senderTone})` : '');
-    const baseURL = await serverURL();
-    const response = await fetchWithTimeout(`${baseURL}/generate-reply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sender: email.sender,
-        subject: email.subject,
-        body_text: email.body_text,
-        user_name: userName,
-        sender_tone: senderTone,
-      }),
-    }, 90000);
-
-    if (response.ok) {
-      const result = await response.json();
-      if (result.success && result.reply) {
-        console.log(`[AI Processing] Reply generated for ${emailId}`);
-
-        // Strip unwanted prefixes like "Subject: Re:" from the reply
-        let cleanedReply = result.reply;
-        const unwantedPrefixes = ['Subject: Re:', 'Subject: RE:', 'Subject: Re', 'Subject: RE'];
-        for (const prefix of unwantedPrefixes) {
-          if (cleanedReply.startsWith(prefix)) {
-            cleanedReply = cleanedReply.substring(prefix.length).trim();
-            break;
-          }
-        }
-
-        // Update store with reply
-        useEmailStore.setState((state) => ({
-          emails: state.emails.map(e =>
-            e.id === emailId ? { ...e, ai_generated_reply: cleanedReply } : e
-          ),
-        }));
-        // Persist updated reply to disk
-        persistEmailsToDisk();
-      } else {
-        console.log(`[AI Processing] Reply API returned no reply for ${emailId}:`, result);
-      }
-    } else {
-      console.log(`[AI Processing] Reply API failed for ${emailId}:`, response.status);
-    }
-  } catch (e) {
-    console.error('[AI Processing] Failed to generate reply:', e);
-  } finally {
-    processingEmails.delete(`${emailId}-reply`);
-    // Remove from generatingReplies set
-    useEmailStore.setState((state) => {
-      const newSet = new Set(state.generatingReplies);
-      newSet.delete(emailId);
-      return { generatingReplies: newSet };
-    });
-  }
-}
-
-// Classify an email's priority using AI
-async function classifyEmailPriority(emailId: string): Promise<void> {
-  try {
-    const store = useEmailStore.getState();
-    const email = store.emails.find(e => e.id === emailId);
-    if (!email || email.category !== 'Normal') return; // Skip if already classified
-
-    const { invoke } = await import('@tauri-apps/api/core');
-    const result = await invoke<{ category: string; confidence: number; requires_reply: boolean; can_auto_archive: boolean }>('classify_email', {
-      emailContent: email.body_text || email.snippet || '',
-      sender: email.sender,
-      subject: email.subject,
-    });
-
-    // Map the category to our enum (capitalize first letter)
-    const categoryMap: Record<string, Email['category']> = {
-      'urgent': 'Urgent',
-      'important': 'Important',
-      'normal': 'Normal',
-      'low': 'Low',
-    };
-    const category = categoryMap[result.category.toLowerCase()] || 'Normal';
-
-    useEmailStore.setState((state) => ({
-      emails: state.emails.map(e =>
-        e.id === emailId ? { ...e, category } : e
-      ),
-    }));
-    persistEmailsToDisk();
-  } catch (e) {
-    console.error(`[AI Processing] Failed to classify email ${emailId}:`, e);
-  }
-}
-
-// Process an email completely (summary + questions + classification) - does the actual work, should be queued
-async function processEmailCore(emailId: string) {
-  // Mark as generating (removed in generateSummaryForEmail's finally block)
-  useEmailStore.setState((state) => ({
-    generatingSummaries: new Set(state.generatingSummaries).add(emailId)
-  }));
-
-  await generateSummaryForEmail(emailId);
-  // After summary completes, process questions and classify in parallel
-  await Promise.all([
-    generateQuestionsForEmail(emailId),
-    classifyEmailPriority(emailId),
-  ]);
-}
-
-// Process an email with queuing (for immediate processing)
-function processEmail(emailId: string) {
-  queueAIOperation(() => processEmailCore(emailId));
-}
-
-// Process a single email immediately (for when user clicks on an email)
-function processEmailImmediately(emailId: string) {
-  // Only process if not already being processed
-  if (!processingEmails.has(`${emailId}-summary`)) {
-    queueAIOperation(() => processEmailCore(emailId));
-  }
-}
-
-// Backfill question data for emails that have summaries but missing deadline/sender_tone
-// (These were analyzed before the persistence code was added)
-function backfillQuestionData(emailIds: string[]) {
-  console.log(`[AI Processing] Backfilling question data for ${emailIds.length} emails`);
-  emailIds.forEach((emailId) => {
-    queueAIOperation(() => generateQuestionsForEmail(emailId));
-  });
-}
-
-// Process multiple emails - adds them to the queue for sequential processing
-function processMultipleEmails(emailIds: string[]) {
-  console.log('[AI Processing] Queuing emails for sequential processing:', emailIds);
-  // Add all emails to the queue - they will be processed one at a time
-  emailIds.forEach((emailId) => {
-    queueAIOperation(() => processEmailCore(emailId));
-  });
-}
+// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
+// function processMultipleEmails(emailIds: string[]) { ... }
 
 // Persist emails to disk (fire-and-forget, non-blocking)
 async function persistEmailsToDisk() {
   try {
-    const state = useEmailStore.getState();
+    const state = getStoreState();
     // Don't persist empty state — would overwrite good cached data
     if (state.emails.length === 0 && state.sentEmails.length === 0) return;
 
@@ -827,6 +516,7 @@ async function persistEmailsToDisk() {
   }
 }
 
+// First, create the store with minimal state
 export const useEmailStore = create<EmailState>((set, get) => ({
   emails: [],
   sentEmails: [],
@@ -1004,7 +694,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
               reminder_snoozed_until: existing.reminder_snoozed_until,
               needs_follow_up: existing.needs_follow_up,
               inReplyTo: existing.inReplyTo,
-              originalEmail: existing.originalEmail,
+              // originalEmail: existing.originalEmail,  // TEMPORARILY REMOVED
             });
           } else {
             existingById.set(newEmail.id, newEmail);
@@ -3057,7 +2747,7 @@ Stanford University`,
     ];
 
     // Set the sample emails in the store
-    useEmailStore.getState().setEmails(sampleEmails);
+    getStoreState().setEmails(sampleEmails);
 
     // Set up the question data for the sample emails
     if (!(window as any).emailQuestionData) {
@@ -3156,7 +2846,7 @@ Stanford University`,
   };
 
   (window as any).clearSampleEmails = () => {
-    useEmailStore.getState().setEmails([]);
+    getStoreState().setEmails([]);
     console.log('✅ Cleared sample emails');
   };
 
@@ -3179,3 +2869,9 @@ Stanford University`,
   //   }
   // };
 }
+
+// Initialize getStoreState function for use in helper functions
+getStoreState = () => useEmailStore.getState();
+// DISABLED - Not needed since helper functions are disabled
+// getStore = () => useEmailStore.getState();
+// setStore = (fn: (state: any) => any) => useEmailStore.setState(fn);

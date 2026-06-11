@@ -33,8 +33,63 @@ export interface ChatMessage {
 }
 
 export interface ChatAction {
-  type: 'search' | 'compose' | 'archive' | 'delete' | 'save' | 'mark_read' | 'mark_unread' | 'navigate' | 'summarize' | 'remind' | 'none';
+  type: 'search' | 'compose' | 'reply' | 'web_search' | 'discover_companies' | 'archive' | 'delete' | 'save' | 'mark_read' | 'mark_unread' | 'navigate' | 'summarize' | 'remind' | 'none';
   data: any;
+}
+
+// ==================== WEB SEARCH TYPES ====================
+
+export interface WebSearchRequest {
+  query: string;
+  max_results?: number;
+}
+
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  content: string;
+}
+
+export interface WebSearchResponse {
+  results: WebSearchResult[];
+  query: string;
+}
+
+export interface CompanyContact {
+  company_name: string;
+  domain: string;
+  description: string;
+  email?: string;
+  confidence: number;
+}
+
+// ==================== WEB SEARCH FUNCTIONS ====================
+
+/**
+ * Search the web using DuckDuckGo (free, no API key)
+ */
+export async function webSearch(request: WebSearchRequest): Promise<WebSearchResponse> {
+  try {
+    return await invoke<WebSearchResponse>('web_search', { request });
+  } catch (error) {
+    console.error('Failed to search web:', error);
+    throw error;
+  }
+}
+
+/**
+ * Discover companies based on criteria (free, no API key)
+ */
+export async function discoverCompanies(query: string, maxResults: number): Promise<CompanyContact[]> {
+  try {
+    return await invoke<CompanyContact[]>('discover_companies', {
+      query,
+      maxResults,
+    });
+  } catch (error) {
+    console.error('Failed to discover companies:', error);
+    throw error;
+  }
 }
 
 export interface ChatResponse {

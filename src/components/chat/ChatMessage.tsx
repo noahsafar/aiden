@@ -1,9 +1,14 @@
 import React from 'react';
-import { ChatMessage as ChatMessageType } from '@/api/chatbot';
 import { UserIcon, SparklesIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
 
+interface SimpleMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  source?: 'voice' | 'typed';
+}
+
 interface ChatMessageProps {
-  message: ChatMessageType;
+  message: SimpleMessage;
 }
 
 export function ChatMessage({ message }: ChatMessageProps) {

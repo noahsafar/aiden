@@ -38,7 +38,7 @@ pub struct ChatMessage {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChatAction {
     #[serde(rename = "type")]
-    pub action_type: String,  // "search", "compose", "archive", "delete", "save", "mark_read", "mark_unread", "navigate", "summarize", "remind", "none"
+    pub action_type: String,  // "search", "compose", "reply", "archive", "delete", "save", "mark_read", "mark_unread", "navigate", "summarize", "remind", "none"
     pub data: serde_json::Value,
 }
 
@@ -233,15 +233,18 @@ fn build_system_prompt(context: &ChatContext) -> String {
 Available actions you can take:
 1. **search** - Search emails using Gmail query syntax. Return `data.query` with the search query.
 2. **compose** - Compose a new email. Return `data.to`, `data.subject`, `data.body`.
-3. **archive** - Archive emails. Return `data.email_ids` as an array of email IDs to archive.
-4. **delete** - Delete emails. Return `data.email_ids` as an array of email IDs to delete.
-5. **save** - Save/bookmark emails. Return `data.email_ids` as an array of email IDs to save.
-6. **mark_read** - Mark emails as read. Return `data.email_ids` as an array of email IDs.
-7. **mark_unread** - Mark emails as unread. Return `data.email_ids` as an array of email IDs.
-8. **navigate** - Navigate to a specific email. Return `data.email_id`.
-9. **summarize** - Provide a summary (included in reply_message, no special data needed).
-10. **remind** - Set a reminder. Return `data.message` and `data.due_date` (ISO 8601).
-11. **none** - Just respond conversationally without taking action.
+3. **reply** - Reply to an email. Return `data.email_id` and optionally `data.body` (AI-generated reply).
+4. **web_search** - Search the web for information. Return `data.query` with the search query.
+5. **discover_companies** - Find companies matching criteria. Return `data.query` and `data.count` (max 50).
+6. **archive** - Archive emails. Return `data.email_ids` as an array of email IDs to archive.
+7. **delete** - Delete emails. Return `data.email_ids` as an array of email IDs to delete.
+8. **save** - Save/bookmark emails. Return `data.email_ids` as an array of email IDs to save.
+9. **mark_read** - Mark emails as read. Return `data.email_ids` as an array of email IDs.
+10. **mark_unread** - Mark emails as unread. Return `data.email_ids` as an array of email IDs.
+11. **navigate** - Navigate to a specific email. Return `data.email_id`.
+12. **summarize** - Provide a summary (included in reply_message, no special data needed).
+13. **remind** - Set a reminder. Return `data.message` and `data.due_date` (ISO 8601).
+14. **none** - Just respond conversationally without taking action.
 
 Context about the user:
 "#.to_string();
@@ -310,6 +313,9 @@ Always respond with valid JSON (no markdown, no explanation):
 Action-specific data formats:
 - **search**: `{"query": "gmail search query string"}`
 - **compose**: `{"to": "recipient@example.com", "subject": "Email subject", "body": "Email body"}`
+- **reply**: `{"email_id": "email_id_here", "body": "Optional AI-generated reply text"}`
+- **web_search**: `{"query": "web search query"}`
+- **discover_companies**: `{"query": "company type/criteria", "count": number of results}`
 - **archive**: `{"email_ids": ["id1", "id2", ...]}`
 - **delete**: `{"email_ids": ["id1", "id2", ...]}`
 - **save**: `{"email_ids": ["id1", "id2", ...]}`

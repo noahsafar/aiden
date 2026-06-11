@@ -1,9 +1,9 @@
 import { MessageSquare, X } from 'lucide-react';
-import { useChatStore } from '@/stores/chatStore';
+import { useChatContext } from '@/contexts/ChatContext';
 import { useState, useEffect } from 'react';
 
 export function ChatTrigger() {
-  const { isOpen, openChat, closeChat } = useChatStore();
+  const { isOpen, openChat, closeChat } = useChatContext();
   const [isHovered, setIsHovered] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
 

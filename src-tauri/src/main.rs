@@ -6,7 +6,7 @@ mod models;
 mod services;
 mod utils;
 
-use commands::{auth, gmail, ai, database, settings, fs, crm, chatbot, email_storage, life_data};
+use commands::{auth, gmail, ai, database, settings, fs, crm, chatbot, email_storage, life_data, web_search};
 use services::storage::TokenStorage;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -131,6 +131,9 @@ fn main() {
             chatbot::delete_reminder,
             chatbot::get_due_reminders,
             chatbot::mark_reminder_triggered,
+            // Web search commands
+            web_search::web_search,
+            web_search::discover_companies,
             // Life intelligence commands
             life_data::save_life_items,
             life_data::load_life_items,

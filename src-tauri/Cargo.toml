@@ -28,6 +28,7 @@ lettre = "0.11"
 dirs = "5.0"
 dotenv = "0.15"
 lazy_static = "1.4"
+urlencoding = "2.1"
 
 # REQUIRED FOR TAURI 2.0 !!!
 [package.metadata.tauri]

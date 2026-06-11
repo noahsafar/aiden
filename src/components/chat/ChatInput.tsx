@@ -1,10 +1,10 @@
 import React, { useState, KeyboardEvent } from 'react';
 import { PaperAirplaneIcon } from '@heroicons/react/24/outline';
-import { useChatStore } from '@/stores/chatStore';
+import { useChatContext } from '@/contexts/ChatContext';
 
 export function ChatInput() {
   const [input, setInput] = useState('');
-  const { sendMessage, isProcessing } = useChatStore();
+  const { sendMessage, isProcessing } = useChatContext();
 
   const handleSend = () => {
     if (input.trim() && !isProcessing) {

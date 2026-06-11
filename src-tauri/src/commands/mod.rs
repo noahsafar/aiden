@@ -10,3 +10,4 @@ pub mod crm;
 pub mod chatbot;
 pub mod email_storage;
 pub mod life_data;
+pub mod web_search;

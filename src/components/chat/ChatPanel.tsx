@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
-import { useChatStore } from '@/stores/chatStore';
+import { useChatContext } from '@/contexts/ChatContext';
 import { ChatMessage as ChatMessageComponent } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ChatEmailCard } from './ChatEmailCard';
 
 export function ChatPanel() {
-  const { messages, isOpen, closeChat, isProcessing, searchResults } = useChatStore();
+  const { messages, isOpen, closeChat, isProcessing, searchResults } = useChatContext();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
