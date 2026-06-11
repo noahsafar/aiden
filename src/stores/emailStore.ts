@@ -3160,12 +3160,11 @@ Stanford University`,
     console.log('✅ Cleared sample emails');
   };
 
-  // Auto-load sample emails immediately (DEV MODE - always load for now)
-  // DISABLED: Using real data now
-  // setTimeout(() => {
-  //   console.log('DEV MODE: Loading sample data for testing...');
-  //   (window as any).loadSampleEmails();
-  // }, 100);
+  // Auto-load sample emails immediately (DEV MODE)
+  setTimeout(() => {
+    console.log('DEV MODE: Loading sample data for testing...');
+    (window as any).loadSampleEmails();
+  }, 100);
 
   // Also make the sample emails available to the global window object for easier debugging
   // and to ensure they populate the inbox properly

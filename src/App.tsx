@@ -483,16 +483,17 @@ function App() {
         const { initializeReminderChecker } = useEmailStore.getState();
         initializeReminderChecker();
 
+        // DEV MODE: skip real Gmail fetch, sample emails loaded from emailStore
         // Load cached emails from disk first (instant display)
-        await loadFromDisk();
+        // await loadFromDisk();
         // Purge trash older than 30 days
-        useEmailStore.getState().purgeOldTrash();
+        // useEmailStore.getState().purgeOldTrash();
         // Load life intelligence data from disk
-        import('@/stores/lifeStore').then(({ useLifeStore }) => {
-          useLifeStore.getState().loadFromDisk();
-        });
+        // import('@/stores/lifeStore').then(({ useLifeStore }) => {
+        //   useLifeStore.getState().loadFromDisk();
+        // });
         // Then fetch fresh emails from Gmail (silently if cache was loaded)
-        fetchEmails();
+        // fetchEmails();
       }
     };
 
@@ -500,8 +501,10 @@ function App() {
   }, [initialize, isAuthenticated, loadThemeFromSettings, loadFromDisk, fetchEmails]);
 
   // Set up polling for new emails - only poll when window is focused to reduce load
+  // DEV MODE: polling disabled, using mock emails
   useEffect(() => {
     if (!isAuthenticated) return;
+    return; // DEV MODE: skip polling
 
     let interval: NodeJS.Timeout | null = null;
     let lastFetchTime = 0;
@@ -647,6 +650,18 @@ function App() {
       resizeObserver.disconnect();
     };
   }, [selectedEmail, animationPhase]);
+
+  const handleVoiceCompose = React.useCallback(() => {
+    if (!voiceSupported) {
+      setToasts(prev => [...prev, {
+        id: `voice-unsupported-${Date.now()}`,
+        message: 'Voice commands not supported in this browser',
+        duration: 4000,
+      }]);
+      return;
+    }
+    toggleListening();
+  }, [voiceSupported, toggleListening]);
 
   // Keyboard shortcuts (Cmd+I for chat, r for respond)
   useEffect(() => {
@@ -862,18 +877,6 @@ function App() {
   const handleQuickSearch = () => {
     console.log('Open quick search');
     // Open quick search modal
-  };
-
-  const handleVoiceCompose = () => {
-    if (!voiceSupported) {
-      setToasts(prev => [...prev, {
-        id: `voice-unsupported-${Date.now()}`,
-        message: 'Voice commands not supported in this browser',
-        duration: 4000,
-      }]);
-      return;
-    }
-    toggleListening();
   };
 
   const handleBump = async (emailData: any, allThreadEmails: any[], threadEmail: any, instruction?: string) => {
