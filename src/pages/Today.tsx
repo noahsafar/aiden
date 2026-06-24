@@ -606,17 +606,6 @@ export const Today: React.FC = () => {
     [opportunities, focusOppIds],
   );
 
-  // Header outcome bullets — phrase as outcomes, colored by type
-  const dayOutcomes = useMemo(() => {
-    const bullets: Array<{ text: string; color: string }> = [];
-    const first = focusItems[0];
-    if (first?.type === 'attention') bullets.push({ text: first.item.outcomeTitle, color: first.item.severity >= 70 ? 'bg-rose-500' : 'bg-amber-400' });
-    else if (first?.type === 'opportunity') bullets.push({ text: first.item.outcomeTitle, color: 'bg-emerald-500' });
-    const owedCount = openCommitments.filter((c) => c.direction === 'you_owe').length;
-    if (owedCount > 0) bullets.push({ text: `Closing ${owedCount} blocked conversation${owedCount > 1 ? 's' : ''}`, color: 'bg-amber-400' });
-    if (remainingOpps.length > 0) bullets.push({ text: `Strengthening ${remainingOpps.length} key relationship${remainingOpps.length > 1 ? 's' : ''}`, color: 'bg-emerald-500' });
-    return bullets.slice(0, 3);
-  }, [focusItems, openCommitments, remainingOpps]);
 
   // AI "morning brief" — one sharp, specific sentence orienting the day.
   const [dayBrief, setDayBrief] = useState<string>('');
@@ -700,17 +689,6 @@ export const Today: React.FC = () => {
           <div className="flex items-start gap-2.5 mb-5 max-w-2xl">
             <Sparkles className="mt-1 h-4 w-4 flex-shrink-0 text-violet-500" />
             <p className="text-[17px] text-foreground/80 leading-relaxed">{dayBrief}</p>
-          </div>
-        )}
-
-        {dayOutcomes.length > 0 && (
-          <div className="space-y-2.5 mb-5">
-            {dayOutcomes.map((b, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <div className={cn('mt-[5px] h-1.5 w-1.5 flex-shrink-0 rounded-full', b.color)} />
-                <p className="text-[15px] text-muted leading-snug">{b.text}</p>
-              </div>
-            ))}
           </div>
         )}
 
