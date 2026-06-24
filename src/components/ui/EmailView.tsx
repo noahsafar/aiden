@@ -702,19 +702,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
   React.useEffect(() => {
     const newEmailId = email?.id || null;
 
-    // Mark email as read when viewed (if setting enabled and not already read)
-    if (newEmailId && !isSentEmail && fullEmail && !fullEmail.is_read) {
-      invoke('get_settings').then((settings: any) => {
-        if (settings.mark_as_read_on_view !== false && !hasMarkedAsReadRef.current.has(newEmailId)) {
-          markAsRead(newEmailId);
-          hasMarkedAsReadRef.current.add(newEmailId);
-        }
-      }).catch(() => {
-        // Default to marking as read if settings fail to load
-        markAsRead(newEmailId);
-        hasMarkedAsReadRef.current.add(newEmailId);
-      });
-    }
+    // Opening an email no longer auto-marks it read — it stays in the inbox.
+    // (Read/unread can still be set explicitly via the right-click menu.)
 
     // Save previous email's state before switching
     if (prevEmailIdRef.current && prevEmailIdRef.current !== newEmailId) {

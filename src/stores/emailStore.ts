@@ -1020,9 +1020,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   selectEmail: (email) => {
     set({ selectedEmail: email });
-    if (email && !email.is_read) {
-      get().markAsRead(email.id);
-    }
+    // Note: opening an email no longer auto-marks it read — it stays in the inbox.
+    // (Use the right-click menu to mark read/unread explicitly.)
     // Trigger AI processing when user selects an email
     if (email && email.id) {
       const fullEmail = get().emails.find(e => e.id === email.id);
