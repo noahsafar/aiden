@@ -2,7 +2,7 @@ import React from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Sparkles } from 'lucide-react';
-import logo from '/aiden-wordmark.svg';
+import logo from '/aiden-wordmark.png';
 
 export const Login: React.FC = () => {
   const { signIn, isLoading, error } = useAuthStore();
