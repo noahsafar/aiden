@@ -613,7 +613,11 @@ export const Today: React.FC = () => {
     const topPriority = top ? top.item.outcomeTitle : undefined;
     const overdueC = openCommitments.find((c) => isOverdue(c, now));
     const mostOverdue = overdueC ? overdueC.text : undefined;
-    const upcoming = [...events].filter((e) => !e.all_day).sort((a, b) => (a.start || '').localeCompare(b.start || ''))[0];
+    // Only an UPCOMING meeting counts — never reference one that already happened.
+    const nowMs = now.getTime();
+    const upcoming = [...events]
+      .filter((e) => !e.all_day && e.start && new Date(e.start).getTime() >= nowMs)
+      .sort((a, b) => (a.start || '').localeCompare(b.start || ''))[0];
     const nextMeeting = upcoming ? `${upcoming.summary} at ${upcoming.time}` : undefined;
     let cancelled = false;
     synthesizeDayBrief({
@@ -645,17 +649,15 @@ export const Today: React.FC = () => {
   );
   const nextUp = useMemo(() => {
     const nowMs = Date.now();
-    const future = sortedEvents.find((e) => {
+    // Only a genuinely upcoming, timed meeting — never one that already started.
+    const ev = sortedEvents.find((e) => {
       const t = e.start ? new Date(e.start).getTime() : NaN;
-      return !isNaN(t) && t >= nowMs;
+      return !e.all_day && !isNaN(t) && t >= nowMs;
     });
-    const ev = future || sortedEvents.find((e) => !e.all_day) || null;
     if (!ev) return null;
-    const t = ev.start ? new Date(ev.start).getTime() : NaN;
-    const mins = !isNaN(t) ? Math.round((t - nowMs) / 60000) : null;
-    let when: string;
-    if (mins != null && mins >= 0 && mins < 600) when = mins < 60 ? `in ${mins} min` : `in ${Math.round(mins / 60)}h`;
-    else when = ev.time || '';
+    const t = new Date(ev.start).getTime();
+    const mins = Math.round((t - nowMs) / 60000);
+    const when = mins < 60 ? `in ${mins} min` : mins < 600 ? `in ${Math.round(mins / 60)}h` : (ev.time || '');
     return { ev, when };
   }, [sortedEvents]);
 

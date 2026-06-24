@@ -377,13 +377,13 @@ export const Ask: React.FC = () => {
       </div>
 
       {/* Composer */}
-      <div className="border-t border-gray-200/70 bg-background/80 px-8 py-3 backdrop-blur-xl dark:border-white/[0.06]">
+      <div className="border-t border-gray-200/70 bg-background/80 px-8 py-2.5 backdrop-blur-xl dark:border-white/[0.06]">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             run(input);
           }}
-          className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-gray-200/80 bg-white px-4 py-2.5 shadow-elevated-sm focus-within:border-violet-400 dark:border-white/[0.08] dark:bg-white/[0.04]"
+          className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-gray-200/80 bg-white px-4 py-1.5 shadow-elevated-sm focus-within:border-violet-400 dark:border-white/[0.08] dark:bg-white/[0.04]"
         >
           <textarea
             value={input}
@@ -401,7 +401,7 @@ export const Ask: React.FC = () => {
           <button
             type="submit"
             disabled={!input.trim()}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gray-900 text-white transition-all hover:bg-gray-800 disabled:opacity-40 dark:bg-white dark:text-gray-900"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-gray-900 text-white transition-all hover:bg-gray-800 disabled:opacity-40 dark:bg-white dark:text-gray-900"
           >
             <ArrowUp className="h-4 w-4" />
           </button>
