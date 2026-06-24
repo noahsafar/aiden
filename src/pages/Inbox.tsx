@@ -1,17 +1,22 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mail, MessageSquare, Sparkles, Check, CornerUpLeft, Send, Loader2 } from 'lucide-react';
-import {
-  SurfaceHeader,
-  SoftButton,
-  PersonAvatar,
-  EmptyState,
-  relativeTime,
-} from '@/components/aiden/primitives';
+import { Mail, Hash, Users, MessageCircle, Layers, Github, Sparkles, Check, CornerUpLeft, Send, Loader2 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { SurfaceHeader, SoftButton, PersonAvatar, EmptyState, relativeTime } from '@/components/aiden/primitives';
 import { useEmailStore } from '@/stores/emailStore';
 import { useChannelStore, emailToUnified, UnifiedMessage, ChannelId } from '@/stores/channelStore';
 import { answerFromContext } from '@/api/aiden';
 import { cn } from '@/lib/utils';
+
+/* Per-channel visual identity (icon + badge color + label). */
+const CHANNEL_META: Record<ChannelId, { icon: LucideIcon; badge: string; label: string }> = {
+  email: { icon: Mail, badge: 'bg-sky-500', label: 'Email' },
+  slack: { icon: Hash, badge: 'bg-violet-500', label: 'Slack' },
+  teams: { icon: Users, badge: 'bg-indigo-500', label: 'Teams' },
+  whatsapp: { icon: MessageCircle, badge: 'bg-emerald-500', label: 'WhatsApp' },
+  linear: { icon: Layers, badge: 'bg-indigo-400', label: 'Linear' },
+  github: { icon: Github, badge: 'bg-gray-700 dark:bg-gray-500', label: 'GitHub' },
+};
 
 /* Does this message need a response from the user? */
 function isActionable(m: UnifiedMessage): boolean {
@@ -19,22 +24,17 @@ function isActionable(m: UnifiedMessage): boolean {
     const r = m.raw as any;
     return r?.requires_reply === true || r?.category === 'Urgent' || r?.category === 'Important';
   }
-  // Slack: unread DMs + high-priority mentions need you.
-  return m.unread && (m.priority === 'high' || m.title === 'Direct message');
+  // Any other channel: unread + not low-priority (DMs, mentions, assignments, reviews).
+  return m.unread && m.priority !== 'low';
 }
-
-const CHANNELS: { id: ChannelId | 'all'; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'email', label: 'Email' },
-  { id: 'slack', label: 'Slack' },
-];
 
 export const Inbox: React.FC = () => {
   const navigate = useNavigate();
   const emails = useEmailStore((s) => s.emails);
   const updateEmailStatus = useEmailStore((s) => s.updateEmailStatus);
-  const slackMessages = useChannelStore((s) => s.slackMessages);
-  const markSlackRead = useChannelStore((s) => s.markSlackRead);
+  const channelMessages = useChannelStore((s) => s.channelMessages);
+  const channels = useChannelStore((s) => s.channels);
+  const markRead = useChannelStore((s) => s.markRead);
 
   const [view, setView] = useState<'needs' | 'all'>('needs');
   const [channel, setChannel] = useState<ChannelId | 'all'>('all');
@@ -44,10 +44,10 @@ export const Inbox: React.FC = () => {
     const emailMsgs = emails
       .filter((e) => !['Deleted', 'Archived', 'Saved'].includes(e.status))
       .map((e) => emailToUnified(e));
-    return [...emailMsgs, ...slackMessages].sort(
+    return [...emailMsgs, ...channelMessages].sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
-  }, [emails, slackMessages]);
+  }, [emails, channelMessages]);
 
   const needsCount = useMemo(() => all.filter(isActionable).length, [all]);
 
@@ -55,7 +55,6 @@ export const Inbox: React.FC = () => {
     let arr = all; // `all` is already newest-first
     if (channel !== 'all') arr = arr.filter((m) => m.channel === channel);
     if (view === 'needs') {
-      // Triage order: most urgent first (unread breaks ties), then recency.
       const rank = (p?: string) => (p === 'high' ? 3 : p === 'medium' ? 2 : 1);
       arr = arr.filter(isActionable).sort((a, b) => {
         const r = rank(b.priority) - rank(a.priority);
@@ -67,33 +66,32 @@ export const Inbox: React.FC = () => {
     return arr;
   }, [all, view, channel]);
 
+  const channelTabs: { id: ChannelId | 'all'; label: string }[] = [
+    { id: 'all', label: 'All' },
+    ...channels.map((c) => ({ id: c.id, label: c.label })),
+  ];
+
   const onDone = (m: UnifiedMessage) => {
     if (m.channel === 'email') updateEmailStatus(m.id, 'Archived');
-    else markSlackRead(m.id);
+    else markRead(m.id);
     setExpandedId(null);
   };
 
   const onOpen = (m: UnifiedMessage) => {
-    if (m.channel === 'email') {
-      navigate(`/today/email/${m.id}`, { state: { returnPath: '/inbox' } });
-    } else {
-      setExpandedId((id) => (id === m.id ? null : m.id));
-    }
+    if (m.channel === 'email') navigate(`/today/email/${m.id}`, { state: { returnPath: '/inbox' } });
+    else setExpandedId((id) => (id === m.id ? null : m.id));
   };
 
   const onReply = (m: UnifiedMessage) => {
-    if (m.channel === 'email') {
-      navigate(`/today/email/${m.id}`, { state: { returnPath: '/inbox', autoReply: true } });
-    } else {
-      setExpandedId(m.id);
-    }
+    if (m.channel === 'email') navigate(`/today/email/${m.id}`, { state: { returnPath: '/inbox', autoReply: true } });
+    else setExpandedId(m.id);
   };
 
   return (
     <div className="mx-auto flex h-full w-full max-w-4xl flex-col px-8 py-8">
       <SurfaceHeader
         title="Inbox"
-        subtitle="Everything that needs you — across email and Slack. Read, reply, and clear it here."
+        subtitle="Everything that needs you — across email, Slack, Teams, and more. Read, reply, and clear it here."
       />
 
       {/* Controls: action-first toggle + channel filter */}
@@ -110,12 +108,7 @@ export const Inbox: React.FC = () => {
             >
               {v === 'needs' ? 'Needs you' : 'All'}
               {v === 'needs' && needsCount > 0 && (
-                <span
-                  className={cn(
-                    'rounded-full px-1.5 text-[10px] font-semibold',
-                    view === v ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400' : 'bg-gray-200 text-gray-600 dark:bg-white/10',
-                  )}
-                >
+                <span className="rounded-full bg-violet-500/15 px-1.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
                   {needsCount}
                 </span>
               )}
@@ -124,22 +117,24 @@ export const Inbox: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {CHANNELS.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setChannel(c.id)}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors',
-                channel === c.id
-                  ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-                  : 'bg-gray-100 text-muted hover:text-foreground dark:bg-white/[0.06]',
-              )}
-            >
-              {c.id === 'email' && <Mail className="h-3 w-3" />}
-              {c.id === 'slack' && <MessageSquare className="h-3 w-3" />}
-              {c.label}
-            </button>
-          ))}
+          {channelTabs.map((c) => {
+            const Icon = c.id === 'all' ? null : CHANNEL_META[c.id as ChannelId].icon;
+            return (
+              <button
+                key={c.id}
+                onClick={() => setChannel(c.id)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors',
+                  channel === c.id
+                    ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
+                    : 'bg-gray-100 text-muted hover:text-foreground dark:bg-white/[0.06]',
+                )}
+              >
+                {Icon && <Icon className="h-3 w-3" />}
+                {c.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -187,8 +182,9 @@ const MessageRow: React.FC<{
   onDone: () => void;
 }> = ({ message: m, expanded, onOpen, onReply, onDone }) => {
   const isEmail = m.channel === 'email';
+  const meta = CHANNEL_META[m.channel];
+  const ChannelIcon = meta.icon;
   const aiSummary = isEmail ? (m.raw as any)?.summary : null;
-  const subtitle = isEmail ? m.title : m.title; // email subject / slack channel
   const body = aiSummary || m.preview;
 
   return (
@@ -206,10 +202,10 @@ const MessageRow: React.FC<{
           <span
             className={cn(
               'absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full ring-2 ring-white dark:ring-[#0c0e14]',
-              isEmail ? 'bg-sky-500' : 'bg-violet-500',
+              meta.badge,
             )}
           >
-            {isEmail ? <Mail className="h-2.5 w-2.5 text-white" /> : <MessageSquare className="h-2.5 w-2.5 text-white" />}
+            <ChannelIcon className="h-2.5 w-2.5 text-white" />
           </span>
         </div>
 
@@ -227,7 +223,7 @@ const MessageRow: React.FC<{
             )}
             <span className="ml-auto flex-shrink-0 text-[11px] text-muted/50">{relativeTime(m.timestamp)}</span>
           </div>
-          {isEmail && <div className="mt-0.5 truncate text-[13px] font-medium text-foreground/80">{subtitle}</div>}
+          {isEmail && <div className="mt-0.5 truncate text-[13px] font-medium text-foreground/80">{m.title}</div>}
           <div className="mt-0.5 flex items-start gap-1.5">
             {aiSummary && <Sparkles className="mt-0.5 h-3 w-3 flex-shrink-0 text-violet-400" />}
             <p
@@ -260,10 +256,10 @@ const MessageRow: React.FC<{
             </button>
           </div>
 
-          {/* Slack inline reply (read + respond from here) */}
+          {/* Inline reply for chat-style channels (read + respond from here) */}
           {expanded && !isEmail && (
             <div onClick={(e) => e.stopPropagation()}>
-              <SlackReply message={m} onSent={onDone} />
+              <ChannelReply message={m} channelLabel={meta.label} onSent={onDone} />
             </div>
           )}
         </div>
@@ -273,9 +269,13 @@ const MessageRow: React.FC<{
 };
 
 /* ------------------------------------------------------------------ */
-/* Slack inline reply with AI draft (mock send until real integration) */
+/* Inline reply with AI draft (mock send until real integrations land) */
 /* ------------------------------------------------------------------ */
-const SlackReply: React.FC<{ message: UnifiedMessage; onSent: () => void }> = ({ message, onSent }) => {
+const ChannelReply: React.FC<{ message: UnifiedMessage; channelLabel: string; onSent: () => void }> = ({
+  message,
+  channelLabel,
+  onSent,
+}) => {
   const [text, setText] = useState('');
   const [drafting, setDrafting] = useState(false);
 
@@ -284,10 +284,9 @@ const SlackReply: React.FC<{ message: UnifiedMessage; onSent: () => void }> = ({
     try {
       const intent = text.trim();
       const instruction = intent
-        ? `Write a brief, friendly Slack reply to ${message.authorName}'s message, following this instruction from me: "${intent}". Output ONLY the reply itself — no surrounding quotation marks, no preamble.`
-        : `Write a brief, friendly Slack reply to ${message.authorName}'s message. Output ONLY the reply itself — no surrounding quotation marks, no preamble.`;
+        ? `Write a brief, friendly ${channelLabel} reply to ${message.authorName}'s message, following this instruction from me: "${intent}". Output ONLY the reply itself — no surrounding quotation marks, no preamble.`
+        : `Write a brief, friendly ${channelLabel} reply to ${message.authorName}'s message. Output ONLY the reply itself — no surrounding quotation marks, no preamble.`;
       const reply = await answerFromContext(instruction, `${message.authorName}: ${message.preview}`);
-      // Models sometimes wrap the reply in quotes — strip surrounding quotes.
       if (reply) setText(reply.trim().replace(/^["'“”]+|["'“”]+$/g, '').trim());
     } finally {
       setDrafting(false);
@@ -311,11 +310,7 @@ const SlackReply: React.FC<{ message: UnifiedMessage; onSent: () => void }> = ({
         >
           {drafting ? 'Drafting…' : 'Draft with Aiden'}
         </SoftButton>
-        <SoftButton
-          variant="primary"
-          icon={<Send className="h-3.5 w-3.5" />}
-          onClick={() => text.trim() && onSent()}
-        >
+        <SoftButton variant="primary" icon={<Send className="h-3.5 w-3.5" />} onClick={() => text.trim() && onSent()}>
           Send
         </SoftButton>
       </div>

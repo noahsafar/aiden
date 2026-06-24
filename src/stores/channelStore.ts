@@ -15,7 +15,7 @@ import { create } from 'zustand';
  *   them to `UnifiedMessage`, and flip `connected: true`. See SLACK_SETUP below.
  */
 
-export type ChannelId = 'email' | 'slack';
+export type ChannelId = 'email' | 'slack' | 'teams' | 'whatsapp' | 'linear' | 'github';
 
 export interface UnifiedMessage {
   id: string;
@@ -48,98 +48,90 @@ export interface Channel {
 
 interface ChannelState {
   channels: Channel[];
-  slackMessages: UnifiedMessage[];
+  /** all non-email channel messages (slack, teams, whatsapp, …); email is read live from emailStore */
+  channelMessages: UnifiedMessage[];
   activeChannel: ChannelId | 'all';
   setActiveChannel: (c: ChannelId | 'all') => void;
   connectChannel: (id: ChannelId) => void;
-  /** returns slack mock messages (email is read live from emailStore by the consumer) */
-  getSlackMessages: () => UnifiedMessage[];
-  markSlackRead: (id: string) => void;
+  markRead: (id: string) => void;
 }
 
 /* ------------------------------------------------------------------ */
-/* Mock Slack data — realistic, derived from the same fictional world  */
-/* as the sample emails (Acme, investors, hiring, etc.)                */
+/* Mock channel data — realistic, derived from the same fictional world */
+/* as the sample emails (Acme, investors, hiring, etc.). One entry per   */
+/* channel type so the unified Inbox shows the full multi-channel shape. */
 /* ------------------------------------------------------------------ */
 
 function hoursAgo(h: number): string {
   return new Date(Date.now() - h * 3600 * 1000).toISOString();
 }
 
-const MOCK_SLACK: UnifiedMessage[] = [
+const MOCK_MESSAGES: UnifiedMessage[] = [
+  // Slack
   {
-    id: 'slack-1',
-    channel: 'slack',
-    threadId: 'slack-growth',
-    authorName: 'Priya Nair',
-    authorHandle: '@priya',
-    title: '#growth',
+    id: 'slack-1', channel: 'slack', threadId: 'slack-growth',
+    authorName: 'Priya Nair', authorHandle: '@priya', title: '#growth',
     preview: 'Hey — can you review the Q2 pipeline deck before the investor call? Left comments on slide 7.',
-    timestamp: hoursAgo(1.5),
-    unread: true,
-    outgoing: false,
-    priority: 'high',
+    timestamp: hoursAgo(1.5), unread: true, outgoing: false, priority: 'high',
   },
   {
-    id: 'slack-2',
-    channel: 'slack',
-    threadId: 'slack-dm-marcus',
-    authorName: 'Marcus Lee',
-    authorHandle: '@marcus',
-    title: 'Direct message',
+    id: 'slack-2', channel: 'slack', threadId: 'slack-dm-marcus',
+    authorName: 'Marcus Lee', authorHandle: '@marcus', title: 'Direct message',
     preview: 'Are we still on for the 1:1 tomorrow? Wanted to talk through the VP Sales shortlist.',
-    timestamp: hoursAgo(3),
-    unread: true,
-    outgoing: false,
-    priority: 'medium',
+    timestamp: hoursAgo(3), unread: true, outgoing: false, priority: 'medium',
   },
   {
-    id: 'slack-3',
-    channel: 'slack',
-    threadId: 'slack-eng',
-    authorName: 'Dana Whitfield',
-    authorHandle: '@dana',
-    title: '#engineering',
+    id: 'slack-3', channel: 'slack', threadId: 'slack-eng',
+    authorName: 'Dana Whitfield', authorHandle: '@dana', title: '#engineering',
     preview: 'Shipped the onboarding speedup — p95 down 40%. Acme will be happy 🎉',
-    timestamp: hoursAgo(6),
-    unread: false,
-    outgoing: false,
-    priority: 'low',
+    timestamp: hoursAgo(6), unread: false, outgoing: false, priority: 'low',
+  },
+  // Microsoft Teams
+  {
+    id: 'teams-1', channel: 'teams', threadId: 'teams-dm-elena',
+    authorName: 'Elena Rossi', authorHandle: 'elena@acme.com', title: 'Chat',
+    preview: 'Can you approve the updated SOW before EOD? Procurement needs it to start the contract.',
+    timestamp: hoursAgo(2), unread: true, outgoing: false, priority: 'high',
   },
   {
-    id: 'slack-4',
-    channel: 'slack',
-    threadId: 'slack-dm-sarah',
-    authorName: 'Sarah Chen',
-    authorHandle: '@sarahchen',
-    title: 'Direct message',
-    preview: 'Thanks for the call! Looking forward to the deck whenever it’s ready.',
-    timestamp: hoursAgo(20),
-    unread: false,
-    outgoing: false,
-    priority: 'medium',
+    id: 'teams-2', channel: 'teams', threadId: 'teams-leadership',
+    authorName: 'David Okafor', authorHandle: 'david@company.com', title: 'Leadership',
+    preview: 'Board deck draft is in the channel — please add your numbers to the growth slide.',
+    timestamp: hoursAgo(5), unread: true, outgoing: false, priority: 'medium',
   },
+  // WhatsApp
   {
-    id: 'slack-5',
-    channel: 'slack',
-    threadId: 'slack-random',
-    authorName: 'Tom Alvarez',
-    authorHandle: '@tom',
-    title: '#random',
-    preview: 'Lunch spot recs near the new office? 🍜',
-    timestamp: hoursAgo(28),
-    unread: false,
-    outgoing: false,
-    priority: 'low',
+    id: 'wa-1', channel: 'whatsapp', threadId: 'wa-investor',
+    authorName: 'Raj Patel', authorHandle: '+1 415 555 0142', title: 'WhatsApp',
+    preview: 'Great meeting today. Send over the data room link when you get a chance 🙏',
+    timestamp: hoursAgo(4), unread: true, outgoing: false, priority: 'medium',
+  },
+  // Linear
+  {
+    id: 'linear-1', channel: 'linear', threadId: 'linear-ENG-482',
+    authorName: 'Linear', authorHandle: 'ENG-482', title: 'Assigned to you',
+    preview: 'Dana assigned you "Fix onboarding race condition" (P1) and left a comment asking for an ETA.',
+    timestamp: hoursAgo(7), unread: true, outgoing: false, priority: 'high',
+  },
+  // GitHub
+  {
+    id: 'gh-1', channel: 'github', threadId: 'gh-pr-1287',
+    authorName: 'GitHub', authorHandle: 'aiden/web#1287', title: 'Review requested',
+    preview: 'Marcus requested your review on PR #1287 "Unified inbox: multi-channel stream".',
+    timestamp: hoursAgo(9), unread: true, outgoing: false, priority: 'high',
   },
 ];
 
-export const useChannelStore = create<ChannelState>((set, get) => ({
+export const useChannelStore = create<ChannelState>((set) => ({
   channels: [
     { id: 'email', label: 'Email', connected: true, live: true, accent: 'text-sky-500' },
     { id: 'slack', label: 'Slack', connected: true, live: false, accent: 'text-violet-500' },
+    { id: 'teams', label: 'Teams', connected: true, live: false, accent: 'text-indigo-500' },
+    { id: 'whatsapp', label: 'WhatsApp', connected: true, live: false, accent: 'text-emerald-500' },
+    { id: 'linear', label: 'Linear', connected: true, live: false, accent: 'text-indigo-400' },
+    { id: 'github', label: 'GitHub', connected: true, live: false, accent: 'text-gray-600 dark:text-gray-300' },
   ],
-  slackMessages: MOCK_SLACK,
+  channelMessages: MOCK_MESSAGES,
   activeChannel: 'all',
 
   setActiveChannel: (c) => set({ activeChannel: c }),
@@ -149,11 +141,9 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
       channels: state.channels.map((ch) => (ch.id === id ? { ...ch, connected: true } : ch)),
     })),
 
-  getSlackMessages: () => get().slackMessages,
-
-  markSlackRead: (id) =>
+  markRead: (id) =>
     set((state) => ({
-      slackMessages: state.slackMessages.map((m) => (m.id === id ? { ...m, unread: false } : m)),
+      channelMessages: state.channelMessages.map((m) => (m.id === id ? { ...m, unread: false } : m)),
     })),
 }));
 

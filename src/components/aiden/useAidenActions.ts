@@ -46,9 +46,11 @@ export function useAidenActions() {
           }
           break;
         }
-        case 'open_slack': {
-          setActiveChannel('slack');
-          navigate('/inbox', { state: { channel: 'slack', slackId: payload.id } });
+        case 'open_slack':
+        case 'open_channel': {
+          const ch = (payload.channel as any) || 'slack';
+          setActiveChannel(ch);
+          navigate('/inbox', { state: { channel: ch, messageId: payload.id } });
           break;
         }
         case 'mark_done': {

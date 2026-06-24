@@ -70,7 +70,7 @@ export const Ask: React.FC = () => {
   const sentEmails = useEmailStore((s) => s.sentEmails);
   const { contacts, hasExtractedContacts, extractContacts } = useCrmStore();
   const { commitments, hasExtracted, extract } = useCommitmentStore();
-  const slack = useChannelStore((s) => s.slackMessages);
+  const slack = useChannelStore((s) => s.channelMessages);
 
   const [input, setInput] = useState('');
   const [turns, setTurns] = useState<Turn[]>([]);

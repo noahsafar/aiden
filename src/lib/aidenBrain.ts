@@ -11,7 +11,17 @@ import { Commitment, isOverdue, dueLabel, resolveDueDate } from '@/lib/commitmen
 import { relativeTime } from '@/components/aiden/primitives';
 import { parseSender, isAutomatedSender, isSelf } from '@/lib/senders';
 import type { Contact } from '@/stores/crmStore';
-import type { UnifiedMessage } from '@/stores/channelStore';
+import type { UnifiedMessage, ChannelId } from '@/stores/channelStore';
+
+/** Human label for a channel (used in attention outcomes/actions). */
+const CHANNEL_LABEL: Record<ChannelId, string> = {
+  email: 'Email',
+  slack: 'Slack',
+  teams: 'Teams',
+  whatsapp: 'WhatsApp',
+  linear: 'Linear',
+  github: 'GitHub',
+};
 
 export interface ActionSuggestion {
   label: string;
@@ -21,7 +31,7 @@ export interface ActionSuggestion {
 
 export interface AttentionItem {
   id: string;
-  kind: 'commitment_overdue' | 'awaiting_reply' | 'urgent_email' | 'needs_reply' | 'slack';
+  kind: 'commitment_overdue' | 'awaiting_reply' | 'urgent_email' | 'needs_reply' | 'channel';
   /** the person or source */
   title: string;
   /** outcome-framed header: "Unblock Sarah's timeline" not "Respond to Sarah" */
@@ -38,7 +48,7 @@ export interface AttentionItem {
   person?: { name: string; email?: string };
   emailId?: string;
   threadId?: string;
-  channel?: 'email' | 'slack';
+  channel?: ChannelId;
   severity: number;
   suggestions: ActionSuggestion[];
 }
@@ -126,8 +136,8 @@ function buildAttentionOutcome(
       if (/\?|\b(question|wondering|can you|could you|would you|how do|what's the|when (can|will|are))\b/.test(d))
         return `Answer ${first}'s question`;
       return `Reply to ${first}`;
-    case 'slack':
-      return `Respond to ${first} on Slack`;
+    case 'channel':
+      return `Respond to ${first}`;
   }
 }
 
@@ -393,24 +403,25 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
     if (email && !automated) usedPeople.add(email.toLowerCase());
   }
 
-  // 4. High-priority unread Slack.
+  // 4. High-priority unread real-time channel messages (Slack, Teams, WhatsApp, Linear, GitHub…).
   for (const m of slack) {
     if (!m.unread || m.priority !== 'high') continue;
     const firstName = m.authorName.split(' ')[0];
+    const label = CHANNEL_LABEL[m.channel] || 'message';
     items.push({
-      id: `att-slack-${m.id}`,
-      kind: 'slack',
+      id: `att-${m.channel}-${m.id}`,
+      kind: 'channel',
       title: m.authorName,
-      outcomeTitle: buildAttentionOutcome('slack', m.authorName, m.preview),
+      outcomeTitle: buildAttentionOutcome('channel', m.authorName, m.preview),
       detail: m.preview,
-      situation: `${firstName} messaged in ${m.title}: "${truncate(m.preview, 80)}"`,
-      whyItMatters: `Slack is real-time — they expect a quicker response than email.`,
-      recommendation: undefined, // Generic - all Slack messages expect fast responses
+      situation: `${firstName} in ${m.title} (${label}): "${truncate(m.preview, 80)}"`,
+      whyItMatters: `${label} is real-time — they expect a quicker response than email.`,
+      recommendation: undefined,
       meta: relativeTime(m.timestamp),
       person: { name: m.authorName },
-      channel: 'slack',
+      channel: m.channel,
       severity: 64,
-      suggestions: [{ label: 'Open Slack', action: 'open_slack', payload: { id: m.id } }],
+      suggestions: [{ label: `Open ${label}`, action: 'open_channel', payload: { id: m.id, channel: m.channel } }],
     });
   }
 

@@ -504,7 +504,7 @@ export const Today: React.FC = () => {
   const dismissAttention = useEmailStore((s) => s.dismissAttention);
   const { contacts, hasExtractedContacts, extractContacts } = useCrmStore();
   const { commitments, hasExtracted, extract, getOpen, markDone } = useCommitmentStore();
-  const slack = useChannelStore((s) => s.slackMessages);
+  const slack = useChannelStore((s) => s.channelMessages);
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [showLowPriority, setShowLowPriority] = useState(false);

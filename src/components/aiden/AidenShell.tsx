@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { useEmailStore } from '@/stores/emailStore';
 import { useCommitmentStore } from '@/stores/commitmentStore';
+import { useChannelStore } from '@/stores/channelStore';
 import { PersonAvatar } from '@/components/aiden/primitives';
 import logo from '/aiden-wordmark.png';
 
@@ -38,17 +39,20 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
   const navigate = useNavigate();
   const { user, signOut } = useAuthStore();
   const emails = useEmailStore((s) => s.emails);
+  const channelMessages = useChannelStore((s) => s.channelMessages);
   const commitments = useCommitmentStore((s) => s.commitments);
 
-  // Count only what the Inbox list actually shows (unread emails) so the badge
-  // matches the surface. Slack lives in its own channel, not this email count.
-  const inboxUnread = useMemo(
-    () =>
-      emails.filter(
-        (e: any) => !e.is_read && e.status !== 'Archived' && e.status !== 'Saved' && e.status !== 'Deleted',
-      ).length,
-    [emails],
-  );
+  // Mirror the Inbox "Needs you" count exactly — what actually needs a response
+  // across every channel, not just unread email. (Same logic as Inbox.isActionable.)
+  const inboxUnread = useMemo(() => {
+    const emailNeeds = emails.filter(
+      (e: any) =>
+        !['Deleted', 'Archived', 'Saved'].includes(e.status) &&
+        (e.requires_reply === true || e.category === 'Urgent' || e.category === 'Important'),
+    ).length;
+    const channelNeeds = channelMessages.filter((m) => m.unread && m.priority !== 'low').length;
+    return emailNeeds + channelNeeds;
+  }, [emails, channelMessages]);
 
   // Open promises you owe — shown as a count next to Commitments (red if any overdue).
   const openCommitmentCount = useMemo(
