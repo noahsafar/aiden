@@ -433,6 +433,40 @@ export interface EmailState {
 // Guard against overlapping fetchEmails calls
 let isFetchingEmails = false;
 
+// ---------------------------------------------------------------------------
+// Persisted last-sync anchor.
+//
+// The incremental Gmail query is anchored to the last time we successfully
+// synced — persisted across sessions in localStorage (the Tauri webview keeps
+// it between launches). This way nothing slips through the gap between the
+// time the app is closed and the next launch. The very first sync (no anchor
+// yet) instead pulls a 14-day history window so connecting an account lands
+// you on a meaningful inbox rather than a cold start.
+// ---------------------------------------------------------------------------
+const LAST_SYNC_KEY = 'aiden_last_sync_time';
+/** Number of days of history to backfill on the very first sync. */
+const INITIAL_BACKFILL_DAYS = 14;
+/** Cap for the one-time initial backfill (bounds first-load time). */
+const INITIAL_BACKFILL_MAX = 200;
+
+function getLastSyncTime(): number | null {
+  try {
+    const v = localStorage.getItem(LAST_SYNC_KEY);
+    const n = v ? parseInt(v, 10) : NaN;
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function setLastSyncTime(ts: number): void {
+  try {
+    localStorage.setItem(LAST_SYNC_KEY, String(ts));
+  } catch {
+    /* localStorage unavailable — incremental sync falls back to a 14d window */
+  }
+}
+
 // Track which emails are being processed (for both summary and reply)
 let processingEmails = new Set<string>();
 // Process only one email at a time for better control
@@ -656,6 +690,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     try {
       const state = get();
       const isFirstGmailFetch = !state.hasFetchedFromGmail;
+      // Anchor for incremental sync (persisted across sessions). Captured at the
+      // START of the fetch so any mail that arrives mid-fetch is caught next time
+      // (a 1s overlap is fine — dedup by id handles it). Null = never synced yet.
+      const lastSync = getLastSyncTime();
+      const fetchStartedAt = Date.now();
       // Set isLoading only when we have no emails at all (shows loading screen)
       const showLoading = !state.hasInitialized;
       set({ error: null, ...(showLoading ? { isLoading: true } : {}) });
@@ -679,14 +718,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       // Use Python OAuth server to fetch emails
       try {
         const baseURL = await serverURL();
-        // First Gmail fetch: get all recent inbox emails (including read). Subsequent: only new since app opened
-        const query = isFirstGmailFetch
-          ? 'in:inbox'
-          : `in:inbox after:${Math.floor(get().appStartTime / 1000)}`;
+        // First sync ever (no persisted anchor): pull a 14-day history window.
+        // Every later sync: only mail newer than our last successful sync.
+        const query = lastSync
+          ? `in:inbox after:${Math.floor(lastSync / 1000)}`
+          : `in:inbox newer_than:${INITIAL_BACKFILL_DAYS}d`;
+        const maxResults = lastSync ? 50 : INITIAL_BACKFILL_MAX;
         // Send known email IDs so server can skip re-fetching them
         const knownIds = get().emails.map(e => e.id).join(',');
         const knownParam = knownIds ? `&knownIds=${encodeURIComponent(knownIds)}` : '';
-        const response = await fetch(`${baseURL}/emails?q=${encodeURIComponent(query)}&maxResults=50${knownParam}`, {
+        const response = await fetch(`${baseURL}/emails?q=${encodeURIComponent(query)}&maxResults=${maxResults}${knownParam}`, {
           method: 'GET',
           mode: 'cors',
           headers: {
@@ -770,8 +811,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // Persist to disk in background
         persistEmailsToDisk();
 
-        // Mark as initialized and fetched
+        // Mark as initialized and fetched; advance the persisted sync anchor.
         set({ hasInitialized: true, hasFetchedFromGmail: true });
+        setLastSyncTime(fetchStartedAt);
 
         // Classify any emails that haven't been classified yet (separate from summary pipeline)
         const unclassifiedEmails = emails.filter(e => e.category === 'Normal');
@@ -913,11 +955,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
         console.warn('Falling back to frontend Gmail API...');
 
-        // Fetch emails directly from Gmail API
-        const fallbackQuery = isFirstGmailFetch
-          ? 'in:inbox'
-          : `in:inbox after:${Math.floor(get().appStartTime / 1000)}`;
-        const emailResponse = await fetchGmailEmails(accessToken, 50, fallbackQuery);
+        // Fetch emails directly from Gmail API (same 14d-first / incremental logic)
+        const fallbackQuery = lastSync
+          ? `in:inbox after:${Math.floor(lastSync / 1000)}`
+          : `in:inbox newer_than:${INITIAL_BACKFILL_DAYS}d`;
+        const fallbackMax = lastSync ? 50 : INITIAL_BACKFILL_MAX;
+        const emailResponse = await fetchGmailEmails(accessToken, fallbackMax, fallbackQuery);
 
         if (!emailResponse.success) {
           throw new Error(emailResponse.error || 'Failed to fetch emails');
@@ -956,8 +999,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // Persist to disk in background
         persistEmailsToDisk();
 
-        // Mark as initialized and fetched
+        // Mark as initialized and fetched; advance the persisted sync anchor.
         set({ hasInitialized: true, hasFetchedFromGmail: true });
+        setLastSyncTime(fetchStartedAt);
 
         // Classify unclassified emails in background
         const unclassifiedEmails = emails.filter(e => e.category === 'Normal');
