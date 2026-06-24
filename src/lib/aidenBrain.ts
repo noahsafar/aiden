@@ -111,15 +111,21 @@ function buildAttentionOutcome(
       return `Follow up with ${first}`;
     case 'urgent_email':
     case 'needs_reply':
-      if (/\b(plan|schedul|timeline|decision|availab|meeting|calendar)\b/.test(d))
+      // Meeting invites / scheduling — respond to confirm, not "unblock a decision".
+      if (/\b(meeting|sync|stand.?up|catch up|let's meet|let's sync|invite|calendar|availab|reschedul|schedul|book a time|find time)\b/.test(d))
+        return `Confirm with ${first}`;
+      // Genuine decisions/approvals/blockers only.
+      if (/\b(decide|decision|approv|sign.?off|go.?\/?no.?go|which (option|approach|way)|blocked on|waiting on you|need your (call|go-ahead|ok|sign))\b/.test(d))
         return `Unblock ${first}'s decision`;
-      if (/\b(review|feedback|input|comment|opinion|thoughts)\b/.test(d))
-        return `Provide feedback to ${first}`;
-      if (/\b(contract|agreement|sign|approv|confirm)\b/.test(d))
+      if (/\b(contract|agreement|\bsign\b|paperwork|invoice|payment)\b/.test(d))
         return `Approve ${first}'s request`;
-      if (/\b(introduc|connect|refer)\b/.test(d))
+      if (/\b(review|feedback|input|comment|opinion|thoughts|take a look)\b/.test(d))
+        return `Provide feedback to ${first}`;
+      if (/\b(introduc|connect|refer|put you in touch)\b/.test(d))
         return `Facilitate introduction for ${first}`;
-      return `Reply to ${first}'s message`;
+      if (/\?|\b(question|wondering|can you|could you|would you|how do|what's the|when (can|will|are))\b/.test(d))
+        return `Answer ${first}'s question`;
+      return `Reply to ${first}`;
     case 'slack':
       return `Respond to ${first} on Slack`;
   }
