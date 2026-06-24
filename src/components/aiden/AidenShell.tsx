@@ -50,11 +50,16 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
     [emails],
   );
 
-  const overdueCount = useMemo(
+  // Open promises you owe — shown as a count next to Commitments (red if any overdue).
+  const openCommitmentCount = useMemo(
+    () => commitments.filter((c) => c.status === 'open' && c.direction === 'you_owe').length,
+    [commitments],
+  );
+  const hasOverdue = useMemo(
     () =>
-      commitments.filter(
+      commitments.some(
         (c) => c.status === 'open' && c.direction === 'you_owe' && c.dueDate && new Date(c.dueDate).getTime() < Date.now(),
-      ).length,
+      ),
     [commitments],
   );
 
@@ -62,7 +67,7 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
     { to: '/today', label: 'Today', icon: Home },
     { to: '/relationships', label: 'Relationships', icon: Users },
     { to: '/schedule', label: 'Schedule', icon: CalendarDays },
-    { to: '/commitments', label: 'Commitments', icon: CheckCircle2, badge: overdueCount, badgeTone: 'rose' },
+    { to: '/commitments', label: 'Commitments', icon: CheckCircle2, badge: openCommitmentCount, badgeTone: hasOverdue ? 'rose' : 'neutral' },
     { to: '/inbox', label: 'Inbox', icon: InboxIcon, badge: inboxUnread, badgeTone: 'neutral' },
     { to: '/ask', label: 'Ask', icon: Sparkles },
   ];

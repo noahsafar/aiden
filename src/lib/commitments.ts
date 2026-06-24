@@ -229,7 +229,17 @@ export function extractCommitmentsHeuristic(input: ExtractInput): Commitment[] {
     if (results.length >= 3) break; // cap per message to avoid noise
   }
 
-  return results;
+  // Consolidate: when one message makes several promises in the same direction,
+  // the one with a concrete deadline is the real deliverable — keep those and drop
+  // the vaguer, deadline-less ones, so an email yields one clear commitment, not noise.
+  const consolidate = (dir: CommitmentDirection): Commitment[] => {
+    const group = results.filter((c) => c.direction === dir);
+    if (group.length <= 1) return group;
+    const withDue = group.filter((c) => c.dueDate);
+    return withDue.length > 0 ? withDue : [group[0]];
+  };
+
+  return [...consolidate('you_owe'), ...consolidate('they_owe')];
 }
 
 /* ------------------------------------------------------------------ */
