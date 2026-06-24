@@ -150,7 +150,9 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
         {bleed ? (
           <div className="h-full overflow-hidden">{children}</div>
         ) : (
-          <div className="h-full overflow-y-auto">
+          // scrollbar-gutter: stable reserves the scrollbar's space even when the
+          // page doesn't overflow, so switching filters doesn't shift content sideways.
+          <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
             <div className="mx-auto max-w-5xl px-8 py-10">{children}</div>
           </div>
         )}
