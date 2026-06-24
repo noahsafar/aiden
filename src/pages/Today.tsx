@@ -11,6 +11,7 @@ import {
   MapPin,
   Video,
   Check,
+  Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -547,6 +548,19 @@ export const Today: React.FC = () => {
       });
   }, [commitments]);
 
+  // Balls in their court that have gone stale — a chief of staff tracks these too.
+  const waitingOnThem = useMemo(() => {
+    const now = Date.now();
+    return getOpen()
+      .filter((c) => {
+        if (c.direction !== 'they_owe') return false;
+        const ageDays = (now - new Date(c.createdAt).getTime()) / 86400000;
+        return ageDays >= 3 || (c.dueDate ? new Date(c.dueDate).getTime() < now : false);
+      })
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .slice(0, 3);
+  }, [commitments]);
+
   // Focus: top real-person attention items, fill remainder with opportunities. Max 3.
   const focusItems = useMemo<FocusItem[]>(() => {
     const topAttention: FocusItem[] = attention
@@ -623,6 +637,27 @@ export const Today: React.FC = () => {
     () => emails.length + commitments.length + opportunities.length,
     [emails.length, commitments.length, opportunities.length],
   );
+
+  // Chronological events + the soonest upcoming one (for the "Next up" banner).
+  const sortedEvents = useMemo(
+    () => [...events].sort((a, b) => (a.start || a.time || '').localeCompare(b.start || b.time || '')),
+    [events],
+  );
+  const nextUp = useMemo(() => {
+    const nowMs = Date.now();
+    const future = sortedEvents.find((e) => {
+      const t = e.start ? new Date(e.start).getTime() : NaN;
+      return !isNaN(t) && t >= nowMs;
+    });
+    const ev = future || sortedEvents.find((e) => !e.all_day) || null;
+    if (!ev) return null;
+    const t = ev.start ? new Date(ev.start).getTime() : NaN;
+    const mins = !isNaN(t) ? Math.round((t - nowMs) / 60000) : null;
+    let when: string;
+    if (mins != null && mins >= 0 && mins < 600) when = mins < 60 ? `in ${mins} min` : `in ${Math.round(mins / 60)}h`;
+    else when = ev.time || '';
+    return { ev, when };
+  }, [sortedEvents]);
 
   const firstName = (user?.name || '').split(' ')[0] || 'there';
   const dateLabel = new Date().toLocaleDateString(undefined, {
@@ -715,7 +750,18 @@ export const Today: React.FC = () => {
           </Surface>
         ) : (
           <div className="space-y-3">
-            {events.map((ev) => (
+            {nextUp && (
+              <div className="flex items-center gap-2.5 rounded-xl bg-sky-50/70 px-4 py-2.5 dark:bg-sky-500/[0.08]">
+                <Clock className="h-4 w-4 flex-shrink-0 text-sky-500" />
+                <p className="text-[13px] text-foreground/80">
+                  <span className="font-semibold text-sky-600 dark:text-sky-400">Next up</span>
+                  {' · '}
+                  {nextUp.ev.summary}
+                  <span className="text-muted/70"> · {nextUp.when}</span>
+                </p>
+              </div>
+            )}
+            {sortedEvents.map((ev) => (
               <MeetingBriefCard
                 key={ev.id}
                 event={ev}
@@ -786,6 +832,49 @@ export const Today: React.FC = () => {
                 + {openCommitments.length - 4} more
               </button>
             )}
+          </div>
+        </section>
+      )}
+
+      {/* ── 5b. WAITING ON THEM ── */}
+      {waitingOnThem.length > 0 && (
+        <section>
+          <SectionLabel dot="sky" count={waitingOnThem.length}>
+            Waiting on them
+          </SectionLabel>
+          <div className="space-y-2">
+            {waitingOnThem.map((c) => {
+              const ageDays = Math.round((Date.now() - new Date(c.createdAt).getTime()) / 86400000);
+              return (
+                <Surface key={c.id} className="flex items-center gap-3 px-5 py-3.5">
+                  <Clock className="h-4 w-4 flex-shrink-0 text-sky-500" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[14px] font-medium text-foreground">{c.counterpartyName}</p>
+                    <p className="truncate text-[13px] text-muted">{c.text}</p>
+                  </div>
+                  <span className="flex-shrink-0 text-[11px] text-muted/50">{ageDays}d</span>
+                  <SoftButton
+                    variant="soft"
+                    className="flex-shrink-0"
+                    onClick={() => {
+                      if (c.counterpartyEmail) {
+                        act({
+                          action: 'compose',
+                          payload: {
+                            to: c.counterpartyEmail,
+                            prompt: `Write a short, friendly nudge to ${c.counterpartyName} checking in on what I'm waiting for: "${c.text}". Keep it light and gracious.`,
+                          },
+                        });
+                      } else {
+                        navigate('/commitments');
+                      }
+                    }}
+                  >
+                    Nudge
+                  </SoftButton>
+                </Surface>
+              );
+            })}
           </div>
         </section>
       )}

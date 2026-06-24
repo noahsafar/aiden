@@ -137,7 +137,7 @@ export const Relationships: React.FC = () => {
             {(['list', 'graph'] as const).map((v) => (
               <button
                 key={v}
-                onClick={() => setView(v)}
+                onClick={() => { setView(v); setSelectedId(null); }}
                 className={cn(
                   'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors',
                   view === v ? 'bg-white text-foreground shadow-sm dark:bg-white/[0.1]' : 'text-muted hover:text-foreground',
@@ -363,11 +363,8 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
     { icon: CalendarDays, label: 'threads', value: contact.total_threads || 0 },
   ];
 
-  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
-    bare ? <div className="p-5">{children}</div> : <Surface className="p-6">{children}</Surface>;
-
   return (
-    <Wrapper>
+    <DetailShell bare={bare}>
       {/* Header */}
       <div className="flex items-start gap-4">
         <PersonAvatar name={name} email={contact.email_address} size={56} />
@@ -474,8 +471,11 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
           Schedule time
         </SoftButton>
       </div>
-    </Wrapper>
+    </DetailShell>
   );
 };
+
+const DetailShell: React.FC<{ bare?: boolean; children: React.ReactNode }> = ({ bare, children }) =>
+  bare ? <div className="p-5">{children}</div> : <Surface className="p-6">{children}</Surface>;
 
 export default Relationships;

@@ -168,7 +168,7 @@ const NetworkGraphInner: React.FC<NetworkGraphProps> = ({
           ...n,
           email: c?.email_address,
           isVip: c?.is_vip,
-          cooling: (c?.days_since_contact ?? 0) > 30 && n.score >= 50,
+          cooling: (c?.days_since_contact ?? 0) > 30 && n.score >= 60,
         } as GraphNodeData,
       };
     });
