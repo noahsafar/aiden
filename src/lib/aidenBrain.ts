@@ -7,7 +7,7 @@
  * (what to do) — the difference between an inbox and a chief of staff.
  */
 
-import { Commitment, isOverdue, dueLabel } from '@/lib/commitments';
+import { Commitment, isOverdue, dueLabel, resolveDueDate } from '@/lib/commitments';
 import { relativeTime } from '@/components/aiden/primitives';
 import { parseSender, isAutomatedSender, isSelf } from '@/lib/senders';
 import type { Contact } from '@/stores/crmStore';
@@ -153,7 +153,11 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
     if (c.direction !== 'you_owe' || c.status !== 'open') continue;
     if (isSelf(c.counterpartyEmail, userEmail) || !c.counterpartyEmail) continue;
     const overdue = isOverdue(c, now);
-    if (!overdue && !c.dueDate) continue;
+    // Only surface overdue or imminent (due within ~1 day) commitments in Focus —
+    // everything else lives in the dedicated "Open loops" section, so we don't
+    // double-surface the same commitment in two places.
+    const daysToDue = c.dueDate ? Math.round((new Date(c.dueDate).getTime() - now.getTime()) / 86400000) : Infinity;
+    if (!overdue && daysToDue > 1) continue;
     const contact = findContact(contacts, c.counterpartyEmail);
     const days = c.dueDate ? Math.round((now.getTime() - new Date(c.dueDate).getTime()) / 86400000) : 0;
     items.push({
@@ -187,9 +191,7 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
   // 1b. Deadline-bearing emails — time-bounded actions (applications, submissions, RSVPs).
   // These surface regardless of category tag because the deadline is the signal.
   {
-    const DEADLINE_RE = /\bapplication deadline|apply by|deadline[^.]*\d{4}[-\/]\d{2}[-\/]\d{2}|\bdeadline[^.]*(\d+)\s+days?\b|\b(\d+)\s+days?\b[^.]*deadline|due\s+(by|date)[^.]*\d|closes?\s+(on|in)\b|submission\s+deadline|rsvp\s+by\b/i;
-    const DAYS_FROM_NOW_RE = /\b(\d+)\s+days?\s+(?:from now|left|remaining|away)\b/i;
-    const ISO_DATE_RE = /\b(\d{4}-\d{2}-\d{2})\b/g;
+    const DEADLINE_RE = /\b(application deadline|apply by|deadline|due\s+(by|date)|closes?\s+(on|in)|submission deadline|rsvp\s+by|respond by|reply by|register by|sign ?up by|last day to|expires?\s+(on|in))\b/i;
 
     const deadlineCandidates = [...emails]
       .filter((e) => !['Archived', 'Saved', 'Deleted', 'Replied'].includes(e.status))
@@ -198,51 +200,43 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
     for (const e of deadlineCandidates) {
       const text = `${e.subject || ''} ${e.body_text || e.snippet || ''}`;
       if (!DEADLINE_RE.test(text)) continue;
+      // Social/logistical deadlines (party RSVPs, lunch polls) don't belong in Focus.
+      if (SOCIAL_NOISE_RE.test(text)) continue;
 
       const thread = e.thread_id || e.id;
       if (usedThreads.has(thread)) continue;
       const { name, email } = parseSender(e.sender || '');
-      if (isSelf(email, userEmail) || isAutomatedSender(e.sender || '')) continue;
+      if (isSelf(email, userEmail)) continue; // legitimate deadlines often come from no-reply@, so don't exclude automated senders
 
-      // Estimate days until deadline
-      let daysUntil = 7;
-      const daysMatch = text.match(DAYS_FROM_NOW_RE);
-      if (daysMatch) {
-        daysUntil = parseInt(daysMatch[1], 10);
-      } else {
-        // Find the nearest future ISO date in the text
-        const dates: Date[] = [];
-        let m: RegExpExecArray | null;
-        const re = new RegExp(ISO_DATE_RE.source, 'g');
-        while ((m = re.exec(text)) !== null) {
-          const d = new Date(m[1]);
-          if (!isNaN(d.getTime()) && d > now) dates.push(d);
-        }
-        if (dates.length > 0) {
-          dates.sort((a, b) => a.getTime() - b.getTime());
-          daysUntil = Math.round((dates[0].getTime() - now.getTime()) / 86400000);
-        }
-      }
+      // Resolve a CONCRETE future date — prefer the AI-extracted field, then the
+      // shared resolver (handles "by Friday", "tomorrow", "EOD", ISO dates, etc.).
+      // If no real date can be placed, do NOT fabricate urgency.
+      let dueIso: string | undefined = (e.deadline as string) || undefined;
+      if (!dueIso) dueIso = resolveDueDate(text, now).iso;
+      if (!dueIso) continue;
+      const dueDate = new Date(dueIso);
+      if (isNaN(dueDate.getTime())) continue;
+      const daysUntil = Math.round((dueDate.getTime() - now.getTime()) / 86400000);
+      if (daysUntil < 0 || daysUntil > 14) continue; // past, or too far to be "today's" concern
 
-      if (daysUntil < 0 || daysUntil > 14) continue; // Skip if passed or far out
-
-      const severity = daysUntil <= 1 ? 97 : daysUntil <= 2 ? 93 : daysUntil <= 3 ? 89 : daysUntil <= 5 ? 85 : 78;
-      const urgencyLabel = daysUntil <= 1 ? 'today' : daysUntil <= 2 ? 'in 2 days' : `in ${daysUntil} days`;
-      const first = name.split(' ')[0];
+      const severity = daysUntil <= 1 ? 96 : daysUntil <= 2 ? 92 : daysUntil <= 3 ? 88 : daysUntil <= 5 ? 84 : 78;
+      const urgencyLabel = daysUntil <= 0 ? 'today' : daysUntil === 1 ? 'tomorrow' : `in ${daysUntil} days`;
+      const displayName = name || (email ? email.split('@')[0].replace(/[._-]/g, ' ') : 'Deadline');
+      const first = displayName.split(' ')[0];
 
       items.push({
         id: `att-deadline-${e.id}`,
         kind: 'urgent_email',
-        title: name,
-        outcomeTitle: `Act on ${first}'s deadline — ${urgencyLabel}`,
+        title: displayName,
+        outcomeTitle: name ? `Act on ${first}'s deadline — ${urgencyLabel}` : `Deadline ${urgencyLabel} — ${truncate(e.subject || 'action needed', 40)}`,
         detail: e.subject || '',
         situation: `Deadline ${urgencyLabel}: "${truncate(e.subject || '', 60)}"`,
         whyItMatters: `Hard deadline — missing it forfeits the opportunity entirely.`,
         recommendation: daysUntil <= 2
-          ? `Do this today — only ${daysUntil === 1 ? '1 day' : '2 days'} left.`
+          ? `Do this ${urgencyLabel === 'today' ? 'today' : 'now'} — only ${daysUntil <= 0 ? 'hours' : daysUntil === 1 ? '1 day' : `${daysUntil} days`} left.`
           : `Block time this week — ${daysUntil} days sounds like enough but it isn't.`,
         meta: `Due ${urgencyLabel}`,
-        person: { name, email },
+        person: { name: displayName, email },
         emailId: e.id,
         threadId: thread,
         channel: 'email',
@@ -308,22 +302,24 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
     const isUrgent = e.category === 'Urgent';
     const needsReply = e.requires_reply === true || e.category === 'Important';
     if (!isUrgent && !needsReply) continue;
+    const bodyText = `${e.subject || ''} ${e.body_text || e.snippet || ''}`;
+    const { name, email } = parseSender(e.sender || '');
+    const contact = findContact(contacts, email);
     // Keep social/logistical noise out of Today's Focus — these belong in the inbox
-    if (!isUrgent && SOCIAL_NOISE_RE.test(`${e.subject || ''} ${e.body_text || e.snippet || ''}`)) continue;
+    if (!isUrgent && SOCIAL_NOISE_RE.test(bodyText)) continue;
+    // Keep cold sales/outbound pitches out of Focus unless they're from a known contact.
+    if (!isUrgent && !contact && SALES_NOISE_RE.test(bodyText)) continue;
     const thread = e.thread_id || e.id;
     if (usedThreads.has(thread)) continue;
-    const { name, email } = parseSender(e.sender || '');
     if (isSelf(email, userEmail)) continue;
     const automated = isAutomatedSender(e.sender || '');
-    const contact = findContact(contacts, email);
 
     let situation: string;
     let whyItMatters: string;
     let recommendation: string | undefined;
 
-    // Check if AI analysis exists with summary
-    const hasAiAnalysis = e.aiAnalysis && typeof e.aiAnalysis === 'object';
-    const aiSummary = hasAiAnalysis ? (e.aiAnalysis as any).oneSentenceSummary : null;
+    // Use the AI-generated summary when the email pipeline has produced one.
+    const aiSummary: string | null = (typeof e.summary === 'string' && e.summary.trim()) ? e.summary.trim() : null;
 
     if (automated) {
       situation = isUrgent
@@ -428,6 +424,9 @@ export function peopleInAttention(items: AttentionItem[]): Set<string> {
 
 const SOCIAL_NOISE_RE = /\b(lunch|dinner|breakfast|pizza|burger|taco|salad|food|restaurant|eat|coffee|drinks|happy hour|team lunch|team dinner|office lunch|splitting the (check|bill)|who's (coming|in)|can you make it|vote|poll|preference|rsvp|celebrating|celebration|birthday|party|welcome|farewell|goodbye|congrats|congrats to|shout.?out)\b/i;
 
+// Cold sales / outbound marketing — kept out of Focus when the sender isn't a known contact.
+const SALES_NOISE_RE = /\b(quick call|hop on a call|book a demo|schedule a demo|free trial|save \d+%|cut your|exclusive offer|limited time|special offer|act now|don't miss|unsubscribe|sales pitch|our solution|our platform can|increase your|boost your|grow your revenue|pricing options)\b/i;
+
 const OPP_SIGNALS: Array<{
   re: RegExp;
   build: (
@@ -466,7 +465,7 @@ const OPP_SIGNALS: Array<{
     }),
   },
   {
-    re: /\b(interested in|would love to|let's explore|let us explore|partner|partnership|collaborat|pilot|work together|next steps)\b/i,
+    re: /\b(explore a partnership|partner with us|partner with you|partnership opportunity|work together on|collaborat\w* on|run a pilot|pilot program|interested in working with)\b/i,
     build: (name, daysAgo = 0) => ({
       title: `${name} is leaning in`,
       detail: `Partnership signal${daysAgo > 0 ? ` ${daysAgo}d ago` : ''}`,
@@ -486,7 +485,7 @@ const OPP_SIGNALS: Array<{
     }),
   },
   {
-    re: /\b(fellowship|scholarship|grant|award|residency|program|apply|application|i'd love for you to apply|i think you'd be a great fit)\b/i,
+    re: /\b(fellowship|scholarship|residency|cohort|accelerator|nominat\w+|apply (for|to)|application (deadline|is open|portal)|i'd love for you to apply|you'd be a great fit)\b/i,
     build: (name, daysAgo = 0) => ({
       title: `${name} shared an opportunity`,
       detail: `Application or program opportunity${daysAgo > 0 ? ` (${daysAgo}d ago)` : ''}`,

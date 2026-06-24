@@ -15,6 +15,7 @@ import { Calendar } from '@/pages/Calendar';
 import { Crm } from '@/pages/Crm';
 import { Scheduling } from '@/pages/Scheduling';
 import { AidenShell } from '@/components/aiden/AidenShell';
+import { EmptyState } from '@/components/aiden/primitives';
 import { Today } from '@/pages/Today';
 import { Relationships } from '@/pages/Relationships';
 import { Commitments } from '@/pages/Commitments';
@@ -1082,7 +1083,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                     className="h-16 w-16 animate-pulse"
                   />
                 </div>
-                <div className="w-10 h-10 border-3 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                <div className="w-10 h-10 border-3 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
                 <p className="text-muted text-base">Loading your inbox...</p>
                 <p className="text-muted/60 text-sm mt-2">Fetching unread emails</p>
               </div>
@@ -1091,13 +1092,13 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
             <>
               <div className="h-full bg-background overflow-hidden flex flex-col min-w-0">
               {/* Top Navigation Bar */}
-              <div className="h-14 bg-surface border-b border-border flex items-center justify-between pl-2 pr-4 z-10 flex-shrink-0 min-w-0">
+              <div className="h-14 bg-background/80 backdrop-blur-xl border-b border-gray-200/70 dark:border-white/[0.06] flex items-center justify-between pl-2 pr-4 z-10 flex-shrink-0 min-w-0">
                 <div className="flex items-center gap-0 min-w-0">
                   {/* Back button - shows during focused view */}
                   {(animationPhase === 'slideLeft' || animationPhase === 'expand') && (
                     <button
                       onClick={handleCloseFocusedView}
-                      className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-600 dark:text-gray-400 mr-2"
+                      className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/[0.06] transition-colors text-muted mr-2"
                       title="Go back (Esc)"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1105,23 +1106,23 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                       </svg>
                     </button>
                   )}
-                  <h1 className="text-lg font-semibold text-gray-900 dark:text-white truncate leading-none pl-1">Inbox</h1>
+                  <h1 className="text-2xl font-semibold tracking-tight text-foreground truncate leading-none pl-1">Inbox</h1>
                 </div>
 
                 <div className="flex-1 max-w-xl mx-4 hidden md:flex items-center gap-3">
                   <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted" />
                     <input
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Search emails..."
-                      className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200"
+                      className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-white/[0.06] border border-gray-200/70 dark:border-white/[0.07] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent transition-all duration-200"
                     />
                     {searchQuery && (
                       <button
                         onClick={() => setSearchQuery('')}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted hover:text-foreground"
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -1146,7 +1147,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                     title="Voice Command (⌘⇧V)"
                     onClick={handleVoiceCompose}
                   >
-                    <Mic className={`h-4 w-4 ${isListening ? 'text-red-500' : 'text-gray-600 dark:text-gray-400'}`} />
+                    <Mic className={`h-4 w-4 ${isListening ? 'text-red-500' : 'text-muted'}`} />
                   </Button>
                 </div>
               </div>
@@ -1162,23 +1163,24 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                 </div>
 
                 {/* Email List */}
-                <div className={`h-full overflow-hidden flex-shrink-0 w-80 min-w-60 max-w-96 border-r border-gray-200/60 dark:border-gray-700/60 transition-all duration-500 ease-in-out ${
+                <div className={`h-full overflow-hidden flex-shrink-0 w-80 min-w-60 max-w-96 border-r border-gray-200/70 dark:border-white/[0.07] transition-all duration-500 ease-in-out ${
                   animationPhase === 'idle' ? '' :
                   '-translate-x-[20rem]'
                 }`}>
                   {filteredEmails.length === 0 && !emailsLoading && !showTriage ? (
-                    <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-                      <Mail className="h-12 w-12 text-gray-400 mb-4" />
-                      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                        {currentFilter === 'sent' ? 'No sent emails yet' :
-                         currentFilter === 'saved' ? 'No saved emails yet' :
-                         currentFilter === 'archived' ? 'No archived emails yet' :
-                         currentFilter === 'deleted' ? 'Trash is empty' :
-                         isFocusMode && currentFilter === 'inbox' ? 'No action-required emails' :
-                         'No new emails yet'}
-                      </h3>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {currentFilter === 'sent'
+                    <EmptyState
+                      className="h-full"
+                      icon={<Mail className="h-6 w-6" />}
+                      title={
+                        currentFilter === 'sent' ? 'No sent emails yet' :
+                        currentFilter === 'saved' ? 'No saved emails yet' :
+                        currentFilter === 'archived' ? 'No archived emails yet' :
+                        currentFilter === 'deleted' ? 'Trash is empty' :
+                        isFocusMode && currentFilter === 'inbox' ? 'No action-required emails' :
+                        'No new emails yet'
+                      }
+                      description={
+                        currentFilter === 'sent'
                           ? 'Emails you send will appear here.'
                           : currentFilter === 'saved'
                           ? 'Emails you bookmark will appear here.'
@@ -1188,23 +1190,23 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                           ? 'Deleted emails are automatically removed after 30 days.'
                           : isFocusMode && currentFilter === 'inbox'
                           ? 'Emails requiring action will appear here.'
-                          : 'Emails that arrive will appear here.'}
-                      </p>
-                    </div>
+                          : 'Emails that arrive will appear here.'
+                      }
+                    />
                   ) : (
                     <div className="h-full flex flex-col">
                       {/* Sort and view mode toggle - only show in inbox */}
                       {currentFilter === 'inbox' && (
-                        <div className="px-2 py-2 border-b border-gray-200 dark:border-gray-700">
+                        <div className="px-2 py-2 border-b border-gray-200/70 dark:border-white/[0.07]">
                           <div className="flex items-center justify-center gap-1">
                             {/* Sort options */}
-                            <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                            <div className="flex items-center bg-gray-100 dark:bg-white/[0.06] rounded-lg p-0.5">
                               <button
                                 onClick={() => setSortMode('date')}
                                 className={`px-1.5 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
                                   sortMode === 'date'
-                                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                                    ? 'bg-white dark:bg-white/[0.10] text-foreground shadow-sm'
+                                    : 'text-muted hover:text-foreground'
                                 }`}
                                 title="Sort by date"
                               >
@@ -1215,8 +1217,8 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                 onClick={() => setSortMode('importance')}
                                 className={`px-1.5 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
                                   sortMode === 'importance'
-                                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                                    ? 'bg-white dark:bg-white/[0.10] text-foreground shadow-sm'
+                                    : 'text-muted hover:text-foreground'
                                 }`}
                                 title="Sort by importance"
                               >
@@ -1226,13 +1228,13 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                             </div>
                             {/* Read filter options - only show in inbox */}
                             {currentFilter === 'inbox' && (
-                              <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                              <div className="flex items-center bg-gray-100 dark:bg-white/[0.06] rounded-lg p-0.5">
                                 <button
                                   onClick={() => setReadFilter('unread')}
                                   className={`px-1.5 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
                                     readFilter === 'unread'
-                                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                                      ? 'bg-white dark:bg-white/[0.10] text-foreground shadow-sm'
+                                      : 'text-muted hover:text-foreground'
                                   }`}
                                   title="Show unread only"
                                 >
@@ -1243,8 +1245,8 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                                   onClick={() => setReadFilter('all')}
                                   className={`px-1.5 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
                                     readFilter === 'all'
-                                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                                      ? 'bg-white dark:bg-white/[0.10] text-foreground shadow-sm'
+                                      : 'text-muted hover:text-foreground'
                                   }`}
                                   title="Show all emails"
                                 >
@@ -1256,10 +1258,10 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                             {/* View toggle (single button) */}
                             <button
                               onClick={() => !showTriage && setViewMode(viewMode === 'individual' ? 'threaded' : 'individual')}
-                              className={`h-6 w-6 rounded flex items-center justify-center transition-colors ${
+                              className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors ${
                                 showTriage && currentFilter === 'inbox'
-                                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                                  ? 'bg-gray-100 dark:bg-white/[0.06] text-gray-300 dark:text-white/30 cursor-not-allowed'
+                                  : 'bg-gray-100 dark:bg-white/[0.06] text-muted hover:text-foreground'
                               }`}
                               title={showTriage ? 'Not available in triage view' : viewMode === 'individual' ? 'Switch to threaded view' : 'Switch to list view'}
                               disabled={showTriage && currentFilter === 'inbox'}
@@ -1270,10 +1272,10 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                             {currentFilter === 'inbox' && (
                               <button
                                 onClick={() => setIsFocusMode(!isFocusMode)}
-                                className={`h-6 w-6 rounded flex items-center justify-center transition-colors cursor-pointer ${
+                                className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
                                   isFocusMode
-                                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
-                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                                    ? 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300'
+                                    : 'bg-gray-100 dark:bg-white/[0.06] text-muted hover:text-foreground'
                                 }`}
                                 title="Focus Mode - only important emails"
                               >
@@ -1284,10 +1286,10 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                             {currentFilter === 'inbox' && (
                               <button
                                 onClick={() => setShowTriage(!showTriage)}
-                                className={`h-6 w-6 rounded flex items-center justify-center transition-colors cursor-pointer ${
+                                className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
                                   showTriage
-                                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
-                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                                    ? 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300'
+                                    : 'bg-gray-100 dark:bg-white/[0.06] text-muted hover:text-foreground'
                                 }`}
                                 title="Smart Triage - group similar emails"
                               >

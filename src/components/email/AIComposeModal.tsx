@@ -311,19 +311,19 @@ Please write a complete email with an appropriate subject line. Format your resp
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div
-        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex overflow-hidden"
+        className="bg-surface rounded-2xl shadow-elevated-lg border border-gray-200/70 dark:border-white/[0.08] w-full max-w-4xl max-h-[90vh] flex overflow-hidden animate-scale-in"
         onKeyDown={handleKeyDown}
       >
         {/* Left Panel - AI Assistant */}
         {showAIPanel && (
-          <div className="w-80 border-r border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50 dark:bg-gray-900">
+          <div className="w-80 border-r border-gray-200/70 dark:border-white/[0.08] flex flex-col bg-background">
             {/* Header */}
-            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <div className="px-4 py-3 border-b border-gray-200/70 dark:border-white/[0.08]">
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white text-sm">AI Assistant</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Describe your email</p>
+                <h3 className="font-semibold text-foreground text-sm">AI Assistant</h3>
+                <p className="text-xs text-muted">Describe your email</p>
               </div>
             </div>
 
@@ -331,7 +331,7 @@ Please write a complete email with an appropriate subject line. Format your resp
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
               {/* Prompt Input */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label className="block text-sm font-medium text-foreground mb-1.5">
                   What do you want to say?
                 </label>
                 <textarea
@@ -339,13 +339,13 @@ Please write a complete email with an appropriate subject line. Format your resp
                   onChange={(e) => setAiPrompt(e.target.value)}
                   placeholder="Describe your email..."
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none text-sm"
+                  className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 bg-surface text-foreground resize-none text-sm transition-colors placeholder:text-muted"
                 />
               </div>
 
               {/* Templates */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label className="block text-sm font-medium text-foreground mb-1.5">
                   Quick Templates
                 </label>
                 <div className="space-y-1">
@@ -358,12 +358,12 @@ Please write a complete email with an appropriate subject line. Format your resp
                       }}
                       className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${
                         selectedTemplate === template.id
-                          ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700'
-                          : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600'
+                          ? 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-300 dark:border-violet-500/30'
+                          : 'bg-surface text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.06] border border-gray-200/80 dark:border-white/[0.08]'
                       }`}
                     >
                       <div className="font-medium text-xs">{template.name}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{template.description.split(' ').slice(0, 3).join(' ')}</div>
+                      <div className="text-xs text-muted">{template.description.split(' ').slice(0, 3).join(' ')}</div>
                     </button>
                   ))}
                 </div>
@@ -371,7 +371,7 @@ Please write a complete email with an appropriate subject line. Format your resp
 
               {/* Tone Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <label className="block text-sm font-medium text-foreground mb-1.5">
                   Tone
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -381,12 +381,12 @@ Please write a complete email with an appropriate subject line. Format your resp
                       onClick={() => setSelectedTone(tone.id)}
                       className={`px-3 py-1.5 rounded-lg text-sm transition-colors text-left ${
                         selectedTone === tone.id
-                          ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700'
-                          : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600'
+                          ? 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-300 dark:border-violet-500/30'
+                          : 'bg-surface text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.06] border border-gray-200/80 dark:border-white/[0.08]'
                       }`}
                     >
                       <div className="font-medium text-xs">{tone.name}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{tone.description.split(' ')[0]}</div>
+                      <div className="text-xs text-muted">{tone.description.split(' ')[0]}</div>
                     </button>
                   ))}
                 </div>
@@ -394,7 +394,7 @@ Please write a complete email with an appropriate subject line. Format your resp
             </div>
 
             {/* Generate Button */}
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="p-4 border-t border-gray-200/70 dark:border-white/[0.08]">
               <Button
                 variant="primary"
                 onClick={() => handleGenerateEmail()}
@@ -420,13 +420,13 @@ Please write a complete email with an appropriate subject line. Format your resp
         {/* Right Panel - Email Editor */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between p-4 border-b border-gray-200/70 dark:border-white/[0.08]">
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              <h2 className="text-lg font-semibold text-foreground">
                 {showAIPanel ? 'New Message' : 'Review & Edit'}
               </h2>
               {!showAIPanel && body && (
-                <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                <span className="text-xs text-violet-600 dark:text-violet-400 flex items-center gap-1">
                   <SparklesIcon className="h-3 w-3" />
                   AI generated
                 </span>
@@ -455,7 +455,7 @@ Please write a complete email with an appropriate subject line. Format your resp
             <div className="space-y-4">
               {/* To Field */}
               <div className="relative">
-                <label htmlFor="to" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="to" className="block text-sm font-medium text-foreground mb-1.5">
                   To
                 </label>
                 <input
@@ -474,7 +474,7 @@ Please write a complete email with an appropriate subject line. Format your resp
                   }}
                   onKeyDown={handleToKeyDown}
                   placeholder="recipient@example.com"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 bg-surface text-foreground transition-colors placeholder:text-muted"
                   autoComplete="off"
                 />
 
@@ -482,11 +482,11 @@ Please write a complete email with an appropriate subject line. Format your resp
                 {showSuggestions && (filteredContacts.length > 0 || suggestedRecipients.length > 0) && (
                   <div
                     ref={suggestionsRef}
-                    className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+                    className="absolute z-10 w-full mt-1 bg-surface border border-gray-200/80 dark:border-white/[0.08] rounded-lg shadow-elevated-md max-h-60 overflow-y-auto"
                   >
                     {to === '' && suggestedRecipients.length > 0 && (
                       <>
-                        <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50">
+                        <div className="px-3 py-1.5 text-xs font-semibold text-muted bg-gray-50 dark:bg-white/[0.03]">
                           Suggested
                         </div>
                         {suggestedRecipients.map((contact, idx) => (
@@ -494,22 +494,22 @@ Please write a complete email with an appropriate subject line. Format your resp
                             key={contact.id}
                             type="button"
                             onClick={() => handleSelectContact(contact)}
-                            className={`w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-                              idx === highlightedIndex ? 'bg-gray-100 dark:bg-gray-700' : ''
+                            className={`w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors ${
+                              idx === highlightedIndex ? 'bg-gray-100 dark:bg-white/[0.06]' : ''
                             }`}
                           >
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold text-xs flex-shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white font-semibold text-xs flex-shrink-0">
                               {contact.name?.charAt(0).toUpperCase() || contact.email_address.charAt(0).toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-medium text-sm text-gray-900 dark:text-white truncate">
+                              <div className="font-medium text-sm text-foreground truncate">
                                 {contact.name || contact.email_address.split('@')[0]}
                               </div>
-                              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              <div className="text-xs text-muted truncate">
                                 {contact.email_address}
                               </div>
                             </div>
-                            <div className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                            <div className="text-xs text-muted/70 flex-shrink-0">
                               {contact.total_emails_sent} sent
                             </div>
                           </button>
@@ -523,22 +523,22 @@ Please write a complete email with an appropriate subject line. Format your resp
                           key={contact.id}
                           type="button"
                           onClick={() => handleSelectContact(contact)}
-                          className={`w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
-                            idx === highlightedIndex ? 'bg-gray-100 dark:bg-gray-700' : ''
+                          className={`w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors ${
+                            idx === highlightedIndex ? 'bg-gray-100 dark:bg-white/[0.06]' : ''
                           }`}
                         >
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold text-xs flex-shrink-0">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white font-semibold text-xs flex-shrink-0">
                             {contact.name?.charAt(0).toUpperCase() || contact.email_address.charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-sm text-gray-900 dark:text-white truncate">
+                            <div className="font-medium text-sm text-foreground truncate">
                               {contact.name || contact.email_address.split('@')[0]}
                             </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                            <div className="text-xs text-muted truncate">
                               {contact.email_address}
                             </div>
                           </div>
-                          <div className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                          <div className="text-xs text-muted/70 flex-shrink-0">
                             {contact.category}
                           </div>
                         </button>
@@ -546,7 +546,7 @@ Please write a complete email with an appropriate subject line. Format your resp
                     )}
 
                     {to !== '' && filteredContacts.length === 0 && (
-                      <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+                      <div className="px-3 py-4 text-sm text-muted text-center">
                         No contacts found
                       </div>
                     )}
@@ -556,7 +556,7 @@ Please write a complete email with an appropriate subject line. Format your resp
 
               {/* Subject Field */}
               <div>
-                <label htmlFor="subject" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="subject" className="block text-sm font-medium text-foreground mb-1.5">
                   Subject
                 </label>
                 <input
@@ -565,13 +565,13 @@ Please write a complete email with an appropriate subject line. Format your resp
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                   placeholder="Email subject"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 bg-surface text-foreground transition-colors placeholder:text-muted"
                 />
               </div>
 
               {/* Body Field */}
               <div>
-                <label htmlFor="body" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="body" className="block text-sm font-medium text-foreground mb-1.5">
                   Message
                 </label>
                 <textarea
@@ -581,7 +581,7 @@ Please write a complete email with an appropriate subject line. Format your resp
                   onChange={(e) => setBody(e.target.value)}
                   placeholder="Type your message here or use the AI assistant to generate one..."
                   rows={12}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 bg-surface text-foreground transition-colors placeholder:text-muted"
                 />
               </div>
 
@@ -593,7 +593,7 @@ Please write a complete email with an appropriate subject line. Format your resp
                     value={regenerateInstruction}
                     onChange={(e) => setRegenerateInstruction(e.target.value)}
                     placeholder="Instructions for regeneration (e.g., 'make it shorter', 'add more details')..."
-                    className="flex-1 min-w-0 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400"
+                    className="flex-1 min-w-0 px-3 py-1.5 text-sm border border-gray-200/80 dark:border-white/[0.08] rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 bg-surface text-foreground transition-colors placeholder:text-muted"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && regenerateInstruction.trim()) {
                         e.preventDefault();
@@ -610,7 +610,7 @@ Please write a complete email with an appropriate subject line. Format your resp
                     <SparklesIcon className="h-4 w-4 mr-1" />
                     Regenerate
                   </Button>
-                  <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center">
+                  <span className="text-xs text-muted flex items-center">
                     Cmd+Enter to send
                   </span>
                 </div>
@@ -619,8 +619,8 @@ Please write a complete email with an appropriate subject line. Format your resp
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-            <div className="text-sm text-gray-500 dark:text-gray-400">
+          <div className="flex items-center justify-between p-4 border-t border-gray-200/70 dark:border-white/[0.08] bg-background">
+            <div className="text-sm text-muted">
               {body.length} characters
             </div>
             <div className="flex items-center space-x-3">

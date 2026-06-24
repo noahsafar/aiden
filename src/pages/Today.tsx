@@ -38,6 +38,7 @@ import {
   Opportunity,
   ActionSuggestion,
 } from '@/lib/aidenBrain';
+import { synthesizeDayBrief } from '@/api/aiden';
 import { fetchEvents, CalendarEvent } from '@/api/calendar';
 import { Commitment, dueLabel, isOverdue } from '@/lib/commitments';
 
@@ -587,6 +588,37 @@ export const Today: React.FC = () => {
     return bullets.slice(0, 3);
   }, [focusItems, openCommitments, remainingOpps]);
 
+  // AI "morning brief" — one sharp, specific sentence orienting the day.
+  const [dayBrief, setDayBrief] = useState<string>('');
+  const briefKey = `${attention.length}|${opportunities.length}|${events.length}|${openCommitments.length}|${
+    focusItems[0] ? (focusItems[0].item as any).id : ''
+  }`;
+  useEffect(() => {
+    const now = new Date();
+    const top = focusItems[0];
+    const topPriority = top ? top.item.outcomeTitle : undefined;
+    const overdueC = openCommitments.find((c) => isOverdue(c, now));
+    const mostOverdue = overdueC ? overdueC.text : undefined;
+    const upcoming = [...events].filter((e) => !e.all_day).sort((a, b) => (a.start || '').localeCompare(b.start || ''))[0];
+    const nextMeeting = upcoming ? `${upcoming.summary} at ${upcoming.time}` : undefined;
+    let cancelled = false;
+    synthesizeDayBrief({
+      attentionCount: attention.length,
+      opportunityCount: opportunities.length,
+      meetingsToday: events.length,
+      openCommitments: openCommitments.length,
+      topPriority,
+      mostOverdue,
+      nextMeeting,
+    }).then((s) => {
+      if (!cancelled) setDayBrief(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [briefKey]);
+
   const aidenHandled = useMemo(
     () => emails.length + commitments.length + opportunities.length,
     [emails.length, commitments.length, opportunities.length],
@@ -607,9 +639,16 @@ export const Today: React.FC = () => {
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted/50 mb-3">
           {dateLabel}
         </p>
-        <h1 className="text-[40px] font-bold tracking-tight text-foreground leading-none mb-5">
+        <h1 className="text-[34px] font-semibold tracking-tight text-foreground leading-tight mb-4">
           {greeting()}, {firstName}.
         </h1>
+
+        {dayBrief && (
+          <div className="flex items-start gap-2.5 mb-5 max-w-2xl">
+            <Sparkles className="mt-1 h-4 w-4 flex-shrink-0 text-violet-500" />
+            <p className="text-[17px] text-foreground/80 leading-relaxed">{dayBrief}</p>
+          </div>
+        )}
 
         {dayOutcomes.length > 0 && (
           <div className="space-y-2.5 mb-5">

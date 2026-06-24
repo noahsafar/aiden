@@ -101,11 +101,24 @@ export interface DayBriefContext {
   opportunityCount: number;
   meetingsToday: number;
   openCommitments: number;
+  /** The single most important thing to do (the top Focus item's outcome). */
+  topPriority?: string;
+  /** The most pressing overdue/imminent commitment, if any. */
+  mostOverdue?: string;
+  /** The next meeting on the calendar, e.g. "Team sync at 10:00 AM". */
+  nextMeeting?: string;
 }
 
 export async function synthesizeDayBrief(ctx: DayBriefContext): Promise<string> {
   try {
-    const prompt = `Write one warm, concise sentence (max 22 words) summarizing the user's day as a calm chief-of-staff. Data: ${ctx.attentionCount} things need attention, ${ctx.opportunityCount} opportunities, ${ctx.meetingsToday} meetings today, ${ctx.openCommitments} open commitments. No greeting, no emoji.`;
+    const specifics = [
+      ctx.topPriority ? `Top priority: ${ctx.topPriority}.` : '',
+      ctx.mostOverdue ? `Most pressing commitment: ${ctx.mostOverdue}.` : '',
+      ctx.nextMeeting ? `Next meeting: ${ctx.nextMeeting}.` : '',
+    ].filter(Boolean).join(' ');
+    const prompt = `You are the user's calm, sharp chief of staff. Write ONE concise sentence (max 24 words) that orients them to their day and names the single most important thing specifically — not just counts. No greeting, no emoji, no "you have".
+Counts: ${ctx.attentionCount} need attention, ${ctx.opportunityCount} opportunities, ${ctx.meetingsToday} meetings, ${ctx.openCommitments} open loops.
+${specifics || 'Nothing specific is pressing.'}`;
     const raw = await runAidenPrompt(prompt, 8000);
     const line = raw.trim().split('\n')[0];
     if (line) return line.replace(/^["']|["']$/g, '');

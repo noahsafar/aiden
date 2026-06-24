@@ -108,35 +108,35 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={handleClose}>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={handleClose}>
       <div
-        className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col"
+        className="bg-surface rounded-2xl shadow-elevated-lg border border-gray-200/70 dark:border-white/[0.08] w-full max-w-lg mx-4 max-h-[90vh] flex flex-col animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">New Event</h2>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200/70 dark:border-white/[0.08]">
+          <h2 className="text-lg font-semibold text-foreground">New Event</h2>
           <button
             onClick={handleClose}
-            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            className="p-1.5 rounded-lg text-muted hover:bg-gray-100 dark:hover:bg-white/[0.06] transition-colors"
           >
-            <X className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Success state */}
         {successLink !== null && !error ? (
           <div className="p-8 text-center">
-            <div className="mx-auto w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-3">
-              <Check className="h-6 w-6 text-green-600 dark:text-green-400" />
+            <div className="mx-auto w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-500/15 flex items-center justify-center mb-3">
+              <Check className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <p className="text-gray-900 dark:text-white font-medium mb-2">Event created!</p>
+            <p className="text-foreground font-medium mb-2">Event created!</p>
             {successLink && (
               <a
                 href={successLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                className="inline-flex items-center gap-1 text-sm text-violet-600 dark:text-violet-400 hover:underline"
               >
                 View in Google Calendar <ExternalLink className="h-3 w-3" />
               </a>
@@ -148,8 +148,8 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
             <div className="space-y-4">
               {/* Title */}
               <div>
-                <label htmlFor="event-title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Title <span className="text-red-500">*</span>
+                <label htmlFor="event-title" className="block text-sm font-medium text-foreground mb-1.5">
+                  Title <span className="text-rose-500">*</span>
                 </label>
                 <input
                   id="event-title"
@@ -158,13 +158,13 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Meeting with team"
                   autoFocus
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 text-sm transition-colors placeholder:text-muted"
                 />
               </div>
 
               {/* Date */}
               <div>
-                <label htmlFor="event-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="event-date" className="block text-sm font-medium text-foreground mb-1.5">
                   Date
                 </label>
                 <input
@@ -172,14 +172,14 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 text-sm transition-colors placeholder:text-muted"
                 />
               </div>
 
               {/* Start / End Time */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="event-start" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="event-start" className="block text-sm font-medium text-foreground mb-1.5">
                     Start Time
                   </label>
                   <input
@@ -187,11 +187,11 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
                     type="time"
                     value={startTime}
                     onChange={(e) => setStartTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 text-sm transition-colors placeholder:text-muted"
                   />
                 </div>
                 <div>
-                  <label htmlFor="event-end" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="event-end" className="block text-sm font-medium text-foreground mb-1.5">
                     End Time
                   </label>
                   <input
@@ -199,14 +199,14 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
                     type="time"
                     value={endTime}
                     onChange={(e) => setEndTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 text-sm transition-colors placeholder:text-muted"
                   />
                 </div>
               </div>
 
               {/* Location */}
               <div>
-                <label htmlFor="event-location" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="event-location" className="block text-sm font-medium text-foreground mb-1.5">
                   Location
                 </label>
                 <input
@@ -215,13 +215,13 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   placeholder="Conference room, Zoom link, etc."
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 text-sm transition-colors placeholder:text-muted"
                 />
               </div>
 
               {/* Description */}
               <div>
-                <label htmlFor="event-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="event-description" className="block text-sm font-medium text-foreground mb-1.5">
                   Description
                 </label>
                 <textarea
@@ -230,13 +230,13 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Add details about the event..."
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm resize-none"
+                  className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 text-sm resize-none transition-colors placeholder:text-muted"
                 />
               </div>
 
               {/* Attendees */}
               <div>
-                <label htmlFor="event-attendees" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="event-attendees" className="block text-sm font-medium text-foreground mb-1.5">
                   Attendees
                 </label>
                 <input
@@ -245,15 +245,15 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
                   value={attendees}
                   onChange={(e) => setAttendees(e.target.value)}
                   placeholder="email1@example.com, email2@example.com"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  className="w-full px-3 py-2 border border-gray-200/80 dark:border-white/[0.08] rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 text-sm transition-colors placeholder:text-muted"
                 />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Comma-separated email addresses</p>
+                <p className="mt-1 text-xs text-muted">Comma-separated email addresses</p>
               </div>
 
               {/* Error */}
               {error && (
-                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                  <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+                <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20">
+                  <p className="text-sm text-rose-700 dark:text-rose-300">{error}</p>
                 </div>
               )}
             </div>
@@ -263,14 +263,14 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
               <button
                 type="button"
                 onClick={handleClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-white/[0.07] rounded-lg hover:bg-gray-200 dark:hover:bg-white/[0.12] transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting || !title.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                className="px-4 py-2 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
               >
                 {isSubmitting ? (
                   <>
