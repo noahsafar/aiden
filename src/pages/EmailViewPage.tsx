@@ -153,6 +153,7 @@ export const EmailViewPage: React.FC = () => {
               focusedView={true}
               showResponseOptions={showResponseOptions}
               onShowResponseOptionsChange={setShowResponseOptions}
+              hideThreadNavigation={true}
             />
           </div>
         </div>

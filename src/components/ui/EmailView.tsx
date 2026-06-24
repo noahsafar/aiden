@@ -475,6 +475,7 @@ interface EmailViewProps {
   animationPhase?: 'idle' | 'slideLeft' | 'expand'; // Animation phase for focused view transition
   showResponseOptions?: boolean; // Whether to show response options/questions
   onShowResponseOptionsChange?: (value: boolean) => void; // Callback when respond button is clicked
+  hideThreadNavigation?: boolean; // If true, hide the thread navigation box
 }
 
 type FormalityScore = number; // 0-100, where 0=casual, 50=neutral, 100=formal
@@ -490,6 +491,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   animationPhase = 'idle',
   showResponseOptions = false,
   onShowResponseOptionsChange,
+  hideThreadNavigation = false,
 }) => {
   const { sendEmail, updateEmailStatus, emails, sentEmails, saveEmail, unsaveEmail, isGeneratingSummary, hasSentReply, markAsRead, getThreadEmails, getThreadPosition, selectEmail, selectedEmail: storeSelectedEmail } = useEmailStore();
   const { user } = useAuthStore();
@@ -524,6 +526,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
   // Question/answer flow state - store answers as a map of question index -> answer
   const [pendingQuestions, setPendingQuestions] = React.useState<any[]>([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = React.useState(0); // Track which question is currently displayed
   const [userAnswers, setUserAnswers] = React.useState<Record<number, string>>({});
   const [analyzingQuestions, setAnalyzingQuestions] = React.useState(false);
   const [questionsLoaded, setQuestionsLoaded] = React.useState(false); // Track if we've gotten a response from backend
@@ -609,6 +612,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
     if (email?.id && emailStateMap.current.has(email.id)) {
       const state = emailStateMap.current.get(email.id)!;
       setPendingQuestions([...state.pendingQuestions]);
+      setCurrentQuestionIndex(0); // Reset to first question when loading new questions
       setUserAnswers({...state.userAnswers});
       setFormalityScore(state.suggestedFormalityScore); // Always start at suggested position
       setSuggestedFormalityScore(state.suggestedFormalityScore);
@@ -1435,7 +1439,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
         )}
 
         {/* Thread Navigation - show when in a thread with multiple emails */}
-        {threadEmails.length > 1 && !isSentEmail && (() => {
+        {threadEmails.length > 1 && !isSentEmail && !hideThreadNavigation && (() => {
           const currentId = email?.id || storeSelectedEmail?.id;
           const currentIndex = threadEmails.findIndex(e => e.id === currentId);
           const current = currentIndex >= 0 ? currentIndex + 1 : 1;
@@ -1677,12 +1681,44 @@ export const EmailView: React.FC<EmailViewProps> = ({
             {/* Questions list */}
             {pendingQuestions.length > 0 && (
               <div className="space-y-3">
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Questions to answer:</p>
-                {pendingQuestions.map((question, idx) => (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Questions to answer:</p>
+                  {/* Question navigation */}
+                  <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                    <button
+                      onClick={() => setCurrentQuestionIndex(Math.max(0, currentQuestionIndex - 1))}
+                      disabled={currentQuestionIndex === 0}
+                      className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${
+                        currentQuestionIndex === 0 ? 'opacity-30 cursor-not-allowed' : ''
+                      }`}
+                      title="Previous question"
+                    >
+                      <ChevronUp className="w-3 h-3" />
+                    </button>
+                    <span className="text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                      {currentQuestionIndex + 1} <span className="text-gray-400">out of</span> {pendingQuestions.length}
+                    </span>
+                    <button
+                      onClick={() => setCurrentQuestionIndex(Math.min(pendingQuestions.length - 1, currentQuestionIndex + 1))}
+                      disabled={currentQuestionIndex === pendingQuestions.length - 1}
+                      className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${
+                        currentQuestionIndex === pendingQuestions.length - 1 ? 'opacity-30 cursor-not-allowed' : ''
+                      }`}
+                      title="Next question"
+                    >
+                      <ChevronDown className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+                {pendingQuestions
+                  .filter((_, idx) => idx === currentQuestionIndex)
+                  .map((question, idx) => {
+                    const actualIndex = currentQuestionIndex;
+                    return (
                   <div
-                    key={idx}
+                    key={actualIndex}
                     className={`p-4 rounded-lg border transition-colors ${
-                      userAnswers[idx]
+                      userAnswers[actualIndex]
                         ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
                         : 'bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
                     }`}
@@ -1690,11 +1726,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
                     <div className="flex items-start gap-3">
                       {/* Numbered badge */}
                       <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold ${
-                        userAnswers[idx]
+                        userAnswers[actualIndex]
                           ? 'bg-green-500 text-white'
                           : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
                       }`}>
-                        {idx + 1}
+                        {actualIndex + 1}
                       </div>
                       <div className="flex-1">
                         <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1705,9 +1741,9 @@ export const EmailView: React.FC<EmailViewProps> = ({
                             {question.options?.map((option: string) => (
                               <button
                                 key={option}
-                                onClick={() => handleAnswer(idx, option)}
+                                onClick={() => handleAnswer(actualIndex, option)}
                                 className={`px-4 py-2 text-sm rounded-full border transition-colors ${
-                                  userAnswers[idx] === option
+                                  userAnswers[actualIndex] === option
                                     ? 'bg-amber-500 text-white border-amber-500'
                                     : 'bg-white dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
                                 }`}
@@ -1722,24 +1758,17 @@ export const EmailView: React.FC<EmailViewProps> = ({
                             <input
                               type="text"
                               placeholder="Type your answer..."
-                              defaultValue={userAnswers[idx] || ''}
-                              onChange={(e) => handleAnswer(idx, e.target.value)}
+                              defaultValue={userAnswers[actualIndex] || ''}
+                              onChange={(e) => handleAnswer(actualIndex, e.target.value)}
                               className="flex-1 px-3 py-2 text-sm bg-white dark:bg-gray-800/50 rounded border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-amber-500"
                             />
                           </div>
                         )}
-                        {userAnswers[idx] && (
-                          <p className="text-xs text-green-600 dark:text-green-400 mt-2 flex items-center gap-1">
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                            Answered: {userAnswers[idx]}
-                          </p>
-                        )}
                       </div>
                     </div>
                   </div>
-                ))}
+                );
+              })}
               </div>
             )}
 
@@ -1805,18 +1834,13 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
         {/* Additional Context Input - Optional keywords/instructions for AI */}
         {!analyzingQuestions && questionsLoaded && !displayAiReply && summary && showResponseOptions && (
-          <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-              Additional context <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={additionalContext}
-              onChange={(e) => setAdditionalContext(e.target.value)}
-              placeholder="e.g., 'mention I'll be out of office next week', 'ask about the project timeline'..."
-              className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800/50 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-            />
-          </div>
+          <input
+            type="text"
+            value={additionalContext}
+            onChange={(e) => setAdditionalContext(e.target.value)}
+            placeholder="Additional context (optional)"
+            className="mt-4 w-full px-3 py-2 text-sm bg-white dark:bg-gray-800/50 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+          />
         )}
 
         {/* Generate Button - more subtle, hide when generating */}
