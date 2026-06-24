@@ -91,6 +91,9 @@ export const Schedule: React.FC = () => {
         subtitle="Your next two weeks, with prep ready before every meeting."
         actions={
           <>
+            <SoftButton variant="ghost" icon={<Link2 className="h-3.5 w-3.5" />} onClick={() => navigate('/scheduling')}>
+              Booking links
+            </SoftButton>
             <SoftButton variant="ghost" icon={<RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />} onClick={() => setRefreshKey((k) => k + 1)}>
               Refresh
             </SoftButton>
@@ -125,18 +128,6 @@ export const Schedule: React.FC = () => {
           ))}
         </div>
       )}
-
-      {/* Booking links */}
-      <Surface tone="subtle" interactive className="flex items-center gap-4 px-5 py-4" onClick={() => navigate('/scheduling')}>
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-violet-50 dark:bg-violet-500/10">
-          <Link2 className="h-5 w-5 text-violet-500" />
-        </div>
-        <div className="flex-1">
-          <h3 className="text-[15px] font-semibold text-foreground">Booking links</h3>
-          <p className="text-[13px] text-muted">Share your availability and let others book time with you.</p>
-        </div>
-        <SoftButton variant="soft">Manage</SoftButton>
-      </Surface>
 
       <CreateEventModal
         isOpen={showCreate}

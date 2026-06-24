@@ -34,7 +34,7 @@ import {
   recentSubjectsWith,
   AttentionItem,
 } from '@/lib/aidenBrain';
-import { generateMeetingBrief, generateEventBrief, MeetingBrief } from '@/api/aiden';
+import { generateMeetingBrief, generateEventBrief, answerFromContext, MeetingBrief } from '@/api/aiden';
 import { fetchUrlContent, CalendarEvent } from '@/api/calendar';
 import { parseSender } from '@/lib/senders';
 import { Commitment } from '@/lib/commitments';
@@ -109,6 +109,41 @@ export const Ask: React.FC = () => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [turns]);
 
+  // Search the inbox for the most relevant emails and answer the question from them.
+  async function answerFromInbox(question: string): Promise<AskResult> {
+    const STOP = new Set([
+      'what', 'who', 'when', 'where', 'why', 'how', 'which', 'whose', 'about', 'the', 'this',
+      'that', 'is', 'are', 'was', 'were', 'do', 'does', 'did', 'i', 'my', 'me', 'of', 'on', 'in',
+      'for', 'to', 'a', 'an', 'with', 'any', 'there', 'tell', 'give', 'show', 'meeting', 'email',
+      'latest', 'update', 'status', 'happening', 'anything',
+    ]);
+    const terms = question.toLowerCase().split(/\W+/).filter((w) => w.length >= 3 && !STOP.has(w));
+    const all = [...emails, ...sentEmails];
+    const scored = all
+      .map((e) => {
+        const hay = `${e.subject || ''} ${e.body_text || e.snippet || ''}`.toLowerCase();
+        const score = terms.reduce((s, t) => s + (hay.includes(t) ? 1 : 0), 0);
+        return { e, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6);
+
+    if (scored.length === 0) {
+      return { kind: 'text', text: `I searched your inbox but couldn't find anything about that.` };
+    }
+    const context = scored
+      .map(({ e }) => {
+        const from = parseSender(e.sender || '').name || e.sender || 'unknown';
+        const when = e.date ? ` (${new Date(e.date).toLocaleDateString()})` : '';
+        return `From ${from}${when}: "${e.subject || '(no subject)'}"\n${(e.body_text || e.snippet || '').slice(0, 500)}`;
+      })
+      .join('\n\n---\n\n');
+    const answer = await answerFromContext(question, context);
+    if (answer) return { kind: 'text', text: answer };
+    return { kind: 'text', text: `Here's what I found in your inbox:\n${scored.map(({ e }) => `• ${e.subject || '(no subject)'}`).join('\n')}` };
+  }
+
   async function resolve(prompt: string): Promise<AskResult> {
     const p = prompt.toLowerCase();
 
@@ -153,6 +188,15 @@ export const Ask: React.FC = () => {
     if (whoMatch) {
       const topic = whoMatch[1].replace(/[?.!]$/, '').trim();
       return { kind: 'people', contacts: findPeopleFor(topic, contacts, emails, sentEmails), topic };
+    }
+
+    // General question → answer it directly from the inbox, no prompting.
+    const isActionCommand = /\b(reply|respond to|draft|compose|write|send|forward|archive|delete|mark|snooze|schedule|unsubscribe|create|add)\b/.test(p);
+    const looksLikeQuestion =
+      prompt.trim().endsWith('?') ||
+      /\b(what|who|when|where|why|how|which|whose|is|are|was|were|do i|did|tell me|summar|status|update on|about|latest on|happening with|anything (on|about))\b/.test(p);
+    if (!isActionCommand && looksLikeQuestion) {
+      return await answerFromInbox(prompt);
     }
 
     // Fallback: route through the existing chat command system (search/compose/etc.)

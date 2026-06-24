@@ -38,6 +38,28 @@ async function runAidenPrompt(prompt: string, timeoutMs = 25000): Promise<string
   }
 }
 
+/**
+ * Answer a free-form question grounded ONLY in the supplied context (e.g. the
+ * user's matching emails). Returns '' on failure so callers can fall back.
+ */
+export async function answerFromContext(question: string, context: string): Promise<string> {
+  if (!context.trim()) return '';
+  const prompt = `You are the user's chief of staff. Answer their question concisely and specifically, using ONLY the information in the context below. If the context doesn't contain the answer, say so in one short sentence — do not guess or ask the user to search (you already have).
+
+Question: ${question}
+
+Context (the user's relevant emails):
+${context.slice(0, 6000)}
+
+Answer in 1–3 sentences, concrete and grounded. No preamble.`;
+  try {
+    const raw = await runAidenPrompt(prompt, 18000);
+    return raw.trim();
+  } catch {
+    return '';
+  }
+}
+
 function parseJsonLoose<T>(raw: string): T | null {
   if (!raw) return null;
   const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/) || raw.match(/([\[{][\s\S]*[\]}])/);
