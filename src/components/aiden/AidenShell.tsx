@@ -15,7 +15,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useEmailStore } from '@/stores/emailStore';
 import { useCommitmentStore } from '@/stores/commitmentStore';
 import { PersonAvatar } from '@/components/aiden/primitives';
-import logo from '/aiden-mark.svg';
+import logo from '/aiden-wordmark.svg';
 
 interface NavItem {
   to: string;
@@ -72,9 +72,8 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
       {/* ---- Left rail ---- */}
       <nav className="flex w-[236px] flex-shrink-0 flex-col border-r border-gray-200/70 bg-gray-50/60 backdrop-blur-xl dark:border-white/[0.06] dark:bg-[#0c0e14]/80">
         {/* Brand */}
-        <div className="flex items-center gap-2.5 px-5 py-4">
-          <img src={logo} alt="Aiden" className="h-7 w-7" />
-          <span className="text-[17px] font-semibold tracking-tight">Aiden</span>
+        <div className="flex items-center px-5 py-4">
+          <img src={logo} alt="Aiden" className="h-7 w-auto" />
         </div>
 
         {/* Nav */}
