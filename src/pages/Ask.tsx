@@ -186,19 +186,34 @@ export const Ask: React.FC = () => {
     const setStatus = (status: string) =>
       setTurns((t) => t.map((turn, i) => (i === index ? { ...turn, status } : turn)));
 
-    // 1. Search emails by keywords from event title, or by attendee address.
-    const keywords = ev.summary.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-    const attendeesLower = (ev.attendees || []).map((a) => a.toLowerCase());
+    // 1. Find genuinely related emails — high precision so one meeting's brief never
+    //    pulls in an unrelated thread. Two signals:
+    //    (a) the email involves an actual attendee of this meeting, or
+    //    (b) the email subject shares a DISTINCTIVE keyword from the meeting title.
+    //    Generic meeting words (meeting, sync, planning, review, weekly, …) are
+    //    excluded so they can't cross-match unrelated meetings.
+    const STOP = new Set([
+      'meeting', 'meet', 'sync', 'call', 'planning', 'plan', 'review', 'update', 'updates',
+      'weekly', 'monthly', 'daily', 'standup', 'catchup', 'catch', 'check', 'checkin', 'chat',
+      'discussion', 'discuss', 'team', 'session', 'quick', 'touch', 'base', 'intro', 'prep',
+      'hold', 'calendar', 'invite', 'time', 'agenda', 'notes', 'follow', 'followup',
+      'morning', 'afternoon', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
+      'this', 'next', 'with', 'and', 'the', 'for',
+    ]);
+    const keywords = ev.summary
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length >= 4 && !STOP.has(w));
+    const attendeesLower = (ev.attendees || []).map((a) => a.toLowerCase()).filter(Boolean);
     const allEmails = [...emails, ...sentEmails];
     const relatedEmails = allEmails
       .filter((e) => {
+        const people = `${e.sender || ''} ${e.recipients || ''}`.toLowerCase();
+        const involvesAttendee = attendeesLower.some((a) => people.includes(a));
+        if (involvesAttendee) return true;
+        if (keywords.length === 0) return false;
         const sub = (e.subject || '').toLowerCase();
-        // `sender` is the from-line for received mail; `recipients` for sent mail.
-        const people = `${(e.sender || '')} ${(e.recipients || '')}`.toLowerCase();
-        return (
-          keywords.some((k) => sub.includes(k)) ||
-          attendeesLower.some((a) => a && people.includes(a))
-        );
+        return keywords.some((k) => sub.includes(k));
       })
       .slice(0, 6)
       .map((e) => ({
