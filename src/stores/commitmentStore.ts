@@ -57,6 +57,9 @@ interface CommitmentState {
   extract: (useAi?: boolean) => Promise<void>;
   setStatus: (id: string, status: CommitmentStatus, snoozedUntil?: string) => void;
   markDone: (id: string) => void;
+  /** When you reply to someone, clear the open promises you owed them in that
+   *  thread — unless the reply itself makes a new promise (a deferral). */
+  reconcileSentEmail: (opts: { counterpartyEmail?: string; threadId?: string; body: string }) => void;
   snooze: (id: string, days: number) => void;
   dismiss: (id: string) => void;
   reopen: (id: string) => void;
@@ -183,6 +186,30 @@ export const useCommitmentStore = create<CommitmentState>((set, get) => ({
   },
 
   markDone: (id) => get().setStatus(id, 'done'),
+
+  reconcileSentEmail: ({ counterpartyEmail, threadId, body }) => {
+    if (!counterpartyEmail && !threadId) return;
+    // If this message itself makes a fresh promise, it's a deferral — keep the loop open.
+    const makesNewPromise = extractCommitmentsHeuristic({
+      id: 'reconcile',
+      threadId: threadId || 'reconcile',
+      body,
+      counterpartyName: '',
+      outgoing: true,
+    }).some((c) => c.direction === 'you_owe');
+    if (makesNewPromise) return;
+    const cp = counterpartyEmail?.toLowerCase();
+    const { commitments, markDone } = get();
+    commitments
+      .filter(
+        (c) =>
+          c.status === 'open' &&
+          c.direction === 'you_owe' &&
+          ((threadId && c.threadId === threadId) ||
+            (cp && c.counterpartyEmail?.toLowerCase() === cp)),
+      )
+      .forEach((c) => markDone(c.id));
+  },
   dismiss: (id) => get().setStatus(id, 'dismissed'),
   reopen: (id) => get().setStatus(id, 'open'),
   snooze: (id, days) => {

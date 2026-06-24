@@ -134,12 +134,13 @@ function cleanAction(sentence: string): string {
 
 // Phrases where the *author* is promising something (1st person commitments).
 const YOU_OWE_PATTERNS = [
-  /\bi(?:'| wi)?ll\s+(send|get|share|forward|put together|draft|prepare|follow up|circle back|set up|schedule|review|look into|loop|update|finalize|finish|deliver|ping|email|call|reach out|sort|handle|take care of|write up|pull together)\b/i,
+  /\bi(?:'| wi)?ll\s+(send|get|share|forward|put together|draft|prepare|prep|follow up|circle back|get back|come back|revert|set up|schedule|review|respond|reply|answer|confirm|provide|check|look (into|over|at)|loop|update|finalize|finish|complete|deliver|ping|email|call|reach out|let you know|sort|handle|take care of|write up|pull together)\b/i,
   /\bi['’]?m going to\s+\w+/i,
-  /\blet me\s+(send|get|share|check|look|put together|draft|follow up|circle back|set up|pull)\b/i,
-  /\bi can\s+(send|get|share|have|put together|draft|set up|schedule)\b.*\b(by|tomorrow|today|tonight|this week|next week|monday|tuesday|wednesday|thursday|friday)\b/i,
+  /\bi['’]?ll\s+\w+[^.!?]*\b(by\s|tomorrow|today|tonight|this (afternoon|morning|evening|week)|next (week|monday|tuesday|wednesday|thursday|friday)|end of (the )?(day|week)|eod|eow|by (monday|tuesday|wednesday|thursday|friday))\b/i,
+  /\blet me\s+(send|get|share|check|look|put together|draft|follow up|circle back|set up|pull|confirm|review)\b/i,
+  /\bi can\s+(send|get|share|have|put together|draft|set up|schedule|provide|review)\b.*\b(by|tomorrow|today|tonight|this week|next week|monday|tuesday|wednesday|thursday|friday)\b/i,
   /\bi['’]?ll have\b/i,
-  /\bwill\s+(send|share|forward|deliver|circle back|follow up)\b/i,
+  /\bwill\s+(send|share|forward|deliver|circle back|follow up|respond|reply|get back|confirm|provide|let you know)\b/i,
 ];
 
 // Phrases that imply the *counterparty* owes the user something.

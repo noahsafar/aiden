@@ -565,6 +565,19 @@ async function persistEmailsToDisk() {
   }
 }
 
+// Commitment tracking: re-scan the inbox + sent mail whenever messages change so
+// promises ("I'll send X tomorrow") and requests become tracked commitments
+// automatically — on every email received or sent. Debounced to coalesce bursts.
+let commitmentRescanTimer: ReturnType<typeof setTimeout> | undefined;
+function rescanCommitments() {
+  clearTimeout(commitmentRescanTimer);
+  commitmentRescanTimer = setTimeout(() => {
+    import('./commitmentStore')
+      .then(({ useCommitmentStore }) => useCommitmentStore.getState().extract())
+      .catch(() => {});
+  }, 400);
+}
+
 // First, create the store with minimal state
 export const useEmailStore = create<EmailState>((set, get) => ({
   emails: [],
@@ -752,6 +765,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
         const emails = [...existingById.values()];
         set({ emails, isLoading: false });
+        rescanCommitments();
 
         // Persist to disk in background
         persistEmailsToDisk();
@@ -937,6 +951,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
         const emails = [...existingById.values()];
         set({ emails, isLoading: false });
+        rescanCommitments();
 
         // Persist to disk in background
         persistEmailsToDisk();
@@ -1361,11 +1376,22 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       }));
       persistEmailsToDisk();
 
-      // Commitment tracking: re-scan after sending so promises in this message
-      // (e.g. "I'll send more info tomorrow") immediately become tracked commitments.
-      import('@/stores/commitmentStore')
-        .then(({ useCommitmentStore }) => useCommitmentStore.getState().extract())
-        .catch(() => {});
+      // Commitment tracking: (1) clear any promise you owed this person in this
+      // thread now that you've responded (unless this reply defers again), then
+      // (2) re-scan so any new promise in this message becomes a tracked commitment.
+      {
+        const recipientEmail = (to.match(/<([^>]+)>/)?.[1] || to).trim().toLowerCase();
+        import('./commitmentStore')
+          .then(({ useCommitmentStore }) =>
+            useCommitmentStore.getState().reconcileSentEmail({
+              counterpartyEmail: recipientEmail,
+              threadId: originalThreadId || undefined,
+              body,
+            }),
+          )
+          .catch(() => {});
+      }
+      rescanCommitments();
 
       // Schedule a reminder if this is a reply (has inReplyTo)
       if (inReplyTo) {
@@ -1725,6 +1751,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   setEmails: (emails: Email[]) => {
     set({ emails });
+    rescanCommitments();
   },
 
   setViewMode: (mode: 'individual' | 'threaded') => {
