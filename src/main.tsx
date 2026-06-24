@@ -4,6 +4,22 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './index.css';
 
+// Auto-hiding scrollbars: show the thumb only while actively scrolling, then
+// fade it out after a short idle. Capture phase catches nested scroll containers
+// (scroll events don't bubble).
+if (typeof document !== 'undefined') {
+  let scrollIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  document.addEventListener(
+    'scroll',
+    () => {
+      document.documentElement.classList.add('is-scrolling');
+      clearTimeout(scrollIdleTimer);
+      scrollIdleTimer = setTimeout(() => document.documentElement.classList.remove('is-scrolling'), 1100);
+    },
+    true,
+  );
+}
+
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { error: Error | null }

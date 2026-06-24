@@ -145,22 +145,31 @@
     background: #3b82f6;
   }
 
-  /* Scrollbar styling */
+  /* Scrollbar styling — auto-hide: the thumb stays invisible until the user
+     scrolls (JS toggles html.is-scrolling), then fades back out after ~1s idle. */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-muted;
+    background: transparent;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-border rounded-full;
+    background-color: transparent;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+    transition: background-color 0.4s ease;
   }
 
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-muted;
+  html.is-scrolling ::-webkit-scrollbar-thumb {
+    background-color: rgb(148 163 184 / 0.5);
+  }
+
+  html.is-scrolling ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(148 163 184 / 0.8);
   }
 
   /* Thin scrollbar for compact areas like calendar cells */
