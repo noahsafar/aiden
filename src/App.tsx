@@ -14,6 +14,13 @@ import { Settings as SettingsPage } from '@/pages/Settings';
 import { Calendar } from '@/pages/Calendar';
 import { Crm } from '@/pages/Crm';
 import { Scheduling } from '@/pages/Scheduling';
+import { AidenShell } from '@/components/aiden/AidenShell';
+import { Today } from '@/pages/Today';
+import { Relationships } from '@/pages/Relationships';
+import { Commitments } from '@/pages/Commitments';
+import { Ask } from '@/pages/Ask';
+import { Schedule } from '@/pages/Schedule';
+import { EmailViewPage } from '@/pages/EmailViewPage';
 import { AIComposeModal } from '@/components/email/AIComposeModal';
 import { ChatPanel } from '@/components/chat/ChatPanel';
 import { ChatTrigger } from '@/components/chat/ChatTrigger';
@@ -54,6 +61,7 @@ import {
   Send,
   Lightbulb,
   Mic,
+  ChevronDown,
 } from 'lucide-react';
 import logo from '/aiden-logo.png';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
@@ -111,6 +119,17 @@ interface Email {
   category?: string;
 }
 
+// Reads navigation state ({ focusEmailId }) to open a specific email in the
+// inbox. Rendered inside <Routes>, so useLocation() always has Router context.
+function InboxDeepLink({ onFocus }: { onFocus: (id: string) => void }) {
+  const location = useLocation();
+  useEffect(() => {
+    const focusEmailId = (location.state as any)?.focusEmailId;
+    if (focusEmailId) onFocus(focusEmailId);
+  }, [location.state, onFocus]);
+  return null;
+}
+
 function App() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
@@ -119,13 +138,20 @@ function App() {
   const { emails, fetchEmails, loadFromDisk, isLoading: emailsLoading, hasInitialized: emailsInitialized, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode, searchQuery, setSearchQuery, getFilteredEmails, setSelectedEmail, readFilter, setReadFilter } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
 
-  // Animation state for focused view
+  // Animation + focus-mode state declared before handleInboxDeepLink so the
+  // useCallback dependency array doesn't reference uninitialized variables.
   const [isAnimatingToFocused, setIsAnimatingToFocused] = useState(false);
   const [animationPhase, setAnimationPhase] = useState<'idle' | 'slideLeft' | 'expand'>('idle');
   const [isClosingAnimation, setIsClosingAnimation] = useState(false);
-  // Focus mode toggle - separate from currentFilter so inbox stays highlighted
   const [isFocusMode, setIsFocusMode] = useState(false);
+
   const [showTriage, setShowTriage] = useState(false);
+
+  const handleInboxDeepLink = React.useCallback((focusEmailId: string) => {
+    setSelectedEmailId(focusEmailId);
+    setFocusedEmailId(focusEmailId);
+    setIsFocusMode(true);
+  }, []);
 
   // Reset triage view when leaving inbox
   useEffect(() => {
@@ -995,22 +1021,56 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
       <ChatProvider>
         <Routes>
         {/* Root path redirect */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<Navigate to="/today" replace />} />
+
+      {/* ---- New Aiden surfaces (Chief of Staff experience) ---- */}
+      <Route
+        path="/today"
+        element={isAuthenticated ? (<AidenShell><Today /></AidenShell>) : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/relationships"
+        element={isAuthenticated ? (<AidenShell><Relationships /></AidenShell>) : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/commitments"
+        element={isAuthenticated ? (<AidenShell><Commitments /></AidenShell>) : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/schedule"
+        element={isAuthenticated ? (<AidenShell><Schedule /></AidenShell>) : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/ask"
+        element={isAuthenticated ? (<AidenShell bleed><Ask /></AidenShell>) : <Navigate to="/login" replace />}
+      />
+
+      {/* Email view page - focused view without navigation */}
+      <Route
+        path="/today/email/:id"
+        element={isAuthenticated ? (<AidenShell bleed><EmailViewPage /></AidenShell>) : <Navigate to="/login" replace />}
+      />
+
+      {/* /dashboard kept as an alias to the inbox surface */}
+      <Route path="/dashboard" element={<Navigate to="/inbox" replace />} />
 
       {/* Login route */}
       <Route
         path="/login"
         element={
-          isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />
+          isAuthenticated ? <Navigate to="/today" replace /> : <Login />
         }
       />
 
-      {/* Dashboard and main app routes - protected */}
+      {/* Inbox surface — the full email experience, wrapped in the Aiden shell */}
       <Route
-        path="/dashboard"
+        path="/inbox"
         element={
-          isAuthenticated && !emailsInitialized && emailsLoading ? (
-            <div className="h-screen bg-background flex items-center justify-center">
+          isAuthenticated ? (
+            <AidenShell bleed>
+            <InboxDeepLink onFocus={handleInboxDeepLink} />
+            {(!emailsInitialized && emailsLoading) ? (
+            <div className="h-full bg-background flex items-center justify-center">
               <div className="text-center">
                 <div className="flex items-center justify-center mb-6">
                   <img
@@ -1024,9 +1084,9 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                 <p className="text-muted/60 text-sm mt-2">Fetching unread emails</p>
               </div>
             </div>
-          ) : isAuthenticated ? (
+          ) : (
             <>
-              <div className="h-screen bg-background overflow-hidden flex flex-col min-w-0">
+              <div className="h-full bg-background overflow-hidden flex flex-col min-w-0">
               {/* Top Navigation Bar */}
               <div className="h-14 bg-surface border-b border-border flex items-center justify-between pl-2 pr-4 z-10 flex-shrink-0 min-w-0">
                 <div className="flex items-center gap-0 min-w-0">
@@ -1042,17 +1102,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                       </svg>
                     </button>
                   )}
-                  <img
-                    src={logo}
-                    alt="Aiden Logo"
-                    className="h-8 w-8 flex-shrink-0"
-                  />
-                  <div className="flex items-center">
-                    <h1 className="text-lg font-bold text-gray-900 dark:text-white truncate leading-none">Aiden</h1>
-                    <span className="ml-2 text-sm text-gray-500 hidden sm:block truncate leading-tight pt-0.5">
-                      {user ? user.email : 'Not logged in'}
-                    </span>
-                  </div>
+                  <h1 className="text-lg font-semibold text-gray-900 dark:text-white truncate leading-none pl-1">Inbox</h1>
                 </div>
 
                 <div className="flex-1 max-w-xl mx-4 hidden md:flex items-center gap-3">
@@ -1086,26 +1136,6 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                 </div>
 
                 <div className="flex items-center space-x-1 flex-shrink-0">
-                  <Link to="/life">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Life Intel">
-                      <Lightbulb className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    </Button>
-                  </Link>
-                  <Link to="/crm">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Relationship Intelligence">
-                      <Users className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    </Button>
-                  </Link>
-                  <Link to="/scheduling">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Scheduling">
-                      <Clock className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    </Button>
-                  </Link>
-                  <Link to="/calendar">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Calendar">
-                      <CalendarIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    </Button>
-                  </Link>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1114,20 +1144,6 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                     onClick={handleVoiceCompose}
                   >
                     <Mic className={`h-4 w-4 ${isListening ? 'text-red-500' : 'text-gray-600 dark:text-gray-400'}`} />
-                  </Button>
-                  <Link to="/settings">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Settings">
-                      <SettingsIcon className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    </Button>
-                  </Link>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2 sm:px-3 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                    onClick={signOut}
-                  >
-                    <LogOut className="h-4 w-4 sm:mr-1" />
-                    <span className="text-sm hidden sm:inline">Sign Out</span>
                   </Button>
                 </div>
               </div>
@@ -1339,8 +1355,8 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                   )}
                 </div>
 
-                {/* Email Content Area - always render the same structure to avoid unmounting/remounting */}
-                <div className={`flex-1 min-w-0 flex flex-col relative`}>
+                {/* Email Content Area */}
+                <div className="flex-1 min-w-0 flex flex-col relative">
                   {selectedEmail ? (
                     <>
                       {/* Email Content Display - always visible */}
@@ -1717,7 +1733,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                   )}
                 </div>
 
-                {/* Analysis Panel - single instance, always rendered but positioned differently */}
+                {/* Analysis Panel */}
                 {selectedEmail && (() => {
                   const isClosing = animationPhase === 'slideLeft' && !isAnimatingToFocused;
                   const shouldTransitionToIdle = isClosingAnimation && animationPhase === 'idle';
@@ -1728,8 +1744,12 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                       id="analysis-panel"
                       className="bg-white dark:bg-gray-800 overflow-y-auto border-b border-gray-200/50 dark:border-gray-700/50"
                       style={
-                        animationPhase === 'idle'
-                          ? {
+                        (() => {
+                          const isClosing = animationPhase === 'slideLeft' && !isAnimatingToFocused;
+                          const shouldTransitionToIdle = isClosingAnimation && animationPhase === 'idle';
+
+                          if (animationPhase === 'idle') {
+                            return {
                               position: 'absolute',
                               left: '36rem',
                               width: 'calc(100% - 36rem)',
@@ -1738,9 +1758,9 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                               maxHeight: '50%',
                               transition: shouldTransitionToIdle ? 'left 0.5s ease-in-out, width 0.5s ease-in-out' : 'none',
                               zIndex: 1
-                            }
-                          : animationPhase === 'slideLeft'
-                          ? {
+                            };
+                          } else if (animationPhase === 'slideLeft') {
+                            return {
                               position: 'absolute',
                               left: '0',
                               width: '36rem',
@@ -1748,8 +1768,10 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                               height: analysisPanelHeight ? `${analysisPanelHeight}px` : 'auto',
                               transition: isClosing ? 'left 0.5s ease-in-out, width 0.5s ease-in-out' : 'left 0.5s ease-in-out, width 0.5s ease-in-out',
                               zIndex: 10
-                            }
-                          : {
+                            };
+                          } else {
+                            // Default expand phase
+                            return {
                               position: 'absolute',
                               left: '0',
                               width: '36rem',
@@ -1758,7 +1780,9 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                               borderBottom: 'none',
                               transition: 'height 0.2s ease-out',
                               zIndex: 10
-                            }
+                            };
+                          }
+                        })()
                       }
                     >
                     <div className="p-2">
@@ -1781,9 +1805,11 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
               </div>
             </div>
           </>
-        ) : (
-          <Navigate to="/login" replace />
-        )
+            )}
+            </AidenShell>
+          ) : (
+            <Navigate to="/login" replace />
+          )
         }
       />
 
@@ -1901,7 +1927,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
       <Route
         path="*"
         element={
-          <Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />
+          <Navigate to={isAuthenticated ? "/today" : "/login"} replace />
         }
       />
       </Routes>
