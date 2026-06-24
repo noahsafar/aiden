@@ -1361,6 +1361,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       }));
       persistEmailsToDisk();
 
+      // Commitment tracking: re-scan after sending so promises in this message
+      // (e.g. "I'll send more info tomorrow") immediately become tracked commitments.
+      import('@/stores/commitmentStore')
+        .then(({ useCommitmentStore }) => useCommitmentStore.getState().extract())
+        .catch(() => {});
+
       // Schedule a reminder if this is a reply (has inReplyTo)
       if (inReplyTo) {
         get().scheduleReplyReminder(sentEmail.id, inReplyTo, 3); // 3 days default
