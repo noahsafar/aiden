@@ -147,10 +147,11 @@ export const Ask: React.FC = () => {
   async function resolve(prompt: string): Promise<AskResult> {
     const p = prompt.toLowerCase();
 
-    // Meeting brief
-    const briefMatch = p.match(/(?:prep(?:are)?|brief|ready)\b.*?\b(?:with|for|meeting with)\s+(.+)$/);
-    if (/\b(prep|prepare|brief)\b/.test(p) && briefMatch) {
-      const personQuery = briefMatch[1].replace(/[?.!]$/, '').trim();
+    // Meeting brief — "prepare me for my meeting with <person>". Capture the name
+    // after "with" (the person signal), not the earlier "for".
+    const withMatch = /\b(prep|prepare|brief|ready)\b/.test(p) ? prompt.match(/\bwith\s+(.+)$/i) : null;
+    if (withMatch) {
+      const personQuery = withMatch[1].replace(/[?.!]+$/, '').trim();
       const contact = bestContactMatch(contacts, personQuery);
       const name = contact?.name || personQuery;
       const email = contact?.email_address;
