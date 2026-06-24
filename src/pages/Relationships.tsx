@@ -12,6 +12,8 @@ import {
   Send,
   Inbox,
   X,
+  ChevronDown,
+  ArrowUpDown,
 } from 'lucide-react';
 import {
   SurfaceHeader,
@@ -241,18 +243,20 @@ export const Relationships: React.FC = () => {
             </div>
 
             {/* Sort */}
-            <div className="flex items-center gap-2 px-1">
-              <span className="text-[11px] text-muted/60">Sort</span>
+            <div className="relative inline-flex items-center">
+              <ArrowUpDown className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted/50" />
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortBy)}
-                className="bg-transparent text-[12px] font-medium text-muted outline-none hover:text-foreground"
+                aria-label="Sort people by"
+                className="cursor-pointer appearance-none rounded-lg border border-gray-200/70 bg-white py-1.5 pl-8 pr-8 text-[12px] font-medium text-foreground outline-none transition-colors hover:border-gray-300 focus:border-violet-400 dark:border-white/[0.07] dark:bg-white/[0.04] dark:hover:border-white/20"
               >
-                <option value="strength">Strength</option>
-                <option value="recent">Last contact</option>
+                <option value="strength">Strongest first</option>
+                <option value="recent">Recent contact</option>
                 <option value="emails">Most emails</option>
                 <option value="cooling">Cooling first</option>
               </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-muted/50" />
             </div>
 
             <div className="space-y-1.5">
