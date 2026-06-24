@@ -25,6 +25,8 @@ interface ComposeData {
   to: string;
   subject: string;
   body: string;
+  /** Optional AI instruction — when present the compose modal auto-drafts from it. */
+  prompt?: string;
 }
 
 interface ChatState {
@@ -45,6 +47,7 @@ interface ChatState {
   closeChat: () => void;
   sendMessage: (text: string, source?: 'voice' | 'typed') => Promise<void>;
   executeAction: (action: ChatAction) => Promise<void>;
+  openCompose: (data: Partial<ComposeData>) => void;
   clearComposeData: () => void;
   clearSearchResults: () => void;
   handleClarificationResponse: (response: string) => Promise<void>;
@@ -464,6 +467,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         break;
     }
   },
+
+  openCompose: (data) =>
+    set({ composeData: { to: data.to || '', subject: data.subject || '', body: data.body || '', prompt: data.prompt } }),
 
   clearComposeData: () => set({ composeData: null }),
 

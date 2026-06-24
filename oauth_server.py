@@ -991,6 +991,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_mark_unread()
         elif self.path.startswith('/mark-read'):
             self.handle_mark_read()
+        elif self.path.startswith('/chat'):
+            self.handle_chat()
         else:
             self.send_error(404)
 
@@ -3195,11 +3197,37 @@ Provide only the summary, no preamble."""
                 )
 
                 # Format events for frontend
+                import re as _re
+                def _extract_meeting_link(event):
+                    non_google_pattern = r'https?://[^\s<>"\']*(?:zoom\.us|teams\.microsoft\.com|webex\.com|gotomeeting\.com)[^\s<>"\']*'
+                    for ep in (event.get('conferenceData') or {}).get('entryPoints', []):
+                        uri = ep.get('uri', '')
+                        if ep.get('entryPointType') == 'video' and uri and 'google.com' not in uri:
+                            return uri
+                    loc = event.get('location', '') or ''
+                    m = _re.search(non_google_pattern, loc)
+                    if m:
+                        return m.group(0)
+                    desc = event.get('description', '') or ''
+                    m = _re.search(non_google_pattern, desc)
+                    if m:
+                        return m.group(0)
+                    if event.get('hangoutLink'):
+                        return event['hangoutLink']
+                    for ep in (event.get('conferenceData') or {}).get('entryPoints', []):
+                        if ep.get('entryPointType') == 'video' and ep.get('uri'):
+                            return ep['uri']
+                    return ''
+
                 formatted_events = []
                 for event in events:
                     summary = event.get('summary', 'No title')
                     start_data = event.get('start', {})
                     end_data = event.get('end', {})
+                    location = event.get('location', '') or ''
+                    description = event.get('description', '') or ''
+                    meeting_link = _extract_meeting_link(event)
+                    attendees = [a['email'] for a in event.get('attendees', []) if a.get('email')]
 
                     # Check if this is an all-day event (has 'date' field) or timed event (has 'dateTime' field)
                     if 'date' in start_data:
@@ -3223,7 +3251,11 @@ Provide only the summary, no preamble."""
                             'date': start_dt.strftime('%Y-%m-%d'),
                             'time': 'All day',
                             'end_time': '',
-                            'all_day': True
+                            'all_day': True,
+                            'location': location,
+                            'description': description,
+                            'meeting_link': meeting_link,
+                            'attendees': attendees,
                         })
                     elif 'dateTime' in start_data:
                         # Timed event
@@ -3269,7 +3301,11 @@ Provide only the summary, no preamble."""
                             'date': start_dt.strftime('%Y-%m-%d'),
                             'time': start_dt.strftime('%I:%M %p').lstrip('0'),
                             'end_time': end_dt.strftime('%I:%M %p').lstrip('0'),
-                            'all_day': False
+                            'all_day': False,
+                            'location': location,
+                            'description': description,
+                            'meeting_link': meeting_link,
+                            'attendees': attendees,
                         })
 
                 # DEBUG: Print the final response
@@ -3284,6 +3320,56 @@ Provide only the summary, no preamble."""
                     'events': formatted_events
                 }
                 self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'fetch_url':
+                url = data.get('url', '')
+                text = ''
+                try:
+                    import requests as _req
+                    import re as _re2
+                    from html.parser import HTMLParser as _HTMLParser
+
+                    gdoc_m = _re2.search(r'docs\.google\.com/document/d/([^/?#]+)', url)
+                    gslides_m = _re2.search(r'docs\.google\.com/presentation/d/([^/?#]+)', url)
+                    gsheet_m = _re2.search(r'docs\.google\.com/spreadsheets/d/([^/?#]+)', url)
+
+                    if gdoc_m or gslides_m or gsheet_m:
+                        if gdoc_m:
+                            export_url = f'https://docs.google.com/document/d/{gdoc_m.group(1)}/export?format=txt'
+                        elif gslides_m:
+                            export_url = f'https://docs.google.com/presentation/d/{gslides_m.group(1)}/export?format=txt'
+                        else:
+                            export_url = f'https://docs.google.com/spreadsheets/d/{gsheet_m.group(1)}/export?format=csv'
+                        from google.auth.transport.requests import AuthorizedSession as _AuthSession
+                        session = _AuthSession(creds)
+                        resp = session.get(export_url, timeout=12)
+                        text = resp.text[:6000] if resp.ok else ''
+                    else:
+                        resp = _req.get(url, timeout=8, headers={'User-Agent': 'Mozilla/5.0'})
+                        if resp.ok:
+                            class _TE(_HTMLParser):
+                                def __init__(self):
+                                    super().__init__()
+                                    self.chunks = []
+                                    self._skip = False
+                                def handle_starttag(self, tag, attrs):
+                                    if tag in ('script', 'style', 'nav', 'footer', 'head'):
+                                        self._skip = True
+                                def handle_endtag(self, tag):
+                                    if tag in ('script', 'style', 'nav', 'footer', 'head'):
+                                        self._skip = False
+                                def handle_data(self, d):
+                                    if not self._skip and d.strip():
+                                        self.chunks.append(d.strip())
+                            p = _TE()
+                            p.feed(resp.text)
+                            text = ' '.join(p.chunks)[:6000]
+                except Exception as fe:
+                    print(f'[CALENDAR] fetch_url error for {url}: {fe}')
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': True, 'text': text}).encode())
 
             else:
                 self.send_header('Content-type', 'application/json')
@@ -4352,6 +4438,36 @@ View event details:
     </script>
 </body>
 </html>'''
+
+    def handle_chat(self):
+        """Generic prompt → Claude reply, used by Aiden AI features."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            prompt = data.get('message') or data.get('prompt', '')
+            if not prompt:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'No prompt provided'}).encode())
+                return
+            result, error = call_anthropic_with_retry(
+                [{'role': 'user', 'content': prompt}],
+                max_tokens=1500,
+                temperature=0.4,
+                timeout=30,
+            )
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            if result:
+                self.wfile.write(json.dumps({'reply': result}).encode())
+            else:
+                self.wfile.write(json.dumps({'error': error or 'AI call failed'}).encode())
+        except Exception as e:
+            print(f'[CHAT] Error: {e}')
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': str(e)}).encode())
 
     def log_message(self, format_str, *args):
         """Suppress server log messages"""

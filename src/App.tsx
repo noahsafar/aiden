@@ -32,6 +32,7 @@ import { ToastContainer, ToastData } from '@/components/ui/Toast';
 import { useAuthStore } from '@/stores/authStore';
 import { useEmailStore } from '@/stores/emailStore';
 import { useThemeStore } from '@/stores/themeStore';
+import { useChatStore } from '@/stores/chatStore';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -134,8 +135,10 @@ function App() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [focusedEmailId, setFocusedEmailId] = useState<string | null>(null);
   const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
+  const composeData = useChatStore((s) => s.composeData);
+  const clearComposeData = useChatStore((s) => s.clearComposeData);
   const { signOut, isAuthenticated, isLoading, initialize, user } = useAuthStore();
-  const { emails, fetchEmails, loadFromDisk, isLoading: emailsLoading, hasInitialized: emailsInitialized, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode, searchQuery, setSearchQuery, getFilteredEmails, setSelectedEmail, readFilter, setReadFilter } = useEmailStore();
+  const { emails, fetchEmails, loadFromDisk, isLoading: emailsLoading, hasInitialized: emailsInitialized, sentEmails, currentFilter, setCurrentFilter, markAsStarred, updateEmailStatus, viewMode, sortMode, setSortMode, setViewMode, searchQuery, setSearchQuery, getFilteredEmails, readFilter, setReadFilter } = useEmailStore();
   const { loadThemeFromSettings } = useThemeStore();
 
   // Animation + focus-mode state declared before handleInboxDeepLink so the
@@ -1297,7 +1300,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
                       {showTriage && currentFilter === 'inbox' ? (
                         <div className="flex-1 overflow-y-auto">
                           <SmartTriage
-                            onAction={handleEmailAction}
+                            onAction={(action, emailIds) => emailIds.forEach((id) => handleEmailAction(id, action))}
                             onEmailSelect={(emailId) => setSelectedEmailId(emailId)}
                             readFilter={readFilter}
                             isFocusMode={isFocusMode}
@@ -1939,9 +1942,14 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
         isProcessing={isListening}
       />
       <AIComposeModal
-        isOpen={isComposeModalOpen}
+        isOpen={isComposeModalOpen || !!composeData}
+        initialTo={composeData?.to}
+        initialSubject={composeData?.subject}
+        initialBody={composeData?.body}
+        initialPrompt={composeData?.prompt}
         onClose={() => {
           setIsComposeModalOpen(false);
+          clearComposeData();
         }}
       />
       <ChatTrigger />

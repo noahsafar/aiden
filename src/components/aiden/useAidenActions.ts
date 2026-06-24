@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { useEmailStore } from '@/stores/emailStore';
 import { useCommitmentStore } from '@/stores/commitmentStore';
 import { useChannelStore } from '@/stores/channelStore';
+import { useChatStore } from '@/stores/chatStore';
 import type { ActionSuggestion } from '@/lib/aidenBrain';
 
 /**
@@ -15,6 +16,7 @@ export function useAidenActions() {
   const navigate = useNavigate();
   const markDone = useCommitmentStore((s) => s.markDone);
   const setActiveChannel = useChannelStore((s) => s.setActiveChannel);
+  const openCompose = useChatStore((s) => s.openCompose);
 
   return useCallback(
     (action: ActionSuggestion | { action: string; payload?: Record<string, unknown> }) => {
@@ -54,9 +56,12 @@ export function useAidenActions() {
           break;
         }
         case 'compose': {
-          const to = (payload.to as string) || '';
-          const q = `Draft an email to ${to}`;
-          navigate(`/ask?q=${encodeURIComponent(q)}`);
+          openCompose({
+            to: (payload.to as string) || '',
+            subject: (payload.subject as string) || '',
+            body: (payload.body as string) || '',
+            prompt: (payload.prompt as string) || undefined,
+          });
           break;
         }
         case 'schedule': {
@@ -77,6 +82,6 @@ export function useAidenActions() {
           break;
       }
     },
-    [navigate, markDone, setActiveChannel],
+    [navigate, markDone, setActiveChannel, openCompose],
   );
 }

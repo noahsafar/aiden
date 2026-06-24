@@ -18,6 +18,8 @@ interface AIComposeModalProps {
   initialTo?: string;
   initialSubject?: string;
   initialBody?: string;
+  /** When set, the modal pre-fills the AI instruction and auto-drafts the email. */
+  initialPrompt?: string;
 }
 
 interface EmailTemplate {
@@ -73,7 +75,7 @@ const TONE_OPTIONS = [
   { id: 'concise', name: 'Concise', description: 'Brief and to the point' },
 ];
 
-export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, initialBody }: AIComposeModalProps) {
+export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, initialBody, initialPrompt }: AIComposeModalProps) {
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
@@ -151,6 +153,23 @@ export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, ini
     }
   }, [isOpen, initialTo, initialSubject, initialBody]);
 
+  // When Aiden hands us an instruction (e.g. "congratulate Sarah on her raise"),
+  // pre-fill it and draft immediately so the user lands on a ready-to-edit email.
+  const autoDraftedRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      autoDraftedRef.current = false;
+      return;
+    }
+    if (initialPrompt && !initialBody && !autoDraftedRef.current) {
+      autoDraftedRef.current = true;
+      setAiPrompt(initialPrompt);
+      setShowAIPanel(true);
+      handleGenerateEmail(initialPrompt);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialPrompt, initialBody]);
+
   const handleSelectContact = (contact: Contact) => {
     setTo(contact.email_address);
     setShowSuggestions(false);
@@ -184,8 +203,9 @@ export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, ini
     }
   };
 
-  const handleGenerateEmail = async () => {
-    if (!aiPrompt.trim()) return;
+  const handleGenerateEmail = async (promptOverride?: string) => {
+    const instruction = (promptOverride ?? aiPrompt).trim();
+    if (!instruction) return;
 
     setIsGenerating(true);
     try {
@@ -196,10 +216,10 @@ export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, ini
       const fullPrompt = `Write a new email with the following details:
 
 ${templatePrompt}
-${aiPrompt}
+${instruction}
 
 Tone: ${toneInstruction}
-Recipient: ${to || 'not specified'}
+Recipient: ${to || initialTo || 'not specified'}
 My name is ${userName} - sign off with "${userName}", not "[Your Name]" or a placeholder
 
 Please write a complete email with an appropriate subject line. Format your response as JSON:
@@ -377,7 +397,7 @@ Please write a complete email with an appropriate subject line. Format your resp
             <div className="p-4 border-t border-gray-200 dark:border-gray-700">
               <Button
                 variant="primary"
-                onClick={handleGenerateEmail}
+                onClick={() => handleGenerateEmail()}
                 disabled={!aiPrompt.trim() || isGenerating}
                 className="w-full"
               >

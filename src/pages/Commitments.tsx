@@ -142,7 +142,27 @@ export const Commitments: React.FC = () => {
               onDismiss={() => dismiss(c.id)}
               onReopen={() => reopen(c.id)}
               onOpen={() => act({ action: 'open', payload: { emailId: c.emailId } })}
-              onReply={() => act({ action: 'reply', payload: { emailId: c.emailId } })}
+              onReply={() => {
+                // With a real thread → open it in reply mode. Without one (heuristic /
+                // manual commitments), draft a fresh message to the counterparty so the
+                // button always does something useful.
+                if (c.emailId) {
+                  act({ action: 'reply', payload: { emailId: c.emailId } });
+                } else if (c.counterpartyEmail) {
+                  const youOwe = c.direction === 'you_owe';
+                  act({
+                    action: 'compose',
+                    payload: {
+                      to: c.counterpartyEmail,
+                      prompt: youOwe
+                        ? `Write a brief, warm note to ${c.counterpartyName} following through on what I owe them: "${c.text}". Be concrete about next steps.`
+                        : `Write a friendly, low-pressure nudge to ${c.counterpartyName} about: "${c.text}". Keep it short and gracious.`,
+                    },
+                  });
+                } else {
+                  act({ action: 'ask', payload: { q: `Help me follow up on: ${c.text}`, run: true } });
+                }
+              }}
             />
           ))}
         </div>
@@ -222,9 +242,11 @@ const CommitmentCard: React.FC<{
                 <SoftButton variant="ghost" icon={<Bell className="h-3.5 w-3.5" />} onClick={onSnooze}>
                   Snooze
                 </SoftButton>
-                <SoftButton variant="ghost" onClick={onOpen}>
-                  Open thread
-                </SoftButton>
+                {c.emailId && (
+                  <SoftButton variant="ghost" onClick={onOpen}>
+                    Open thread
+                  </SoftButton>
+                )}
                 <button
                   onClick={onDismiss}
                   title="Dismiss"

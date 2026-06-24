@@ -9,6 +9,10 @@ export interface CalendarEvent {
   time: string;   // formatted time like "2:00 PM"
   end_time: string; // formatted end time
   all_day: boolean;
+  location?: string;
+  description?: string;
+  meeting_link?: string;
+  attendees?: string[];
 }
 
 export interface EventsResponse {
@@ -40,7 +44,7 @@ async function getOAuthServerURL(): Promise<string> {
 
 let cachedServerURL: string | null = null;
 
-async function serverURL(): Promise<string> {
+export async function serverURL(): Promise<string> {
   if (!cachedServerURL) {
     cachedServerURL = await getOAuthServerURL();
   }
@@ -131,6 +135,23 @@ export interface CreateEventResponse {
   event_id?: string;
   html_link?: string;
   error?: string;
+}
+
+export async function fetchUrlContent(url: string): Promise<string> {
+  try {
+    const baseURL = await serverURL();
+    const resp = await fetch(`${baseURL}/calendar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'fetch_url', url }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!resp.ok) return '';
+    const data = await resp.json();
+    return data.text || '';
+  } catch {
+    return '';
+  }
 }
 
 export async function createEvent(params: CreateEventParams): Promise<CreateEventResponse> {

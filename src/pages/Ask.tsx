@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import {
   Sparkles,
   ArrowUp,
@@ -34,7 +34,9 @@ import {
   recentSubjectsWith,
   AttentionItem,
 } from '@/lib/aidenBrain';
-import { generateMeetingBrief, MeetingBrief } from '@/api/aiden';
+import { generateMeetingBrief, generateEventBrief, MeetingBrief } from '@/api/aiden';
+import { fetchUrlContent, CalendarEvent } from '@/api/calendar';
+import { parseSender } from '@/lib/senders';
 import { Commitment } from '@/lib/commitments';
 import { cn } from '@/lib/utils';
 
@@ -48,6 +50,7 @@ type AskResult =
 interface Turn {
   prompt: string;
   loading: boolean;
+  status?: string;
   result?: AskResult;
 }
 
@@ -61,6 +64,7 @@ const SUGGESTIONS = [
 export const Ask: React.FC = () => {
   const act = useAidenActions();
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
   const user = useAuthStore((s) => s.user);
   const emails = useEmailStore((s) => s.emails);
   const sentEmails = useEmailStore((s) => s.sentEmails);
@@ -71,21 +75,31 @@ export const Ask: React.FC = () => {
   const [input, setInput] = useState('');
   const [turns, setTurns] = useState<Turn[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const autoRunFired = useRef(false);
 
   useEffect(() => {
     if (!hasExtractedContacts) extractContacts();
     if (!hasExtracted) extract();
   }, [hasExtractedContacts, hasExtracted, extractContacts, extract]);
 
-  // Deep link: /ask?q=...&run=1
+  // Deep link: /ask?q=...&run=1, or event state from Today "Prep me"
   useEffect(() => {
+    if (autoRunFired.current) return;
+    autoRunFired.current = true;
+    const ev = (location.state as any)?.event as CalendarEvent | undefined;
+    if (ev && (location.state as any)?.run) {
+      setInput(`Prepare me for ${ev.summary}`);
+      runEventPrep(ev);
+      // Clear router state so a remount (route away + back) doesn't re-run the brief.
+      window.history.replaceState({}, '');
+      return;
+    }
     const q = params.get('q');
     if (q) {
       setInput(q);
       if (params.get('run') === '1') {
         run(q);
       }
-      // clear params so re-renders don't re-run
       setParams({}, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -164,6 +178,79 @@ export const Ask: React.FC = () => {
     setTurns((t) => t.map((turn, i) => (i === index ? { ...turn, loading: false, result } : turn)));
   }
 
+  async function runEventPrep(ev: CalendarEvent) {
+    const label = `Prepare me for ${ev.summary}`;
+    setInput('');
+    const index = turns.length;
+    setTurns((t) => [...t, { prompt: label, loading: true, status: 'Searching related emails…' }]);
+    const setStatus = (status: string) =>
+      setTurns((t) => t.map((turn, i) => (i === index ? { ...turn, status } : turn)));
+
+    // 1. Search emails by keywords from event title, or by attendee address.
+    const keywords = ev.summary.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+    const attendeesLower = (ev.attendees || []).map((a) => a.toLowerCase());
+    const allEmails = [...emails, ...sentEmails];
+    const relatedEmails = allEmails
+      .filter((e) => {
+        const sub = (e.subject || '').toLowerCase();
+        // `sender` is the from-line for received mail; `recipients` for sent mail.
+        const people = `${(e.sender || '')} ${(e.recipients || '')}`.toLowerCase();
+        return (
+          keywords.some((k) => sub.includes(k)) ||
+          attendeesLower.some((a) => a && people.includes(a))
+        );
+      })
+      .slice(0, 6)
+      .map((e) => ({
+        subject: e.subject || '',
+        from: parseSender(e.sender || '').name || e.sender || '',
+        snippet: (e.body_text || e.snippet || '').slice(0, 250),
+      }));
+
+    // 2. Fetch linked doc content from description
+    const docContents: string[] = [];
+    if (ev.description) {
+      const urlMatches = ev.description.match(/https?:\/\/[^\s<>"']+/g) || [];
+      const docUrls = urlMatches.filter((u) =>
+        /docs\.google\.com|drive\.google\.com|notion\.so|confluence/.test(u),
+      );
+      if (docUrls.length > 0) {
+        setStatus('Reading linked documents…');
+        for (const url of docUrls.slice(0, 2)) {
+          const text = await fetchUrlContent(url);
+          if (text.trim()) docContents.push(text);
+        }
+      }
+    }
+
+    // 3. Open commitments with attendees
+    const openCommitmentTexts = commitments
+      .filter(
+        (c) =>
+          c.status === 'open' &&
+          (ev.attendees || []).some(
+            (a) => c.counterpartyEmail?.toLowerCase() === a.toLowerCase(),
+          ),
+      )
+      .map((c) => c.text);
+
+    setStatus('Generating brief…');
+    const brief = await generateEventBrief({
+      summary: ev.summary,
+      time: ev.time,
+      endTime: ev.end_time,
+      location: ev.location,
+      description: ev.description,
+      attendees: ev.attendees,
+      relatedEmails,
+      docContents,
+      openCommitmentTexts,
+    });
+
+    const result: AskResult = { kind: 'brief', brief, person: ev.summary, context: [], subjects: [] };
+    setTurns((t) => t.map((turn, i) => (i === index ? { ...turn, loading: false, result } : turn)));
+  }
+
   const hasTurns = turns.length > 0;
 
   return (
@@ -210,10 +297,13 @@ export const Ask: React.FC = () => {
                     </div>
                     <div className="min-w-0 flex-1">
                       {turn.loading ? (
-                        <div className="flex items-center gap-1.5 pt-2">
+                        <div className="flex items-center gap-2 pt-2">
                           <span className="h-2 w-2 animate-bounce rounded-full bg-muted [animation-delay:-0.3s]" />
                           <span className="h-2 w-2 animate-bounce rounded-full bg-muted [animation-delay:-0.15s]" />
                           <span className="h-2 w-2 animate-bounce rounded-full bg-muted" />
+                          {turn.status && (
+                            <span className="text-[13px] text-muted/60 animate-fade-in">{turn.status}</span>
+                          )}
                         </div>
                       ) : (
                         turn.result && <ResultView result={turn.result} act={act} />
@@ -228,7 +318,7 @@ export const Ask: React.FC = () => {
       </div>
 
       {/* Composer */}
-      <div className="border-t border-gray-200/70 bg-background/80 px-8 py-4 backdrop-blur-xl dark:border-white/[0.06]">
+      <div className="border-t border-gray-200/70 bg-background/80 px-8 py-3 backdrop-blur-xl dark:border-white/[0.06]">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -276,19 +366,30 @@ const ResultView: React.FC<{ result: AskResult; act: ReturnType<typeof useAidenA
             <Sparkles className="h-3.5 w-3.5" /> Meeting brief
           </div>
           <h3 className="mt-1.5 text-xl font-semibold text-foreground">{person}</h3>
-          <p className="mt-1 text-[14px] text-muted">{brief.headline}</p>
-          {!brief.generatedByAi && (
-            <p className="mt-1 text-[11px] text-muted/60">Synthesized from your history</p>
-          )}
+          {brief.headline.startsWith('Could not') ? (
+            <p className="mt-1 text-[12px] text-rose-500/80">{brief.headline}</p>
+          ) : brief.headline && !brief.headline.toLowerCase().startsWith(person.toLowerCase()) ? (
+            <p className="mt-1 text-[14px] text-muted">{brief.headline}</p>
+          ) : null}
         </div>
+        {brief.generatedByAi && brief.objectives.length === 0 && brief.suggestedQuestions.length === 0 && brief.watchOuts.length === 0 && context.length === 0 && subjects.length === 0 && (
+          <div className="px-6 py-4">
+            <p className="text-[13px] text-muted/60">No emails or calendar details found for this meeting — nothing to brief on.</p>
+          </div>
+        )}
+        {(brief.objectives.length > 0 || brief.suggestedQuestions.length > 0 || brief.watchOuts.length > 0 || context.length > 0 || subjects.length > 0) && (
         <div className="space-y-5 px-6 py-5">
-          <BriefBlock icon={<Target className="h-4 w-4 text-sky-500" />} title="Objectives" items={brief.objectives} />
-          <BriefBlock
-            icon={<HelpCircle className="h-4 w-4 text-emerald-500" />}
-            title="Suggested questions"
-            items={brief.suggestedQuestions}
-            quote
-          />
+          {brief.objectives.length > 0 && (
+            <BriefBlock icon={<Target className="h-4 w-4 text-sky-500" />} title="Objectives" items={brief.objectives} />
+          )}
+          {brief.suggestedQuestions.length > 0 && (
+            <BriefBlock
+              icon={<HelpCircle className="h-4 w-4 text-emerald-500" />}
+              title="Suggested questions"
+              items={brief.suggestedQuestions}
+              quote
+            />
+          )}
           {context.length > 0 && (
             <BriefBlock icon={<Lightbulb className="h-4 w-4 text-amber-500" />} title="What they care about" items={context} />
           )}
@@ -319,6 +420,7 @@ const ResultView: React.FC<{ result: AskResult; act: ReturnType<typeof useAidenA
             </div>
           )}
         </div>
+        )}
       </Surface>
     );
   }

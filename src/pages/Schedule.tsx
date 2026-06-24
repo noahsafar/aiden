@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus, Sparkles, CalendarDays, Link2, RefreshCw, Clock } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Plus, Sparkles, CalendarDays, Link2, RefreshCw, Clock, MapPin, Video } from 'lucide-react';
 import {
   SurfaceHeader,
   Surface,
@@ -8,7 +8,6 @@ import {
   SoftButton,
   EmptyState,
 } from '@/components/aiden/primitives';
-import { useAidenActions } from '@/components/aiden/useAidenActions';
 import { fetchEvents, CalendarEvent } from '@/api/calendar';
 import { CreateEventModal } from '@/components/calendar/CreateEventModal';
 import { invoke } from '@tauri-apps/api/core';
@@ -30,13 +29,25 @@ const FALLBACK: CalendarEvent[] = (() => {
 })();
 
 export const Schedule: React.FC = () => {
-  const act = useAidenActions();
   const navigate = useNavigate();
+  const location = useLocation();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [prefillAttendee, setPrefillAttendee] = useState<string | undefined>(undefined);
   const [timezone, setTimezone] = useState('America/New_York');
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Deep link from "Schedule time with X" → open the create modal pre-filled.
+  useEffect(() => {
+    const withWhom = (location.state as any)?.with as string | undefined;
+    if (withWhom) {
+      setPrefillAttendee(withWhom);
+      setShowCreate(true);
+      // clear so navigating back/refresh doesn't reopen
+      window.history.replaceState({}, '');
+    }
+  }, [location.state]);
 
   useEffect(() => {
     invoke<{ timezone?: string }>('get_settings')
@@ -107,7 +118,7 @@ export const Schedule: React.FC = () => {
               <SectionLabel dot="sky">{prettyDay(date)}</SectionLabel>
               <Surface className="divide-y divide-gray-100 dark:divide-white/[0.06]">
                 {evs.map((ev) => (
-                  <EventRow key={ev.id} event={ev} onPrep={(q) => act({ action: 'ask', payload: { q, run: true } })} />
+                  <EventRow key={ev.id} event={ev} />
                 ))}
               </Surface>
             </div>
@@ -129,20 +140,31 @@ export const Schedule: React.FC = () => {
 
       <CreateEventModal
         isOpen={showCreate}
-        onClose={() => setShowCreate(false)}
+        onClose={() => { setShowCreate(false); setPrefillAttendee(undefined); }}
         onEventCreated={() => setRefreshKey((k) => k + 1)}
         timezone={timezone}
+        initialAttendees={prefillAttendee}
       />
     </div>
   );
 };
 
-const EventRow: React.FC<{ event: CalendarEvent; onPrep: (q: string) => void }> = ({ event, onPrep }) => {
-  const personMatch = event.summary.match(/(?:with|—|-|:)\s*([A-Z][a-z]+(?: [A-Z][a-z]+)?)/);
-  const person = personMatch?.[1];
+const EventRow: React.FC<{ event: CalendarEvent }> = ({ event }) => {
+  const navigate = useNavigate();
+  const cleanDescription = (event.description || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const openLink = async (url: string) => {
+    try {
+      const { invoke: inv } = await import('@tauri-apps/api/core');
+      await inv('open_file', { path: url });
+    } catch {
+      window.open(url, '_blank');
+    }
+  };
+
   return (
-    <div className="flex items-center gap-4 px-5 py-4">
-      <div className="w-24 flex-shrink-0">
+    <div className="flex items-start gap-4 px-5 py-4">
+      <div className="w-20 flex-shrink-0 pt-0.5">
         {event.all_day ? (
           <span className="text-[13px] font-medium text-muted">All day</span>
         ) : (
@@ -151,19 +173,41 @@ const EventRow: React.FC<{ event: CalendarEvent; onPrep: (q: string) => void }> 
               <Clock className="h-3 w-3 text-muted" />
               {event.time}
             </div>
-            {event.end_time && <div className="ml-4 text-[12px] text-muted">{event.end_time}</div>}
+            {event.end_time && <div className="ml-4 text-[12px] text-muted/60">{event.end_time}</div>}
           </>
         )}
       </div>
-      <div className="h-9 w-px bg-gray-200 dark:bg-white/10" />
+      <div className="mt-0.5 h-9 w-px flex-shrink-0 bg-gray-200 dark:bg-white/10" />
       <div className="min-w-0 flex-1">
-        <h3 className="truncate text-[15px] font-medium text-foreground">{event.summary}</h3>
+        <h3 className="text-[15px] font-medium text-foreground">{event.summary}</h3>
+        {(event.location || cleanDescription) && (
+          <div className="mt-1 space-y-1">
+            {event.location && (
+              <div className="flex items-start gap-1.5">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted/40" />
+                <span className="text-[12px] text-muted/70 leading-snug">{event.location}</span>
+              </div>
+            )}
+            {cleanDescription && (
+              <p className="line-clamp-2 text-[12px] leading-relaxed text-muted/60">{cleanDescription}</p>
+            )}
+          </div>
+        )}
       </div>
-      {person && (
-        <SoftButton variant="soft" icon={<Sparkles className="h-3.5 w-3.5" />} onClick={() => onPrep(`Prepare me for my meeting with ${person}`)}>
+      <div className="flex flex-shrink-0 items-center gap-2">
+        {event.meeting_link && (
+          <SoftButton variant="soft" icon={<Video className="h-3.5 w-3.5" />} onClick={() => openLink(event.meeting_link!)}>
+            Join
+          </SoftButton>
+        )}
+        <SoftButton
+          variant="primary"
+          icon={<Sparkles className="h-3.5 w-3.5" />}
+          onClick={() => navigate('/ask', { state: { event, run: true } })}
+        >
           Prep me
         </SoftButton>
-      )}
+      </div>
     </div>
   );
 };

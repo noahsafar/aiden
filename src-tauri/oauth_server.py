@@ -20,10 +20,64 @@ from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 load_dotenv()
 
+from ab_testing import ab_test_assign, ab_test_log, event_logger
+import genai_approaches
+import elo_ranking
+import uuid
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+
+# Calendar event cache (5-minute TTL)
+_calendar_cache = {
+    'events': [],
+    'time_min': None,
+    'time_max': None,
+    'fetched_at': 0,
+    'ttl': 300,  # 5 minutes
+}
+
+def get_cached_calendar_events(calendar_service, time_min_iso, time_max_iso):
+    """Fetch calendar events with 5-minute TTL caching."""
+    import time as _time
+    from dateutil import parser as date_parser
+    now = _time.time()
+    cache = _calendar_cache
+
+    # Check if cache covers the requested range and is fresh
+    if (cache['fetched_at'] > 0
+        and (now - cache['fetched_at']) < cache['ttl']
+        and cache['time_min'] and cache['time_max']):
+        cached_min = date_parser.parse(cache['time_min'])
+        cached_max = date_parser.parse(cache['time_max'])
+        req_min = date_parser.parse(time_min_iso)
+        req_max = date_parser.parse(time_max_iso)
+        if req_min >= cached_min and req_max <= cached_max:
+            return [ev for ev in cache['events']
+                    if (ev.get('start', {}).get('dateTime') or ev.get('start', {}).get('date', ''))
+                    and req_min <= date_parser.parse(ev.get('start', {}).get('dateTime') or ev.get('start', {}).get('date')) <= req_max]
+
+    # Cache miss - fetch wide range (30 days)
+    from datetime import timedelta
+    req_min_dt = date_parser.parse(time_min_iso)
+    req_max_dt = date_parser.parse(time_max_iso)
+    wide_max = max(req_max_dt, req_min_dt + timedelta(days=30))
+
+    result = calendar_service.events().list(
+        calendarId='primary', timeMin=time_min_iso, timeMax=wide_max.isoformat(),
+        singleEvents=True, orderBy='startTime', maxResults=250
+    ).execute()
+    all_events = result.get('items', [])
+
+    cache['events'] = all_events
+    cache['time_min'] = time_min_iso
+    cache['time_max'] = wide_max.isoformat()
+    cache['fetched_at'] = now
+    return [ev for ev in all_events
+            if (ev.get('start', {}).get('dateTime') or ev.get('start', {}).get('date', ''))
+            and req_min_dt <= date_parser.parse(ev.get('start', {}).get('dateTime') or ev.get('start', {}).get('date')) <= req_max_dt]
 
 # OAuth Scopes for Gmail and Calendar access
 SCOPES = [
@@ -287,39 +341,53 @@ def decode_html_entities(text):
 
 def extract_email_body(message):
     """Extract plain text body from Gmail message"""
+    text, _ = extract_email_bodies(message)
+    return text
+
+
+def extract_email_bodies(message, service=None):
+    """Extract both plain text and HTML body from Gmail message in a single pass.
+    Returns (text_body, html_body) tuple."""
     try:
+        import base64
         payload = message.get('payload', {})
+        text_body = None
+        html_body = None
 
-        def find_text(part):
-            if part.get('mimeType') == 'text/plain':
-                data = part.get('body', {}).get('data', '')
-                if data:
-                    import base64
-                    decoded = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
-                    return decode_html_entities(decoded)
+        def find_bodies(part):
+            nonlocal text_body, html_body
+            mime = part.get('mimeType', '')
+            data = part.get('body', {}).get('data', '')
+            if mime == 'text/plain' and not text_body and data:
+                text_body = decode_html_entities(base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore'))
+            elif mime == 'text/html' and not html_body and data:
+                html_body = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
             for subpart in part.get('parts', []):
-                result = find_text(subpart)
-                if result:
-                    return result
-            return None
+                find_bodies(subpart)
 
-        # Check main body first
+        # Check main body first (single-part messages)
         body_data = payload.get('body', {}).get('data', '')
         if body_data:
-            import base64
-            return decode_html_entities(base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore'))
+            mime = payload.get('mimeType', '')
+            decoded = base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
+            if mime == 'text/html':
+                html_body = decoded
+            else:
+                text_body = decode_html_entities(decoded)
 
-        # Check parts
-        parts = payload.get('parts', [])
-        for part in parts:
-            result = find_text(part)
-            if result:
-                return decode_html_entities(result)
+        # Check parts (multipart messages)
+        if not text_body or not html_body:
+            for part in payload.get('parts', []):
+                find_bodies(part)
 
-        return None
+        # Inline image replacement for HTML (reuse existing logic)
+        if html_body and service:
+            html_body = _replace_inline_images(html_body, message, service)
+
+        return (text_body, html_body)
     except Exception as e:
-        print(f"Error extracting body: {e}")
-        return None
+        print(f"Error extracting bodies: {e}")
+        return (None, None)
 
 
 def extract_attachments(message):
@@ -366,136 +434,69 @@ def extract_attachments(message):
         return []
 
 
+def _replace_inline_images(html_content, message, service):
+    """Replace cid: references in HTML with base64 data URLs."""
+    import base64
+    import re
+
+    payload = message.get('payload', {})
+    message_id = message.get('id')
+    inline_images = {}
+    attachments_to_fetch = []
+
+    def collect_images(part):
+        headers = part.get('headers', [])
+        content_id = None
+        for header in headers:
+            if header['name'].lower() == 'content-id':
+                content_id = header['value'].strip('<>')
+                break
+        if content_id:
+            body_data = part.get('body', {}).get('data', '')
+            attachment_id = part.get('body', {}).get('attachmentId')
+            mime_type = part.get('mimeType', 'image/png')
+            if body_data:
+                try:
+                    decoded = base64.urlsafe_b64decode(body_data)
+                    inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
+                except Exception:
+                    pass
+            elif attachment_id:
+                attachments_to_fetch.append((content_id, attachment_id, mime_type))
+        for subpart in part.get('parts', []):
+            collect_images(subpart)
+
+    collect_images(payload)
+
+    if service and message_id and attachments_to_fetch:
+        for content_id, attachment_id, mime_type in attachments_to_fetch:
+            try:
+                att = service.users().messages().attachments().get(
+                    userId='me', messageId=message_id, id=attachment_id).execute()
+                data = att.get('data', '')
+                if data:
+                    decoded = base64.urlsafe_b64decode(data)
+                    inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
+            except Exception:
+                pass
+
+    if not inline_images:
+        return html_content
+
+    def replace_cid(match):
+        cid = match.group(1)
+        return inline_images.get(cid, inline_images.get(f"<{cid}>", match.group(0)))
+
+    html_content = re.sub(r'src=["\']cid:([^"\']+)["\']', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
+    html_content = re.sub(r'src=cid:([^\s>]+)', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
+    html_content = re.sub(r'cid:([^"\s>]+)', replace_cid, html_content)
+    return html_content
+
+
 def extract_email_body_html(message, service=None):
     """Extract HTML body from Gmail message and convert inline images to base64"""
-    try:
-        import base64
-        import re
-
-        payload = message.get('payload', {})
-        message_id = message.get('id')
-
-        # First, collect ALL inline images (attachments with Content-ID)
-        inline_images = {}
-        attachments_to_fetch = []  # Store (content_id, attachment_id, mime_type) tuples
-
-        def collect_images(part, path=None):
-            """Recursively collect all inline images"""
-            if path is None:
-                path = []
-
-            # Check if this part has a Content-ID (inline image)
-            headers = part.get('headers', [])
-            content_id = None
-            for header in headers:
-                if header['name'].lower() == 'content-id':
-                    content_id = header['value']
-                    # Strip angle brackets if present
-                    if content_id.startswith('<') and content_id.endswith('>'):
-                        content_id = content_id[1:-1]
-                    break
-
-            if content_id:
-                # This is an inline image
-                body_data = part.get('body', {}).get('data', '')
-                attachment_id = part.get('body', {}).get('attachmentId')
-                mime_type = part.get('mimeType', 'image/png')
-
-                if body_data:
-                    try:
-                        decoded = base64.urlsafe_b64decode(body_data)
-                        inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
-                        print(f"Decoded inline image: {content_id}, size: {len(decoded)} bytes")
-                    except Exception as e:
-                        print(f"Error decoding inline image data: {e}")
-                elif attachment_id:
-                    # For large attachments, store for later retrieval
-                    attachments_to_fetch.append((content_id, attachment_id, mime_type))
-
-            # Recurse into subparts
-            for subpart in part.get('parts', []):
-                collect_images(subpart)
-
-        collect_images(payload)
-
-        print(f"Found {len(inline_images)} inline images, {len(attachments_to_fetch)} need fetching")
-
-        # Fetch large attachments if we have a service and message_id
-        if service and message_id and attachments_to_fetch:
-            for content_id, attachment_id, mime_type in attachments_to_fetch:
-                try:
-                    attachment = service.users().messages().attachments().get(
-                        userId='me',
-                        messageId=message_id,
-                        id=attachment_id
-                    ).execute()
-                    data = attachment.get('data', '')
-                    if data:
-                        decoded = base64.urlsafe_b64decode(data)
-                        inline_images[content_id] = f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
-                        print(f"Fetched inline image: {content_id}, size: {len(decoded)} bytes")
-                except Exception as e:
-                    print(f"Error fetching attachment {attachment_id}: {e}")
-
-        def find_html(part):
-            if part.get('mimeType') == 'text/html':
-                data = part.get('body', {}).get('data', '')
-                if data:
-                    decoded = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
-                    return decoded
-            for subpart in part.get('parts', []):
-                result = find_html(subpart)
-                if result:
-                    return result
-            return None
-
-        # Check main body first
-        body_data = payload.get('body', {}).get('data', '')
-        html_content = None
-        if body_data and payload.get('mimeType') == 'text/html':
-            html_content = base64.urlsafe_b64decode(body_data).decode('utf-8', errors='ignore')
-        else:
-            # Check parts
-            parts = payload.get('parts', [])
-            for part in parts:
-                result = find_html(part)
-                if result:
-                    html_content = result
-                    break
-
-        if not html_content:
-            print("No HTML content found in email")
-            return None
-
-        print(f"Extracted HTML content, length: {len(html_content)}")
-
-        # Replace cid: references with base64 data URLs
-        def replace_cid(match):
-            cid = match.group(1)
-            if cid in inline_images:
-                return inline_images[cid]
-            # Try with angle brackets
-            cid_bracketed = f"<{cid}>"
-            if cid_bracketed in inline_images:
-                return inline_images[cid_bracketed]
-            return match.group(0)  # Return original if not found
-
-        # Replace various cid: formats found in emails
-        # Format 1: src="cid:..."
-        html_content = re.sub(r'src=["\']cid:([^"\']+)["\']', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
-        # Format 2: src=cid:... (no quotes)
-        html_content = re.sub(r'src=cid:([^\s>]+)', lambda m: f'src="{replace_cid(m)}"' if replace_cid(m) != m.group(0) else m.group(0), html_content)
-        # Format 3: standalone cid:... references
-        html_content = re.sub(r'cid:([^"\s>]+)', replace_cid, html_content)
-
-        print(f"Replaced CID references, inline_images keys: {list(inline_images.keys())}")
-
-        return html_content
-    except Exception as e:
-        print(f"Error extracting HTML body: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+    _, html = extract_email_bodies(message, service)
+    return html
 
 
 def fetch_and_cache_sent_emails(creds, count=10):
@@ -673,7 +674,7 @@ Email:
 Respond ONLY in the format above, no other text."""
 
         messages = [{"role": "user", "content": prompt}]
-        result, error = call_openai_with_retry(messages, max_tokens=500, temperature=0.3, timeout=30)
+        result, error = call_anthropic_with_retry(messages, max_tokens=500, temperature=0.3, timeout=30)
 
         if result:
             # Parse the structured response
@@ -917,6 +918,10 @@ class OAuthHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
+        # A/B testing middleware: assign variations and log exposure
+        ab_test_assign(self)
+        ab_test_log(self)
+
         if self.path == '/health' or self.path == '/health/':
             # Health check endpoint
             self.end_headers()
@@ -933,6 +938,13 @@ class OAuthHandler(BaseHTTPRequestHandler):
             # Root endpoint with simple status
             self.end_headers()
             self.wfile.write(b'OAuth server is running')
+        elif self.path.startswith('/genai-rankings'):
+            self.handle_genai_rankings()
+        elif self.path.startswith('/genai-approaches'):
+            self.handle_genai_approaches()
+        elif self.path.startswith('/book/'):
+            # Public booking page
+            self.handle_booking_page()
         else:
             self.send_error(404)
 
@@ -943,10 +955,18 @@ class OAuthHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
-        if self.path.startswith('/send-email'):
+        # A/B testing middleware: assign variations and log exposure
+        ab_test_assign(self)
+        ab_test_log(self)
+
+        if self.path.startswith('/log-event'):
+            self.handle_log_event()
+        elif self.path.startswith('/send-email'):
             self.handle_send_email()
         elif self.path.startswith('/analyze-email'):
             self.handle_analyze_email()
+        elif self.path.startswith('/genai-preference'):
+            self.handle_genai_preference()
         elif self.path.startswith('/generate-reply'):
             self.handle_generate_reply()
         elif self.path.startswith('/edit-reply'):
@@ -961,8 +981,51 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_calendar()
         elif self.path.startswith('/execute-command'):
             self.handle_execute_command()
+        elif self.path.startswith('/scheduling'):
+            self.handle_scheduling()
+        elif self.path.startswith('/batch-mark-read'):
+            self.handle_batch_mark_read()
+        elif self.path.startswith('/batch-mark-unread'):
+            self.handle_batch_mark_unread()
+        elif self.path.startswith('/mark-unread'):
+            self.handle_mark_unread()
+        elif self.path.startswith('/mark-read'):
+            self.handle_mark_read()
+        elif self.path.startswith('/chat'):
+            self.handle_chat()
         else:
             self.send_error(404)
+
+    def handle_log_event(self):
+        """Handle frontend event logging for A/B tests.
+
+        Expects a JSON body with:
+          - event: str   (the event name, e.g. "reply_button_click")
+          - metadata: dict (optional extra data)
+        """
+        try:
+            self.send_header('Content-type', 'application/json')
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+
+            event_name = data.get('event', 'unknown')
+            metadata = data.get('metadata', {})
+
+            event_logger(self, event_name=event_name, metadata=metadata)
+
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'success': True,
+                'event': event_name,
+                'ab_assignments': getattr(self, 'ab_assignments', {}),
+            }).encode())
+        except Exception as e:
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'success': False,
+                'error': str(e),
+            }).encode())
 
     def do_OPTIONS(self):
         # Handle preflight requests
@@ -1102,6 +1165,11 @@ class OAuthHandler(BaseHTTPRequestHandler):
             if 'q' in query_params:
                 query = query_params['q'][0]
 
+            # Get known IDs from query params to skip re-fetching
+            known_ids = set()
+            if 'knownIds' in query_params:
+                known_ids = set(query_params['knownIds'][0].split(','))
+
             # Fetch messages
             results = service.users().messages().list(
                 userId='me',
@@ -1114,7 +1182,11 @@ class OAuthHandler(BaseHTTPRequestHandler):
             emails = []
             for message in messages:
                 try:
-                    # Always get full message to extract body content
+                    # Skip full fetch for emails we already have
+                    if message['id'] in known_ids:
+                        continue
+
+                    # Get full message to extract body content
                     msg = service.users().messages().get(
                         userId='me',
                         id=message['id'],
@@ -1157,9 +1229,10 @@ class OAuthHandler(BaseHTTPRequestHandler):
                         'attachments': attachments
                     }
 
-                    # Always extract body content (both text and HTML)
-                    body_text = extract_email_body(msg) or ''
-                    body_html = extract_email_body_html(msg, service) or ''
+                    # Extract both text and HTML body in a single pass
+                    body_text, body_html = extract_email_bodies(msg, service)
+                    body_text = body_text or ''
+                    body_html = body_html or ''
                     email_data['bodyText'] = body_text
                     email_data['bodyHtml'] = body_html
 
@@ -1196,6 +1269,143 @@ class OAuthHandler(BaseHTTPRequestHandler):
                 'error': f'Failed to fetch emails: {str(e)}'
             }
             self.wfile.write(json.dumps(response).encode())
+
+    def handle_mark_read(self):
+        """Handle marking an email as read in Gmail"""
+        try:
+            self.send_header('Content-type', 'application/json')
+
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+            message_id = data.get('messageId')
+
+            if not message_id:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'messageId is required'}).encode())
+                return
+
+            creds = get_stored_credentials()
+            if not creds:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'Not authenticated'}).encode())
+                return
+
+            service = build('gmail', 'v1', credentials=creds)
+            service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'removeLabelIds': ['UNREAD']}
+            ).execute()
+
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': True}).encode())
+        except Exception as e:
+            print(f"Error marking email as read: {e}")
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+
+    def handle_mark_unread(self):
+        """Handle marking an email as unread in Gmail"""
+        try:
+            self.send_header('Content-type', 'application/json')
+
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+            message_id = data.get('messageId')
+
+            if not message_id:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'messageId is required'}).encode())
+                return
+
+            creds = get_stored_credentials()
+            if not creds:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'Not authenticated'}).encode())
+                return
+
+            service = build('gmail', 'v1', credentials=creds)
+            service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'addLabelIds': ['UNREAD']}
+            ).execute()
+
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': True}).encode())
+        except Exception as e:
+            print(f"Error marking email as unread: {e}")
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+
+    def handle_batch_mark_read(self):
+        """Batch mark multiple emails as read using Gmail batchModify"""
+        try:
+            self.send_header('Content-type', 'application/json')
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+            message_ids = data.get('messageIds', [])
+            if not message_ids:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'messageIds is required'}).encode())
+                return
+            creds = get_stored_credentials()
+            if not creds:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'Not authenticated'}).encode())
+                return
+            service = build('gmail', 'v1', credentials=creds)
+            # batchModify handles up to 1000 IDs per call
+            for i in range(0, len(message_ids), 1000):
+                batch = message_ids[i:i+1000]
+                service.users().messages().batchModify(
+                    userId='me',
+                    body={'ids': batch, 'removeLabelIds': ['UNREAD']}
+                ).execute()
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': True, 'count': len(message_ids)}).encode())
+        except Exception as e:
+            print(f"Error batch marking as read: {e}")
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+
+    def handle_batch_mark_unread(self):
+        """Batch mark multiple emails as unread using Gmail batchModify"""
+        try:
+            self.send_header('Content-type', 'application/json')
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+            message_ids = data.get('messageIds', [])
+            if not message_ids:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'messageIds is required'}).encode())
+                return
+            creds = get_stored_credentials()
+            if not creds:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'Not authenticated'}).encode())
+                return
+            service = build('gmail', 'v1', credentials=creds)
+            for i in range(0, len(message_ids), 1000):
+                batch = message_ids[i:i+1000]
+                service.users().messages().batchModify(
+                    userId='me',
+                    body={'ids': batch, 'addLabelIds': ['UNREAD']}
+                ).execute()
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': True, 'count': len(message_ids)}).encode())
+        except Exception as e:
+            print(f"Error batch marking as unread: {e}")
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
 
     def handle_send_email(self):
         """Handle sending email via Gmail API"""
@@ -1892,7 +2102,7 @@ Return ONLY valid JSON."""
             self.wfile.write(json.dumps({'success': False, 'error': f'Failed to analyze email: {str(e)}'}).encode())
 
     def handle_generate_reply(self):
-        """Generate email reply using OpenAI API"""
+        """Generate email reply using Anthropic API"""
         try:
             # Get request body FIRST before sending any response
             content_length = int(self.headers.get('Content-Length', 0))
@@ -1906,10 +2116,14 @@ Return ONLY valid JSON."""
             formality_level = data.get('formality_level', 'neutral')  # User's chosen formality level: casual, neutral, or formal
             additional_context = data.get('additional_context', '')  # Additional context/instructions from user
 
-            if not OPENAI_API_KEY:
+            # GenAI evaluation parameters (Milestone 6)
+            requested_approach = data.get('approach')  # If unspecified, dispatcher picks the default
+            compare_mode = bool(data.get('compare'))   # When true, return two responses from different approaches
+
+            if not os.getenv('ANTHROPIC_API_KEY'):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
+                response = {'success': False, 'error': 'ANTHROPIC_API_KEY not configured'}
                 self.wfile.write(json.dumps(response).encode())
                 return
 
@@ -1960,6 +2174,12 @@ Return ONLY valid JSON."""
             if additional_context:
                 additional_context_section = f"\n\nADDITIONAL CONTEXT/INSTRUCTIONS FROM USER:\n{additional_context}\n"
 
+            # Build sender tone section if available
+            sender_tone = data.get('sender_tone', None)
+            sender_tone_section = ""
+            if sender_tone:
+                sender_tone_section = f"\n\nSENDER'S TONE: {sender_tone} — Adapt your reply tone accordingly. For example, if frustrated/angry, be empathetic and solution-oriented. If excited, match their enthusiasm. If formal, stay formal.\n"
+
             # Determine style instruction based on user's chosen formality level
             if formality_level == 'formal':
                 style_instruction = "Use a formal, respectful tone appropriate for academic or professional contexts. Use proper salutations (e.g., 'Dear [Name]') and sign-offs (e.g., 'Best regards' or 'Sincerely')."
@@ -1968,83 +2188,100 @@ Return ONLY valid JSON."""
             else:  # neutral
                 style_instruction = "Use a professional but approachable tone. Balance friendliness with professionalism."
 
-            # Build context-aware prompt
-            if recipient_emails:
-                # Use recipient-specific emails as primary examples
-                examples = "\n\n---\n\n".join(recipient_emails[:4])
-
-                recipient_name_note = f"\n- Address them as '{recipient_first_name}' or by their preferred name" if recipient_first_name else ""
-
-                prompt = f"""You are {user_name} writing an email reply. STUDY the examples below which are YOUR past emails to THIS SAME PERSON.
-
-CRITICAL: You are {user_name}. The email is FROM them, TO you. Sign with YOUR name ({user_name}), NOT theirs.
-
-INCOMING EMAIL:
-{sender} wrote: {subject}
-
-{body_text[:1500]}
-{user_answers_context}{additional_context_section}
-YOUR PAST EMAILS TO THIS PERSON (your writing style - study tone and format):
-{examples}
-
-CRITICAL RULES:
-1. {"***If the user has provided choices above (in USER'S CHOICES), USE THEIR CHOICE and state it clearly in your reply.***" if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Instead ask them to clarify or say you're flexible."}
-2. {"***The user has already made their choice - use it! Say things like 'I would like [CHOICE]' or 'I'll go with [CHOICE]'.***" if user_answers else "NEVER decide on behalf of " + user_name + ". If asked 'A or B?' and no choice provided, respond asking what they prefer or say either works."}
-3. You are {user_name} - sign the email with YOUR NAME, never the recipient's name
-4. {style_instruction}
-5. Match the writing style from your past emails, but ALWAYS sign as "{user_name}"
-6. {f'Address them as "{recipient_first_name}"' if recipient_first_name else 'Use the same salutation style'}
-7. NEVER use placeholders like [Your Name], [Your Position], etc.
-8. Keep it under 100 words
-9. Start with a salutation (Hi, Hey, Dear, etc.)
-10. Output ONLY the email body - no subject line, no preamble
-11. {"***IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above.***" if additional_context else ""}
-
-Now write the reply as {user_name}:"""
-            elif user_name:
-                prompt = f"""Generate a short, professional reply to this email. Your name is {user_name} - sign the email with this name.
-
-Email from {sender}:
-Subject: {subject}
-
-{body_text[:1000]}
-{user_answers_context}{additional_context_section}
-
-CRITICAL: {"If user choices are provided above, USE THEM! State your choice clearly like 'I would like [choice]' or 'I'll go with [choice]'." if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Ask them to clarify or say you're flexible."}
-{"IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above." if additional_context else ""}
-
-Write a concise reply (under 100 words). Be professional and helpful. Sign off with "{user_name}". Start with a salutation. Do not include a subject line - just the email body."""
-            else:
-                prompt = f"""Generate a short, professional reply to this email:
-
-Email from {sender}:
-Subject: {subject}
-
-{body_text[:1000]}
-{user_answers_context}{additional_context_section}
-
-CRITICAL: {"If user choices are provided above, USE THEM! State your choice clearly like 'I would like [choice]' or 'I'll go with [choice]'." if user_answers else "If the email asks you to make a choice or preference and NO user choice was provided, DO NOT choose. Ask them to clarify or say you're flexible."}
-{"IMPORTANT: Follow the ADDITIONAL CONTEXT/INSTRUCTIONS provided above." if additional_context else ""}
-
-Write a concise reply (under 100 words). Be professional and helpful. Start with a salutation. Do not include a subject line - just the email body."""
-
-            messages = [{"role": "user", "content": prompt}]
-            reply, error = call_anthropic_with_retry(messages, max_tokens=300, temperature=0.7, timeout=30)
+            # Build the shared context dict consumed by every approach in
+            # genai_approaches.APPROACHES. Each approach picks the keys it
+            # needs - the dict is a superset.
+            approach_context = {
+                "user_name": user_name,
+                "sender": sender,
+                "subject": subject,
+                "body_text": body_text,
+                "recipient_first_name": recipient_first_name,
+                "recipient_emails": recipient_emails,
+                "user_answers": user_answers,
+                "user_answers_context": user_answers_context,
+                "additional_context": additional_context,
+                "additional_context_section": additional_context_section,
+                "sender_tone_section": sender_tone_section,
+                "style_instruction": style_instruction,
+            }
 
             # Send response headers before writing body
             self.send_header('Content-type', 'application/json')
             self.end_headers()
 
-            if reply:
-                # Clean up the reply - remove any repeated subject line at the beginning
-                reply = clean_reply(reply)
-                print(f"AI reply generated successfully!")
-                resp = {'success': True, 'reply': reply}
+            if compare_mode:
+                # Pick two distinct approaches and run them sequentially.
+                # (Sequential keeps the rate-limiter happy; parallel would
+                # require care to keep ordering deterministic.)
+                approach_a, approach_b = genai_approaches.pick_random_pair()
+                reply_a, err_a, _ = genai_approaches.generate(
+                    approach_a, approach_context, call_anthropic_with_retry
+                )
+                reply_b, err_b, _ = genai_approaches.generate(
+                    approach_b, approach_context, call_anthropic_with_retry
+                )
+
+                if reply_a:
+                    reply_a = clean_reply(reply_a)
+                if reply_b:
+                    reply_b = clean_reply(reply_b)
+
+                if not reply_a or not reply_b:
+                    resp = {
+                        'success': False,
+                        'error': f'Comparison failed: A={err_a or "ok"}, B={err_b or "ok"}',
+                    }
+                    self.wfile.write(json.dumps(resp).encode())
+                    return
+
+                comparison_id = str(uuid.uuid4())
+                # Track that both approaches were shown to the user
+                elo_ranking.record_exposure([approach_a, approach_b])
+
+                event_logger(self, event_name="reply_compare_shown",
+                             metadata={"subject": subject[:50],
+                                       "comparison_id": comparison_id,
+                                       "approach_a": approach_a,
+                                       "approach_b": approach_b})
+
+                resp = {
+                    'success': True,
+                    'comparison': True,
+                    'comparison_id': comparison_id,
+                    'responses': [
+                        {'approach_id': approach_a, 'reply': reply_a},
+                        {'approach_id': approach_b, 'reply': reply_b},
+                    ],
+                }
                 self.wfile.write(json.dumps(resp).encode())
             else:
-                print(f"Failed to generate reply: {error}")
-                resp = {'success': False, 'error': f'Failed to generate reply: {error}'}
-                self.wfile.write(json.dumps(resp).encode())
+                # Single-approach mode (default behavior). If the caller
+                # didn't specify an approach, the dispatcher uses
+                # DEFAULT_APPROACH ("few_shot") - this preserves the
+                # current production UX.
+                reply, error, approach_used = genai_approaches.generate(
+                    requested_approach, approach_context, call_anthropic_with_retry
+                )
+
+                if reply:
+                    reply = clean_reply(reply)
+                    print(f"AI reply generated successfully via approach={approach_used}!")
+
+                    elo_ranking.record_exposure([approach_used])
+
+                    # A/B test: log that a reply was generated (target event)
+                    event_logger(self, event_name="reply_button_click",
+                                 metadata={"subject": subject[:50],
+                                           "approach": approach_used})
+
+                    resp = {'success': True, 'reply': reply, 'approach': approach_used}
+                    self.wfile.write(json.dumps(resp).encode())
+                else:
+                    print(f"Failed to generate reply ({approach_used}): {error}")
+                    resp = {'success': False, 'error': f'Failed to generate reply: {error}',
+                            'approach': approach_used}
+                    self.wfile.write(json.dumps(resp).encode())
 
         except Exception as e:
             print(f"Error generating reply: {e}")
@@ -2059,6 +2296,106 @@ Write a concise reply (under 100 words). Be professional and helpful. Start with
             response = {'success': False, 'error': f'Failed to generate reply: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
 
+    # ------------------------------------------------------------------
+    # Milestone 6: GenAI evaluation endpoints
+    # ------------------------------------------------------------------
+
+    def handle_genai_preference(self):
+        """Record a user preference between two approach outputs and update ELO.
+
+        Request body:
+            {
+              "approach_a": "<id>",
+              "approach_b": "<id>",
+              "preferred":  "<id> | 'tie'",
+              "comparison_id": "<uuid from /generate-reply compare response>",
+              "metadata": { ... }   # optional
+            }
+        """
+        try:
+            self.send_header('Content-type', 'application/json')
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+
+            approach_a = data.get('approach_a')
+            approach_b = data.get('approach_b')
+            preferred = data.get('preferred')
+
+            if not approach_a or not approach_b or not preferred:
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': False,
+                    'error': 'approach_a, approach_b, and preferred are required',
+                }).encode())
+                return
+
+            user_id = None
+            if USER_INFO_FILE.exists():
+                try:
+                    with open(USER_INFO_FILE, 'r') as f:
+                        user_id = json.load(f).get('email')
+                except Exception:
+                    pass
+
+            metadata = data.get('metadata', {}) or {}
+            if data.get('comparison_id'):
+                metadata['comparison_id'] = data['comparison_id']
+
+            result = elo_ranking.record_preference(
+                approach_a=approach_a,
+                approach_b=approach_b,
+                preferred=preferred,
+                user_id=user_id,
+                metadata=metadata,
+            )
+
+            event_logger(self, event_name="genai_preference",
+                         metadata={'approach_a': approach_a,
+                                   'approach_b': approach_b,
+                                   'preferred': preferred,
+                                   'comparison_id': data.get('comparison_id')})
+
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': True, **result}).encode())
+        except ValueError as e:
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+        except Exception as e:
+            print(f"Error recording GenAI preference: {e}")
+            import traceback
+            traceback.print_exc()
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+
+    def handle_genai_rankings(self):
+        """Return the current ELO ranking of approaches (sorted desc)."""
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        try:
+            ratings = elo_ranking.get_ratings()
+            self.wfile.write(json.dumps({
+                'success': True,
+                'rankings': ratings,
+                'k_factor': elo_ranking.K_FACTOR,
+                'initial_rating': elo_ranking.INITIAL_RATING,
+            }).encode())
+        except Exception as e:
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+
+    def handle_genai_approaches(self):
+        """Return the registered set of GenAI approaches and their metadata."""
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        try:
+            self.wfile.write(json.dumps({
+                'success': True,
+                'default': genai_approaches.DEFAULT_APPROACH,
+                'approaches': genai_approaches.list_approaches(),
+            }).encode())
+        except Exception as e:
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
+
     def handle_edit_reply(self):
         """Edit an email reply using AI based on user's edit prompt"""
         try:
@@ -2070,10 +2407,10 @@ Write a concise reply (under 100 words). Be professional and helpful. Start with
             current_reply = data.get('current_reply', '')
             edit_prompt = data.get('edit_prompt', '')
 
-            if not OPENAI_API_KEY:
+            if not os.getenv('ANTHROPIC_API_KEY'):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                response = {'success': False, 'error': 'OPENAI_API_KEY not configured'}
+                response = {'success': False, 'error': 'ANTHROPIC_API_KEY not configured'}
                 self.wfile.write(json.dumps(response).encode())
                 return
 
@@ -2360,7 +2697,7 @@ Document content:
 Provide only the summary, no preamble."""
 
             messages = [{"role": "user", "content": prompt}]
-            summary, error = call_openai_with_retry(messages, max_tokens=300, temperature=0.3, timeout=15)
+            summary, error = call_anthropic_with_retry(messages, max_tokens=300, temperature=0.3, timeout=30)
 
             self.send_header('Content-type', 'application/json')
             self.end_headers()
@@ -2590,28 +2927,31 @@ Provide only the summary, no preamble."""
 
                 conflict_results = []
 
+                # Pre-fetch all events for the relevant range (uses cache)
+                all_parsed = []
                 for time_str in proposed_times:
-                    try:
-                        print(f"[DEBUG check_conflict] Parsing time_str='{time_str}'")
-                        # Parse the proposed time string (e.g., "tomorrow at 2pm", "Wednesday at 3pm")
-                        parsed_dt = parse_natural_time(time_str, now_pacific, user_timezone)
-                        print(f"[DEBUG check_conflict] parsed_dt={parsed_dt}")
+                    parsed_dt = parse_natural_time(time_str, now_pacific, user_timezone)
+                    all_parsed.append((time_str, parsed_dt))
 
+                # Determine the full range needed
+                valid_times = [dt for _, dt in all_parsed if dt]
+                if valid_times:
+                    range_start = min(valid_times) - timedelta(hours=1)
+                    range_end = max(valid_times) + timedelta(hours=2)
+                    all_events = get_cached_calendar_events(calendar_service, range_start.isoformat(), range_end.isoformat())
+                else:
+                    all_events = []
+
+                for time_str, parsed_dt in all_parsed:
+                    try:
                         if parsed_dt:
-                            # Check for conflicts in a 2-hour window around the proposed time
+                            # Filter cached events for this time window
                             window_start = parsed_dt - timedelta(minutes=30)
                             window_end = parsed_dt + timedelta(minutes=90)
 
-                            # Query Calendar API for events in this window
-                            events_result = calendar_service.events().list(
-                                calendarId='primary',
-                                timeMin=window_start.isoformat(),
-                                timeMax=window_end.isoformat(),
-                                singleEvents=True,
-                                orderBy='startTime'
-                            ).execute()
-
-                            events = events_result.get('items', [])
+                            events = [ev for ev in all_events
+                                      if (ev.get('start', {}).get('dateTime') and
+                                          window_start <= date_parser.parse(ev['start']['dateTime']).astimezone(pacific) <= window_end)]
 
                             # Check if any events overlap with the proposed time slot
                             slot_end = parsed_dt + timedelta(minutes=duration_minutes)
@@ -2760,6 +3100,7 @@ Provide only the summary, no preamble."""
                 start_datetime = data.get('start_datetime')
                 end_datetime = data.get('end_datetime')
                 attendees = data.get('attendees', [])
+                location = data.get('location')
 
                 if not start_datetime or not end_datetime:
                     self.send_header('Content-type', 'application/json')
@@ -2778,6 +3119,10 @@ Provide only the summary, no preamble."""
                         'dateTime': end_datetime,
                     },
                 }
+
+                # Add location if provided
+                if location:
+                    event_body['location'] = location
 
                 # Add attendees if provided
                 if attendees:
@@ -2844,24 +3189,45 @@ Provide only the summary, no preamble."""
                     # Default to 30 days from start
                     end_datetime = start_datetime + timedelta(days=30)
 
-                # Fetch events
-                events_result = calendar_service.events().list(
-                    calendarId='primary',
-                    timeMin=start_datetime.isoformat(),
-                    timeMax=end_datetime.isoformat(),
-                    singleEvents=True,
-                    orderBy='startTime',
-                    maxResults=100
-                ).execute()
-
-                events = events_result.get('items', [])
+                # Fetch events (uses cache)
+                events = get_cached_calendar_events(
+                    calendar_service,
+                    start_datetime.isoformat(),
+                    end_datetime.isoformat()
+                )
 
                 # Format events for frontend
+                import re as _re
+                def _extract_meeting_link(event):
+                    non_google_pattern = r'https?://[^\s<>"\']*(?:zoom\.us|teams\.microsoft\.com|webex\.com|gotomeeting\.com)[^\s<>"\']*'
+                    for ep in (event.get('conferenceData') or {}).get('entryPoints', []):
+                        uri = ep.get('uri', '')
+                        if ep.get('entryPointType') == 'video' and uri and 'google.com' not in uri:
+                            return uri
+                    loc = event.get('location', '') or ''
+                    m = _re.search(non_google_pattern, loc)
+                    if m:
+                        return m.group(0)
+                    desc = event.get('description', '') or ''
+                    m = _re.search(non_google_pattern, desc)
+                    if m:
+                        return m.group(0)
+                    if event.get('hangoutLink'):
+                        return event['hangoutLink']
+                    for ep in (event.get('conferenceData') or {}).get('entryPoints', []):
+                        if ep.get('entryPointType') == 'video' and ep.get('uri'):
+                            return ep['uri']
+                    return ''
+
                 formatted_events = []
                 for event in events:
                     summary = event.get('summary', 'No title')
                     start_data = event.get('start', {})
                     end_data = event.get('end', {})
+                    location = event.get('location', '') or ''
+                    description = event.get('description', '') or ''
+                    meeting_link = _extract_meeting_link(event)
+                    attendees = [a['email'] for a in event.get('attendees', []) if a.get('email')]
 
                     # Check if this is an all-day event (has 'date' field) or timed event (has 'dateTime' field)
                     if 'date' in start_data:
@@ -2885,7 +3251,11 @@ Provide only the summary, no preamble."""
                             'date': start_dt.strftime('%Y-%m-%d'),
                             'time': 'All day',
                             'end_time': '',
-                            'all_day': True
+                            'all_day': True,
+                            'location': location,
+                            'description': description,
+                            'meeting_link': meeting_link,
+                            'attendees': attendees,
                         })
                     elif 'dateTime' in start_data:
                         # Timed event
@@ -2931,7 +3301,11 @@ Provide only the summary, no preamble."""
                             'date': start_dt.strftime('%Y-%m-%d'),
                             'time': start_dt.strftime('%I:%M %p').lstrip('0'),
                             'end_time': end_dt.strftime('%I:%M %p').lstrip('0'),
-                            'all_day': False
+                            'all_day': False,
+                            'location': location,
+                            'description': description,
+                            'meeting_link': meeting_link,
+                            'attendees': attendees,
                         })
 
                 # DEBUG: Print the final response
@@ -2946,6 +3320,56 @@ Provide only the summary, no preamble."""
                     'events': formatted_events
                 }
                 self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'fetch_url':
+                url = data.get('url', '')
+                text = ''
+                try:
+                    import requests as _req
+                    import re as _re2
+                    from html.parser import HTMLParser as _HTMLParser
+
+                    gdoc_m = _re2.search(r'docs\.google\.com/document/d/([^/?#]+)', url)
+                    gslides_m = _re2.search(r'docs\.google\.com/presentation/d/([^/?#]+)', url)
+                    gsheet_m = _re2.search(r'docs\.google\.com/spreadsheets/d/([^/?#]+)', url)
+
+                    if gdoc_m or gslides_m or gsheet_m:
+                        if gdoc_m:
+                            export_url = f'https://docs.google.com/document/d/{gdoc_m.group(1)}/export?format=txt'
+                        elif gslides_m:
+                            export_url = f'https://docs.google.com/presentation/d/{gslides_m.group(1)}/export?format=txt'
+                        else:
+                            export_url = f'https://docs.google.com/spreadsheets/d/{gsheet_m.group(1)}/export?format=csv'
+                        from google.auth.transport.requests import AuthorizedSession as _AuthSession
+                        session = _AuthSession(creds)
+                        resp = session.get(export_url, timeout=12)
+                        text = resp.text[:6000] if resp.ok else ''
+                    else:
+                        resp = _req.get(url, timeout=8, headers={'User-Agent': 'Mozilla/5.0'})
+                        if resp.ok:
+                            class _TE(_HTMLParser):
+                                def __init__(self):
+                                    super().__init__()
+                                    self.chunks = []
+                                    self._skip = False
+                                def handle_starttag(self, tag, attrs):
+                                    if tag in ('script', 'style', 'nav', 'footer', 'head'):
+                                        self._skip = True
+                                def handle_endtag(self, tag):
+                                    if tag in ('script', 'style', 'nav', 'footer', 'head'):
+                                        self._skip = False
+                                def handle_data(self, d):
+                                    if not self._skip and d.strip():
+                                        self.chunks.append(d.strip())
+                            p = _TE()
+                            p.feed(resp.text)
+                            text = ' '.join(p.chunks)[:6000]
+                except Exception as fe:
+                    print(f'[CALENDAR] fetch_url error for {url}: {fe}')
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': True, 'text': text}).encode())
 
             else:
                 self.send_header('Content-type', 'application/json')
@@ -2962,26 +3386,1116 @@ Provide only the summary, no preamble."""
             response = {'success': False, 'error': f'Calendar error: {str(e)}'}
             self.wfile.write(json.dumps(response).encode())
 
+    def handle_scheduling(self):
+        """Handle scheduling link operations - create, list, get, availability, book"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+
+            action = data.get('action', '')
+            creds = get_stored_credentials()
+
+            if not creds:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': 'Not authenticated. Please sign in first.'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Build Calendar service
+            try:
+                calendar_service = build('calendar', 'v3', credentials=creds)
+            except Exception as e:
+                print(f"Error building calendar service: {e}")
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': f'Calendar service error: {str(e)}'}
+                self.wfile.write(json.dumps(response).encode())
+                return
+
+            # Import required modules
+            import uuid
+            from datetime import datetime, timedelta, timezone
+            import pytz
+
+            if action == 'create_link':
+                # Create a new scheduling link
+                title = data.get('title', 'Meeting')
+                duration = data.get('duration', 30)
+                description = data.get('description', '')
+                availability_config = data.get('availability', {})
+                user_timezone = data.get('timezone', 'America/New_York')
+
+                # Generate unique link ID
+                link_id = str(uuid.uuid4())[:8]
+
+                # Store scheduling link as a special calendar event
+                link_config = {
+                    'title': title,
+                    'duration': duration,
+                    'description': description,
+                    'timezone': user_timezone,
+                    'availability': availability_config,
+                    'created_at': datetime.now(timezone.utc).isoformat()
+                }
+
+                event_body = {
+                    'summary': f'SCHEDULING_LINK: {title}',
+                    'description': json.dumps(link_config),
+                    'start': {'date': '2999-01-01'},
+                    'end': {'date': '2999-01-02'},
+                    'transparency': 'transparent',
+                    'extendedProperties': {
+                        'private': {
+                            'link_id': link_id,
+                            'is_scheduling_link': 'true',
+                            'created_at': datetime.now(timezone.utc).isoformat()
+                        }
+                    }
+                }
+
+                created_event = calendar_service.events().insert(
+                    calendarId='primary',
+                    body=event_body
+                ).execute()
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'link_id': link_id,
+                    'event_id': created_event.get('id'),
+                    'public_url': f'/book/{link_id}'
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'list_links':
+                # List all scheduling links for the user
+                # Search for events with SCHEDULING_LINK prefix
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    q='SCHEDULING_LINK:',
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                events = events_result.get('items', [])
+                links = []
+
+                for event in events:
+                    summary = event.get('summary', '')
+                    if summary.startswith('SCHEDULING_LINK:'):
+                        try:
+                            config_json = event.get('description', '{}')
+                            config = json.loads(config_json)
+                            extended_props = event.get('extendedProperties', {})
+                            private_props = extended_props.get('private', {})
+                            link_id = private_props.get('link_id', '')
+
+                            links.append({
+                                'id': link_id,
+                                'event_id': event.get('id'),
+                                'title': config.get('title', 'Meeting'),
+                                'duration': config.get('duration', 30),
+                                'description': config.get('description', ''),
+                                'timezone': config.get('timezone', 'America/New_York'),
+                                'availability': config.get('availability', {}),
+                                'created_at': config.get('created_at', ''),
+                                'public_url': f'/book/{link_id}'
+                            })
+                        except json.JSONDecodeError:
+                            continue
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'links': links
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'get_link':
+                # Get scheduling link details by link_id
+                link_id = data.get('link_id')
+
+                if not link_id:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Missing link_id'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Search for the scheduling link event
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    q='SCHEDULING_LINK:',
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                events = events_result.get('items', [])
+                link_data = None
+
+                for event in events:
+                    extended_props = event.get('extendedProperties', {})
+                    private_props = extended_props.get('private', {})
+                    if private_props.get('link_id') == link_id:
+                        try:
+                            config_json = event.get('description', '{}')
+                            config = json.loads(config_json)
+                            link_data = {
+                                'id': link_id,
+                                'event_id': event.get('id'),
+                                'title': config.get('title', 'Meeting'),
+                                'duration': config.get('duration', 30),
+                                'description': config.get('description', ''),
+                                'timezone': config.get('timezone', 'America/New_York'),
+                                'availability': config.get('availability', {}),
+                                'created_at': config.get('created_at', ''),
+                                'public_url': f'/book/{link_id}'
+                            }
+                            break
+                        except json.JSONDecodeError:
+                            continue
+
+                if link_data:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': True, 'link': link_data}
+                    self.wfile.write(json.dumps(response).encode())
+                else:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Scheduling link not found'}
+                    self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'get_availability':
+                # Get available time slots for a scheduling link
+                link_id = data.get('link_id')
+
+                if not link_id:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Missing link_id'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # First, get the link configuration
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    q='SCHEDULING_LINK:',
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                events = events_result.get('items', [])
+                link_config = None
+
+                for event in events:
+                    extended_props = event.get('extendedProperties', {})
+                    private_props = extended_props.get('private', {})
+                    if private_props.get('link_id') == link_id:
+                        try:
+                            config_json = event.get('description', '{}')
+                            link_config = json.loads(config_json)
+                            break
+                        except json.JSONDecodeError:
+                            continue
+
+                if not link_config:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Scheduling link not found'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Get availability settings
+                availability = link_config.get('availability', {})
+                duration = link_config.get('duration', 30)
+                user_timezone = link_config.get('timezone', 'America/New_York')
+
+                days = availability.get('days', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+                start_hour = availability.get('start_hour', 9)
+                end_hour = availability.get('end_hour', 17)
+
+                # Day name to weekday mapping (0=Monday, 6=Sunday)
+                day_map = {
+                    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+                    'friday': 4, 'saturday': 5, 'sunday': 6
+                }
+                allowed_weekdays = [day_map.get(d.lower(), 0) for d in days]
+
+                user_tz = pytz.timezone(user_timezone)
+                utc_now = datetime.now(timezone.utc)
+                now_user = utc_now.astimezone(user_tz)
+
+                # Look for slots starting from tomorrow
+                start_date = now_user + timedelta(days=1)
+                start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+
+                # Look for the next 14 days
+                free_slots = []
+                current_date = start_date
+                search_end = start_date + timedelta(days=14)
+
+                # Get existing events to check for conflicts
+                existing_events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    timeMin=start_date.isoformat(),
+                    timeMax=search_end.isoformat(),
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                existing_events = existing_events_result.get('items', [])
+
+                while current_date < search_end:
+                    # Check if this day is allowed
+                    if current_date.weekday() not in allowed_weekdays:
+                        current_date += timedelta(days=1)
+                        continue
+
+                    # Generate time slots for this day
+                    slot_start = current_date.replace(hour=start_hour, minute=0)
+                    day_end = current_date.replace(hour=end_hour, minute=0)
+
+                    while slot_start + timedelta(minutes=duration) <= day_end:
+                        slot_end = slot_start + timedelta(minutes=duration)
+
+                        # Check for conflicts with existing events
+                        has_conflict = False
+                        for event in existing_events:
+                            event_start_str = event.get('start', {}).get('dateTime')
+                            event_end_str = event.get('end', {}).get('dateTime')
+
+                            if event_start_str and event_end_str:
+                                from dateutil import parser as date_parser
+                                event_start = date_parser.parse(event_start_str)
+                                event_end = date_parser.parse(event_end_str)
+
+                                if event_start.tzinfo is None:
+                                    event_start = user_tz.localize(event_start)
+                                else:
+                                    event_start = event_start.astimezone(user_tz)
+
+                                if event_end.tzinfo is None:
+                                    event_end = user_tz.localize(event_end)
+                                else:
+                                    event_end = event_end.astimezone(user_tz)
+
+                                # Check for overlap
+                                if not (event_end <= slot_start or event_start >= slot_end):
+                                    has_conflict = True
+                                    break
+
+                        if not has_conflict:
+                            free_slots.append({
+                                'date': slot_start.strftime('%Y-%m-%d'),
+                                'date_display': slot_start.strftime('%A, %B %d'),
+                                'time': slot_start.strftime('%I:%M %p').lstrip('0'),
+                                'start': slot_start.isoformat(),
+                                'end': slot_end.isoformat()
+                            })
+
+                        # Move to next slot (30-minute intervals)
+                        slot_start += timedelta(minutes=30)
+
+                    current_date += timedelta(days=1)
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'link_config': {
+                        'title': link_config.get('title', 'Meeting'),
+                        'duration': duration,
+                        'description': link_config.get('description', ''),
+                        'timezone': user_timezone
+                    },
+                    'available_slots': free_slots[:20]  # Limit to 20 slots
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'book_slot':
+                # Book a time slot
+                link_id = data.get('link_id')
+                name = data.get('name', '')
+                email = data.get('email', '')
+                message = data.get('message', '')
+                selected_slot = data.get('selected_slot')  # ISO datetime string
+
+                if not all([link_id, name, email, selected_slot]):
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Missing required fields'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Get the link configuration
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    q='SCHEDULING_LINK:',
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+
+                events = events_result.get('items', [])
+                link_config = None
+
+                for event in events:
+                    extended_props = event.get('extendedProperties', {})
+                    private_props = extended_props.get('private', {})
+                    if private_props.get('link_id') == link_id:
+                        try:
+                            config_json = event.get('description', '{}')
+                            link_config = json.loads(config_json)
+                            break
+                        except json.JSONDecodeError:
+                            continue
+
+                if not link_config:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Scheduling link not found'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Parse the selected slot time
+                from dateutil import parser as date_parser
+                slot_start = date_parser.parse(selected_slot)
+                duration = link_config.get('duration', 30)
+                slot_end = slot_start + timedelta(minutes=duration)
+
+                # Get user info for the owner
+                owner_email = None
+                try:
+                    userinfo_service = build('oauth2', 'v2', credentials=creds)
+                    user_info = userinfo_service.userinfo().get().execute()
+                    owner_email = user_info.get('email')
+                    owner_name = user_info.get('name', '')
+                except:
+                    owner_email = 'me'
+                    owner_name = ''
+
+                # Create the calendar event
+                title = link_config.get('title', 'Meeting')
+                event_summary = f"{title} with {name}"
+
+                # Build description
+                event_description = f"Booked via Aiden Scheduling\n\n"
+                event_description += f"Attendee: {name} ({email})\n"
+                if message:
+                    event_description += f"\nMessage:\n{message}\n"
+
+                event_body = {
+                    'summary': event_summary,
+                    'description': event_description,
+                    'start': {
+                        'dateTime': slot_start.isoformat(),
+                    },
+                    'end': {
+                        'dateTime': slot_end.isoformat(),
+                    },
+                    'attendees': [
+                        {'email': email, 'displayName': name}
+                    ],
+                    'extendedProperties': {
+                        'private': {
+                            'booked_via_link': link_id,
+                            'booked_by_name': name,
+                            'booked_by_email': email
+                        }
+                    }
+                }
+
+                created_event = calendar_service.events().insert(
+                    calendarId='primary',
+                    body=event_body,
+                    sendUpdates='all'
+                ).execute()
+
+                # Send confirmation emails
+                try:
+                    self.send_booking_confirmation_emails(
+                        name, email, owner_email, owner_name,
+                        title, slot_start, slot_end, link_config.get('timezone', 'America/New_York'),
+                        message, created_event.get('htmlLink')
+                    )
+                except Exception as e:
+                    print(f"Error sending booking confirmation emails: {e}")
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    'success': True,
+                    'event_id': created_event.get('id'),
+                    'html_link': created_event.get('htmlLink')
+                }
+                self.wfile.write(json.dumps(response).encode())
+
+            elif action == 'delete_link':
+                # Delete a scheduling link
+                link_id = data.get('link_id')
+                event_id = data.get('event_id')
+
+                if not link_id or not event_id:
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    response = {'success': False, 'error': 'Missing link_id or event_id'}
+                    self.wfile.write(json.dumps(response).encode())
+                    return
+
+                # Delete the scheduling link event
+                calendar_service.events().delete(
+                    calendarId='primary',
+                    eventId=event_id
+                ).execute()
+
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': True}
+                self.wfile.write(json.dumps(response).encode())
+
+            else:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {'success': False, 'error': f'Unknown action: {action}'}
+                self.wfile.write(json.dumps(response).encode())
+
+        except Exception as e:
+            print(f"Error in scheduling handler: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {'success': False, 'error': f'Scheduling error: {str(e)}'}
+            self.wfile.write(json.dumps(response).encode())
+
+    def send_booking_confirmation_emails(self, attendee_name, attendee_email, owner_email, owner_name,
+                                         meeting_title, slot_start, slot_end, timezone, message, event_link):
+        """Send booking confirmation emails to both attendee and owner"""
+        import pytz
+        from datetime import datetime, timezone as dt_timezone
+
+        user_tz = pytz.timezone(timezone)
+
+        # Format times for display
+        date_display = slot_start.strftime('%A, %B %d, %Y')
+        time_display = slot_start.strftime('%I:%M %p').lstrip('0') + ' - ' + slot_end.strftime('%I:%M %p').lstrip('0')
+
+        # Email to attendee
+        attendee_subject = f"Confirmed: {meeting_title} on {date_display}"
+        attendee_body = f"""Hi {attendee_name},
+
+Your meeting has been scheduled!
+
+Meeting: {meeting_title}
+Date: {date_display}
+Time: {time_display} ({timezone})
+
+"""
+
+        if owner_name:
+            attendee_body += f"with {owner_name}\n\n"
+
+        if message:
+            attendee_body += f"Your message: {message}\n\n"
+
+        attendee_body += f"""You can view the event details here:
+{event_link}
+
+If you need to reschedule or cancel, please reply to this email.
+
+See you soon!"""
+
+        # Email to owner
+        owner_subject = f"New Booking: {meeting_title} with {attendee_name}"
+        owner_body = f"""You have a new booking!
+
+Meeting: {meeting_title}
+Date: {date_display}
+Time: {time_display} ({timezone})
+Attendee: {attendee_name} ({attendee_email})
+"""
+
+        if message:
+            owner_body += f"\nMessage from attendee:\n{message}\n"
+
+        owner_body += f"""
+View event details:
+{event_link}"""
+
+        # Send emails using Gmail API
+        try:
+            creds = get_stored_credentials()
+            if creds:
+                gmail_service = build('gmail', 'v1', credentials=creds)
+
+                # Send to attendee
+                import base64
+                from email.message import EmailMessage
+
+                attendee_msg = EmailMessage()
+                attendee_msg.set_content(attendee_body)
+                attendee_msg.set_to(attendee_email)
+                attendee_msg.set_subject(attendee_subject)
+                attendee_msg.set_from(owner_email)
+
+                raw_attendee = base64.urlsafe_b64encode(attendee_msg.as_bytes()).decode()
+                gmail_service.users().messages().send(
+                    userId='me',
+                    body={'raw': raw_attendee}
+                ).execute()
+
+                # Send to owner
+                owner_msg = EmailMessage()
+                owner_msg.set_content(owner_body)
+                owner_msg.set_to(owner_email)
+                owner_msg.set_subject(owner_subject)
+                owner_msg.set_from(owner_email)
+
+                raw_owner = base64.urlsafe_b64encode(owner_msg.as_bytes()).decode()
+                gmail_service.users().messages().send(
+                    userId='me',
+                    body={'raw': raw_owner}
+                ).execute()
+
+                print(f"Sent booking confirmation emails to {attendee_email} and {owner_email}")
+        except Exception as e:
+            print(f"Error sending booking confirmation emails: {e}")
+            raise
+
+    def handle_booking_page(self):
+        """Serve the public booking page"""
+        try:
+            # Extract link_id from path
+            parts = self.path.split('/')
+            if len(parts) < 3:
+                self.send_error(404)
+                return
+
+            link_id = parts[2]
+
+            # Read the booking page template
+            template_path = Path(__file__).parent / 'templates' / 'booking_page.html'
+
+            if not template_path.exists():
+                # Create templates directory if it doesn't exist
+                template_path.parent.mkdir(exist_ok=True)
+
+                # Create a basic booking page template
+                template_content = self.generate_booking_page_template()
+
+                with open(template_path, 'w') as f:
+                    f.write(template_content)
+
+            with open(template_path, 'r') as f:
+                template = f.read()
+
+            # Replace placeholders
+            template = template.replace('{{LINK_ID}}', link_id)
+
+            # Get the server URL for API calls
+            import socket
+            server_host = self.server.server_address[0]
+            server_port = self.server.server_address[1]
+            api_base = f'http://{server_host}:{server_port}'
+
+            template = template.replace('{{API_BASE}}', api_base)
+
+            # Serve the page
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(template.encode('utf-8'))
+
+        except Exception as e:
+            print(f"Error serving booking page: {e}")
+            import traceback
+            traceback.print_exc()
+            self.send_error(500)
+
+    def generate_booking_page_template(self):
+        """Generate the booking page HTML template"""
+        return '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book a Meeting</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus,
+        input[type="email"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .slots-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .time-slot {
+            padding: 12px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+            font-size: 13px;
+        }
+
+        .time-slot:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .time-slot.selected {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .time-slot.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .date-header {
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            padding: 8px 0;
+            grid-column: 1 / -1;
+        }
+
+        .button {
+            width: 100%;
+            padding: 14px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .button:hover {
+            background: #5568d3;
+        }
+
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .success {
+            background: #efe;
+            color: #3c3;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .success h2 {
+            margin-bottom: 10px;
+            color: #3c3;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .details {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            color: #666;
+            font-size: 13px;
+        }
+
+        .detail-value {
+            font-weight: 500;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading available times...</p>
+        </div>
+
+        <div id="error" class="error hidden"></div>
+
+        <div id="booking-form" class="hidden">
+            <div class="header">
+                <h1 id="meeting-title">Book a Meeting</h1>
+                <p id="meeting-description"></p>
+            </div>
+
+            <div class="details">
+                <div class="detail-row">
+                    <span class="detail-label">Duration</span>
+                    <span class="detail-value" id="duration-display">30 min</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Timezone</span>
+                    <span class="detail-value" id="timezone-display">America/New_York</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Select a time slot</label>
+                <div id="slots-container" class="slots-grid"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="name">Name *</label>
+                <input type="text" id="name" required placeholder="Your name">
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email *</label>
+                <input type="email" id="email" required placeholder="your@email.com">
+            </div>
+
+            <div class="form-group">
+                <label for="message">Message (optional)</label>
+                <textarea id="message" placeholder="Any details for the meeting..."></textarea>
+            </div>
+
+            <button class="button" id="book-button" disabled>Book Meeting</button>
+        </div>
+
+        <div id="success" class="success hidden">
+            <h2>&#10003; Booking Confirmed!</h2>
+            <p>Your meeting has been scheduled.</p>
+            <p style="margin-top: 10px; font-size: 14px; color: #666;">
+                A calendar invitation has been sent to your email.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        const LINK_ID = '{{LINK_ID}}';
+        const API_BASE = '{{API_BASE}}';
+        let selectedSlot = null;
+        let linkConfig = null;
+
+        async function loadAvailability() {
+            try {
+                const response = await fetch(`${API_BASE}/scheduling`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'get_availability',
+                        link_id: LINK_ID
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    showError(data.error || 'Failed to load availability');
+                    return;
+                }
+
+                linkConfig = data.link_config;
+                document.getElementById('meeting-title').textContent = linkConfig.title;
+                document.getElementById('meeting-description').textContent = linkConfig.description || '';
+                document.getElementById('duration-display').textContent = `${linkConfig.duration} min`;
+                document.getElementById('timezone-display').textContent = linkConfig.timezone;
+
+                renderSlots(data.available_slots);
+
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('booking-form').classList.remove('hidden');
+
+            } catch (error) {
+                showError('Failed to load availability. Please try again.');
+                console.error(error);
+            }
+        }
+
+        function renderSlots(slots) {
+            const container = document.getElementById('slots-container');
+            container.innerHTML = '';
+
+            let currentDate = '';
+
+            slots.forEach((slot, index) => {
+                if (slot.date !== currentDate) {
+                    currentDate = slot.date;
+                    const dateHeader = document.createElement('div');
+                    dateHeader.className = 'date-header';
+                    dateHeader.textContent = slot.date_display;
+                    container.appendChild(dateHeader);
+                }
+
+                const slotEl = document.createElement('div');
+                slotEl.className = 'time-slot';
+                slotEl.textContent = slot.time;
+                slotEl.dataset.index = index;
+                slotEl.dataset.slot = JSON.stringify(slot);
+
+                slotEl.addEventListener('click', () => selectSlot(slotEl, slot));
+
+                container.appendChild(slotEl);
+            });
+        }
+
+        function selectSlot(element, slot) {
+            document.querySelectorAll('.time-slot').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+            selectedSlot = slot;
+            document.getElementById('book-button').disabled = false;
+        }
+
+        function showError(message) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error').textContent = message;
+            document.getElementById('error').classList.remove('hidden');
+        }
+
+        async function bookMeeting() {
+            const name = document.getElementById('name').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const message = document.getElementById('message').value.trim();
+
+            if (!name || !email || !selectedSlot) {
+                alert('Please fill in all required fields');
+                return;
+            }
+
+            const button = document.getElementById('book-button');
+            button.disabled = true;
+            button.textContent = 'Booking...';
+
+            try {
+                const response = await fetch(`${API_BASE}/scheduling`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'book_slot',
+                        link_id: LINK_ID,
+                        name,
+                        email,
+                        message,
+                        selected_slot: selectedSlot.start
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('booking-form').classList.add('hidden');
+                    document.getElementById('success').classList.remove('hidden');
+                } else {
+                    showError(data.error || 'Failed to book meeting');
+                    button.disabled = false;
+                    button.textContent = 'Book Meeting';
+                }
+            } catch (error) {
+                showError('Failed to book meeting. Please try again.');
+                button.disabled = false;
+                button.textContent = 'Book Meeting';
+                console.error(error);
+            }
+        }
+
+        document.getElementById('book-button').addEventListener('click', bookMeeting);
+
+        // Load availability on page load
+        loadAvailability();
+    </script>
+</body>
+</html>'''
+
+    def handle_chat(self):
+        """Generic prompt → Claude reply, used by Aiden AI features."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            prompt = data.get('message') or data.get('prompt', '')
+            if not prompt:
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'No prompt provided'}).encode())
+                return
+            result, error = call_anthropic_with_retry(
+                [{'role': 'user', 'content': prompt}],
+                max_tokens=1500,
+                temperature=0.4,
+                timeout=30,
+            )
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            if result:
+                self.wfile.write(json.dumps({'reply': result}).encode())
+            else:
+                self.wfile.write(json.dumps({'error': error or 'AI call failed'}).encode())
+        except Exception as e:
+            print(f'[CHAT] Error: {e}')
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': str(e)}).encode())
+
     def log_message(self, format_str, *args):
         """Suppress server log messages"""
         pass
 
+_token_lock = threading.Lock()
+
 def get_stored_credentials():
-    """Get stored credentials if they exist and are valid"""
-    if TOKEN_FILE.exists():
-        with open(TOKEN_FILE, 'rb') as token:
-            creds = pickle.load(token)
-            if creds.valid and not creds.expired:
-                return creds
-            elif creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(Request())
-                    with open(TOKEN_FILE, 'wb') as token_file:
-                        pickle.dump(creds, token_file)
+    """Get stored credentials if they exist and are valid.
+
+    Uses a lock to prevent concurrent token refresh race conditions
+    when multiple threads find the token expired simultaneously.
+    """
+    with _token_lock:
+        if TOKEN_FILE.exists():
+            with open(TOKEN_FILE, 'rb') as token:
+                creds = pickle.load(token)
+                if creds.valid and not creds.expired:
                     return creds
-                except Exception as e:
-                    print(f"Error refreshing token: {e}")
-    return None
+                elif creds.expired and creds.refresh_token:
+                    try:
+                        creds.refresh(Request())
+                        with open(TOKEN_FILE, 'wb') as token_file:
+                            pickle.dump(creds, token_file)
+                        return creds
+                    except Exception as e:
+                        print(f"Error refreshing token: {e}")
+        return None
 
 def start_oauth_server():
     """Start the OAuth server in a separate thread"""

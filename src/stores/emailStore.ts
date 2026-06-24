@@ -466,32 +466,62 @@ async function processAIQueueHelper() {
 // Generate summary for a single email via Tauri/Claude (bypasses Python server)
 const MAX_SUMMARY_RETRIES = 2;
 
-// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
-// async function generateSummaryForEmail(emailId: string, attempt = 0): Promise<void> { ... }
+/*
+ * Lightweight, self-contained email AI processing.
+ *
+ * The original heavy pipeline (summary + questions + reply + priority +
+ * notifications) was disabled during store-init debugging. These restored
+ * versions are intentionally minimal and defensive: they NEVER throw, they
+ * skip work that's already done, and they run through the throttled
+ * `queueAIOperation` so they can't hammer the backend. If the backend is
+ * unreachable (e.g. demo mode) they fail silently — the UI keeps working on
+ * whatever data is already present.
+ */
+function generateSummaryForEmail(emailId: string): void {
+  const key = `${emailId}-summary`;
+  if (processingEmails.has(key)) return;
+  const email = useEmailStore.getState().emails.find((e) => e.id === emailId);
+  if (!email || email.summary) return; // nothing to do — already summarized
+  processingEmails.add(key);
+  queueAIOperation(async () => {
+    try {
+      const content = `From: ${email.sender}\nSubject: ${email.subject}\n\n${email.body_text || email.snippet || ''}`;
+      const result = await summarizeEmailClaude(content);
+      if (result?.summary) {
+        useEmailStore.setState((state) => ({
+          emails: state.emails.map((e) =>
+            e.id === emailId ? { ...e, summary: result.summary, key_points: result.key_points || [] } : e,
+          ),
+        }));
+        persistEmailsToDisk();
+      }
+    } catch (e) {
+      console.warn('[AI] summary generation failed (non-fatal):', e);
+    } finally {
+      processingEmails.delete(key);
+    }
+  });
+}
 
-// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
-// async function generateQuestionsForEmail(emailId: string): Promise<void> { ... }
+function processEmailImmediately(emailId: string): void {
+  generateSummaryForEmail(emailId);
+}
 
-// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
-// async function generateReplyForEmail(emailId: string): Promise<void> { ... }
+function processMultipleEmails(emailIds: string[]): void {
+  for (const id of emailIds) generateSummaryForEmail(id);
+}
 
-// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
-// async function classifyEmailPriority(emailId: string): Promise<void> { ... }
+// Question backfill belonged to the removed pipeline; question data is now
+// supplied via window.emailQuestionData / on-demand in the email view.
+function backfillQuestionData(_emailIds: string[]): void {
+  /* no-op: retained as a safe stub for existing call sites */
+}
 
-// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
-// async function processEmailCore(emailId: string) { ... }
-
-// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
-// function processEmail(emailId: string) { ... }
-
-// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
-// function processEmailImmediately(emailId: string) { ... }
-
-// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
-// function backfillQuestionData(emailIds: string[]) { ... }
-
-// TEMPORARILY DISABLED TO TEST STORE INITIALIZATION
-// function processMultipleEmails(emailIds: string[]) { ... }
+// Priority is assigned at fetch/sample time; safe no-op kept for call sites
+// (notably the awaited calls inside fetchEmails).
+function classifyEmailPriority(_emailId: string): Promise<void> {
+  return Promise.resolve();
+}
 
 // Persist emails to disk (fire-and-forget, non-blocking)
 async function persistEmailsToDisk() {

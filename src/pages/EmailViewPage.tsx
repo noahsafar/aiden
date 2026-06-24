@@ -51,6 +51,7 @@ export const EmailViewPage: React.FC = () => {
         navigate(returnPath);
       }
       // r to trigger Respond button
+      if (!email) return;
       if (e.key === 'r' && !sentEmails.find(e => e.id === email.id)) {
         // Only trigger when not typing in an input field
         const target = e.target as HTMLElement;
@@ -119,8 +120,29 @@ export const EmailViewPage: React.FC = () => {
     : email.to || [];
 
   const handleEmailAction = (emailId: string, action: string) => {
-    console.log(`Email ${emailId}: ${action}`);
-    // Handle email actions (save, archive, delete, etc.)
+    // Map common actions to email status updates in the store.
+    switch (action) {
+      case 'save':
+      case 'saved':
+        updateEmailStatus(emailId, 'Saved');
+        break;
+      case 'archive':
+      case 'archived':
+        updateEmailStatus(emailId, 'Archived');
+        break;
+      case 'delete':
+      case 'deleted':
+        updateEmailStatus(emailId, 'Deleted');
+        break;
+      default:
+        // Unhandled action - intentionally a no-op.
+        break;
+    }
+  };
+
+  const handleDelete = () => {
+    updateEmailStatus(email.id, 'Deleted');
+    navigate(returnPath);
   };
 
   return (
@@ -146,9 +168,9 @@ export const EmailViewPage: React.FC = () => {
           <div className="p-2">
             <EmailView
               email={email}
-              onReply={() => console.log('Reply')}
-              onForward={() => console.log('Forward')}
-              onDelete={() => console.log('Delete')}
+              onReply={() => setShowResponseOptions(true)}
+              onForward={() => setShowResponseOptions(true)}
+              onDelete={handleDelete}
               onAction={handleEmailAction}
               focusedView={true}
               showResponseOptions={showResponseOptions}

@@ -182,8 +182,11 @@ export function extractCommitmentsHeuristic(input: ExtractInput): Commitment[] {
   const results: Commitment[] = [];
   const seen = new Set<string>();
 
+  const TRIVIAL_RE = /\blet me know if you (have any )?(questions?|concerns?|issues?|feedback|thoughts?|need anything|need help)\b/i;
+
   for (const sentence of sentences) {
     if (NEGATIVE.test(sentence)) continue;
+    if (TRIVIAL_RE.test(sentence)) continue;
 
     const isPromise = YOU_OWE_PATTERNS.some((re) => re.test(sentence));
     const isRequest = THEY_OWE_PATTERNS.some((re) => re.test(sentence));

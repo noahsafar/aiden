@@ -8,6 +8,9 @@ import {
   ChevronDown,
   ChevronUp,
   TrendingUp,
+  MapPin,
+  Video,
+  Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -160,10 +163,10 @@ const FocusCard: React.FC<{
           </div>
 
           {/* Situation / Context */}
-          {(item.situation || item.context) && (
+          {item.situation && (
             <div className="ml-5 mb-3 pl-3 border-l-2 border-gray-100 dark:border-white/[0.07]">
               <p className="text-[13px] text-muted leading-relaxed">
-                {item.situation || item.context}
+                {item.situation}
               </p>
             </div>
           )}
@@ -256,8 +259,8 @@ const MeetingBriefCard: React.FC<{
   sentEmails: any[];
   contacts: any[];
   commitments: Commitment[];
-  onViewBriefing: (q: string) => void;
-}> = ({ event, emails, sentEmails, contacts, commitments, onViewBriefing }) => {
+}> = ({ event, emails, sentEmails, contacts, commitments }) => {
+  const navigate = useNavigate();
   const matched = contacts.find((c: any) => {
     const name = (c.name || '').trim();
     if (!name) return false;
@@ -281,11 +284,20 @@ const MeetingBriefCard: React.FC<{
       )
     : [];
 
-  const prepQuery = personName
-    ? `Prepare me for my meeting with ${personName}`
-    : `Prepare me for "${event.summary}"`;
+  const handlePrep = () => navigate('/ask', { state: { event, run: true } });
 
   const hasPrepContent = recentSubjects.length > 0 || contextBullets.length > 0 || openWith.length > 0;
+
+  const openLink = async (url: string) => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('open_file', { path: url });
+    } catch {
+      window.open(url, '_blank');
+    }
+  };
+
+  const hasDetails = !!(event.location || event.meeting_link || event.description);
 
   return (
     <Surface className="overflow-hidden">
@@ -313,14 +325,42 @@ const MeetingBriefCard: React.FC<{
           )}
         </div>
 
-        <SoftButton
-          variant="primary"
-          icon={<Sparkles className="h-3.5 w-3.5" />}
-          onClick={() => onViewBriefing(prepQuery)}
-        >
-          Prep with Aiden
-        </SoftButton>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {event.meeting_link && (
+            <SoftButton
+              variant="soft"
+              icon={<Video className="h-3.5 w-3.5" />}
+              onClick={() => openLink(event.meeting_link!)}
+            >
+              Join
+            </SoftButton>
+          )}
+          <SoftButton
+            variant="primary"
+            icon={<Sparkles className="h-3.5 w-3.5" />}
+            onClick={handlePrep}
+          >
+            Prep me
+          </SoftButton>
+        </div>
       </div>
+
+      {/* ── Extra details (location / description) ── */}
+      {hasDetails && (
+        <div className="border-t border-gray-100 dark:border-white/[0.06] px-5 py-3 space-y-1.5">
+          {event.location && (
+            <div className="flex items-start gap-2">
+              <MapPin className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-muted/40" />
+              <span className="text-[12px] text-muted/70 leading-snug">{event.location}</span>
+            </div>
+          )}
+          {event.description && (
+            <p className="text-[12px] text-muted/60 leading-relaxed line-clamp-2 pl-5">
+              {event.description.replace(/<[^>]+>/g, '').trim()}
+            </p>
+          )}
+        </div>
+      )}
     </Surface>
   );
 };
@@ -370,10 +410,12 @@ const RelationshipOpportunityCard: React.FC<{
 /* Open loop card — compact, chip-based metadata                      */
 /* ------------------------------------------------------------------ */
 
-const OpenLoopCard: React.FC<{ commitment: Commitment; onNavigate: () => void }> = ({
-  commitment: c,
-  onNavigate,
-}) => {
+const OpenLoopCard: React.FC<{
+  commitment: Commitment;
+  onNavigate: () => void;
+  onMarkDone: () => void;
+  onReply: () => void;
+}> = ({ commitment: c, onNavigate, onMarkDone, onReply }) => {
   const now = new Date();
   const overdueFlag = isOverdue(c, now);
   const ageDays = Math.round((now.getTime() - new Date(c.createdAt).getTime()) / 86400000);
@@ -420,13 +462,18 @@ const OpenLoopCard: React.FC<{ commitment: Commitment; onNavigate: () => void }>
           </div>
         </div>
 
-        <SoftButton
-          variant="primary"
-          className="flex-shrink-0 mt-0.5"
-          onClick={(e) => { e.stopPropagation(); onNavigate(); }}
-        >
-          Close loop
-        </SoftButton>
+        <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          <SoftButton variant="primary" onClick={onReply}>
+            {c.emailId ? 'Reply' : 'Draft'}
+          </SoftButton>
+          <button
+            onClick={onMarkDone}
+            title="Mark as done"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted/40 hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400 transition-colors"
+          >
+            <Check className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </Surface>
   );
@@ -444,7 +491,7 @@ export const Today: React.FC = () => {
   const emails = useEmailStore((s) => s.emails);
   const sentEmails = useEmailStore((s) => s.sentEmails);
   const { contacts, hasExtractedContacts, extractContacts } = useCrmStore();
-  const { commitments, hasExtracted, extract, getOpen } = useCommitmentStore();
+  const { commitments, hasExtracted, extract, getOpen, markDone } = useCommitmentStore();
   const slack = useChannelStore((s) => s.slackMessages);
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -484,7 +531,20 @@ export const Today: React.FC = () => {
     [emails, sentEmails, contacts, commitments, slack, user?.email, attention],
   );
 
-  const openCommitments = getOpen();
+  const openCommitments = useMemo(() => {
+    const now = new Date();
+    return getOpen()
+      .filter((c) => c.direction === 'you_owe')
+      .sort((a, b) => {
+        const aOver = isOverdue(a, now) ? 1 : 0;
+        const bOver = isOverdue(b, now) ? 1 : 0;
+        if (aOver !== bOver) return bOver - aOver;
+        if (a.dueDate && b.dueDate) return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+        if (a.dueDate) return -1;
+        if (b.dueDate) return 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [commitments]);
 
   // Focus: top real-person attention items, fill remainder with opportunities. Max 3.
   const focusItems = useMemo<FocusItem[]>(() => {
@@ -624,7 +684,6 @@ export const Today: React.FC = () => {
                 sentEmails={sentEmails}
                 contacts={contacts}
                 commitments={commitments}
-                onViewBriefing={(q) => act({ action: 'ask', payload: { q, run: true } })}
               />
             ))}
           </div>
@@ -656,15 +715,29 @@ export const Today: React.FC = () => {
             Open loops
           </SectionLabel>
 
-          {openCommitments.filter((c) => c.direction === 'you_owe').length > 0 && (
-            <p className="text-[13px] text-muted/50 mb-3">
-              {openCommitments.filter((c) => c.direction === 'you_owe').length} things waiting on you
-            </p>
-          )}
-
           <div className="space-y-2">
             {openCommitments.slice(0, 4).map((c) => (
-              <OpenLoopCard key={c.id} commitment={c} onNavigate={() => navigate('/commitments')} />
+              <OpenLoopCard
+                key={c.id}
+                commitment={c}
+                onNavigate={() => navigate('/commitments')}
+                onMarkDone={() => markDone(c.id)}
+                onReply={() => {
+                  if (c.emailId) {
+                    navigate(`/today/email/${c.emailId}`, { state: { returnPath: '/today', autoReply: true } });
+                  } else if (c.counterpartyEmail) {
+                    act({
+                      action: 'compose',
+                      payload: {
+                        to: c.counterpartyEmail,
+                        prompt: `Write a brief, warm note to ${c.counterpartyName} following through on what I owe them: "${c.text}". Be concrete about next steps.`,
+                      },
+                    });
+                  } else {
+                    act({ action: 'ask', payload: { q: `Help me follow up on: ${c.text}`, run: true } });
+                  }
+                }}
+              />
             ))}
             {openCommitments.length > 4 && (
               <button

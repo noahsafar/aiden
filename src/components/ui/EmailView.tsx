@@ -833,8 +833,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
     try {
       // Try Claude API directly first (through Tauri)
       try {
-        const editedReply = await editReply(editedReply, aiEditPrompt);
-        setEditedReply(editedReply);
+        const result = await editReply(editedReply, aiEditPrompt);
+        setEditedReply(result);
         setHasEdited(true);
         setAiEditPrompt('');
       } catch (claudeError) {

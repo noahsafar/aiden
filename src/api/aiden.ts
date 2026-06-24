@@ -4,7 +4,7 @@
 // gracefully fall back to deterministic heuristics when no backend is reachable
 // (e.g. dev mode on mock data). Every surface stays fully populated either way.
 
-import { GENAI_SERVICE_URL } from './config';
+import { serverURL } from './calendar';
 import {
   Commitment,
   ExtractInput,
@@ -16,36 +16,23 @@ import {
 /* Generic prompt runner with fallback                                 */
 /* ------------------------------------------------------------------ */
 
-let backendAvailable: boolean | null = null;
-
-async function runAidenPrompt(prompt: string, timeoutMs = 12000): Promise<string> {
-  // short-circuit if we already learned the backend is down this session
-  if (backendAvailable === false) throw new Error('aiden backend unavailable');
-
+async function runAidenPrompt(prompt: string, timeoutMs = 25000): Promise<string> {
+  const base = await serverURL();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const resp = await fetch(`${GENAI_SERVICE_URL}/chat`, {
+    const resp = await fetch(`${base}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: prompt }),
       signal: controller.signal,
     });
-    if (!resp.ok) throw new Error(`aiden /chat ${resp.status}`);
-    const data = await resp.json();
-    backendAvailable = true;
+    const text = await resp.text();
+    if (!resp.ok) throw new Error(`/chat returned ${resp.status}: ${text.slice(0, 200)}`);
+    let data: any;
+    try { data = JSON.parse(text); } catch { throw new Error(`Bad JSON from /chat: ${text.slice(0, 200)}`); }
+    if (data.error) throw new Error(data.error);
     return data.reply ?? data.message ?? data.text ?? '';
-  } catch (httpErr) {
-    // try Tauri invoke as a secondary path
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const out = await invoke<string>('chat_completion', { prompt });
-      backendAvailable = true;
-      return out;
-    } catch {
-      backendAvailable = false;
-      throw httpErr;
-    }
   } finally {
     clearTimeout(timer);
   }
@@ -140,6 +127,76 @@ function deterministicDayBrief(ctx: DayBriefContext): string {
   if (parts.length === 1) return `${parts[0].charAt(0).toUpperCase()}${parts[0].slice(1)}.`;
   const last = parts.pop();
   return `${parts.join(', ')}, and ${last}.`.replace(/^./, (c) => c.toUpperCase());
+}
+
+/* ------------------------------------------------------------------ */
+/* Event-based meeting prep (grounded on calendar + emails + docs)    */
+/* ------------------------------------------------------------------ */
+
+export interface EventBriefInput {
+  summary: string;
+  time: string;
+  endTime?: string;
+  location?: string;
+  description?: string;
+  attendees?: string[];
+  relatedEmails: Array<{ subject: string; from: string; snippet: string }>;
+  docContents: string[];
+  openCommitmentTexts: string[];
+}
+
+export async function generateEventBrief(input: EventBriefInput): Promise<MeetingBrief> {
+  const emailSection = input.relatedEmails.length > 0
+    ? `Related emails:\n${input.relatedEmails.map(e => `- From ${e.from}: "${e.subject}" — ${e.snippet}`).join('\n')}`
+    : '';
+
+  const docSection = input.docContents.length > 0
+    ? `Linked document content (already fetched — synthesize from this, do not tell the user to read it):\n${input.docContents.join('\n---\n').slice(0, 3000)}`
+    : '';
+
+  const descSection = input.description
+    ? `Calendar description:\n${input.description.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500)}`
+    : '';
+
+  const commitSection = input.openCommitmentTexts.length > 0
+    ? `Open commitments with attendees:\n${input.openCommitmentTexts.map(t => `- ${t}`).join('\n')}`
+    : '';
+
+  const contextParts = [descSection, docSection, emailSection, commitSection].filter(Boolean);
+
+  const hasRealContext = contextParts.length > 0;
+
+  const prompt = `You are a chief of staff. Prepare a meeting brief for: "${input.summary}"
+
+Meeting: ${input.time}${input.endTime ? ` – ${input.endTime}` : ''}${input.location ? ` · ${input.location}` : ''}
+${hasRealContext ? contextParts.join('\n\n') : '(No emails, documents, or calendar description found for this meeting.)'}
+
+CRITICAL RULES:
+- Base EVERYTHING only on what is explicitly stated in the context above. Do not infer, assume, or hallucinate anything from the meeting title or your general knowledge.
+- If the context is empty or contains no useful information, return empty arrays for objectives, suggestedQuestions, and watchOuts. Do not make things up.
+- Synthesize document content directly — do NOT tell the user to "review", "read", or "check" any document or link.
+- The headline should describe what this meeting is about based on context, or if there is no context just restate the meeting title without adding assumptions.
+- watchOuts: only if the context reveals a real tension or risk — otherwise omit.
+
+Return ONLY valid JSON:
+{"headline": "...", "objectives": ["..."], "suggestedQuestions": ["..."], "watchOuts": ["..."]}`;
+
+  try {
+    const raw = await runAidenPrompt(prompt, 25000);
+    const parsed = parseJsonLoose<Omit<MeetingBrief, 'generatedByAi'>>(raw);
+    if (parsed) return { ...parsed, generatedByAi: true };
+    throw new Error('Could not parse AI response');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[generateEventBrief] failed:', msg);
+    return {
+      headline: `Could not generate brief: ${msg}`,
+      objectives: [],
+      suggestedQuestions: [],
+      watchOuts: [],
+      generatedByAi: false,
+    };
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -249,8 +306,4 @@ function deterministicRelationshipInsight(input: RelationshipInsightInput): stri
   if ((input.daysSinceContact ?? 0) > 21)
     return `Cooling off. Reach out this week before it goes quiet.`;
   return `Healthy and active — no action needed right now.`;
-}
-
-export function isAidenBackendKnownDown(): boolean {
-  return backendAvailable === false;
 }

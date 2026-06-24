@@ -19,6 +19,7 @@ interface EmailListProps {
   // New props for keyboard navigation
   focusedEmailId?: string | null;
   onFocusEmail?: (id: string) => void;
+  onTriggerReply?: () => void;
   onTriggerArchive?: () => void;
   onOpenFocusedView?: () => void;  // Open email in focused/full-screen view
   onBulkDelete?: (emailIds?: string[]) => void;  // Bulk delete with undo toast
@@ -860,7 +861,10 @@ export const EmailList: React.FC<EmailListProps> = ({
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  const sentEmail = sentEmails.find((se: any) => se.id === email.id);
+                                  const sentEmail = sentEmails.find((se: any) =>
+                                    se.subject === email.subject &&
+                                    Math.abs(new Date(se.date).getTime() - new Date(email.date || 0).getTime()) < 1000
+                                  );
                                   if (sentEmail?.id) {
                                     snoozeReminder(sentEmail.id, 1);
                                   }
@@ -874,7 +878,10 @@ export const EmailList: React.FC<EmailListProps> = ({
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  const sentEmail = sentEmails.find((se: any) => se.id === email.id);
+                                  const sentEmail = sentEmails.find((se: any) =>
+                                    se.subject === email.subject &&
+                                    Math.abs(new Date(se.date).getTime() - new Date(email.date || 0).getTime()) < 1000
+                                  );
                                   if (sentEmail?.id) {
                                     snoozeReminder(sentEmail.id, 2);
                                   }
@@ -888,7 +895,10 @@ export const EmailList: React.FC<EmailListProps> = ({
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  const sentEmail = sentEmails.find((se: any) => se.id === email.id);
+                                  const sentEmail = sentEmails.find((se: any) =>
+                                    se.subject === email.subject &&
+                                    Math.abs(new Date(se.date).getTime() - new Date(email.date || 0).getTime()) < 1000
+                                  );
                                   if (sentEmail?.id) {
                                     snoozeReminder(sentEmail.id, 3);
                                   }
@@ -902,7 +912,10 @@ export const EmailList: React.FC<EmailListProps> = ({
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  const sentEmail = sentEmails.find((se: any) => se.id === email.id);
+                                  const sentEmail = sentEmails.find((se: any) =>
+                                    se.subject === email.subject &&
+                                    Math.abs(new Date(se.date).getTime() - new Date(email.date || 0).getTime()) < 1000
+                                  );
                                   if (sentEmail?.id) {
                                     snoozeReminder(sentEmail.id, 7);
                                   }

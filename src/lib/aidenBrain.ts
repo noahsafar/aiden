@@ -68,6 +68,13 @@ interface BrainInput {
   userEmail?: string;
 }
 
+function truncate(str: string, limit: number): string {
+  if (str.length <= limit) return str;
+  const cut = str.slice(0, limit);
+  const lastSpace = cut.lastIndexOf(' ');
+  return (lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut) + '…';
+}
+
 function findContact(contacts: Contact[], email?: string): Contact | undefined {
   if (!email) return undefined;
   return contacts.find((c) => c.email_address.toLowerCase() === email.toLowerCase());
@@ -156,8 +163,8 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
       outcomeTitle: buildAttentionOutcome('commitment_overdue', c.counterpartyName, c.text),
       detail: c.text,
       situation: overdue
-        ? `Overdue by ${days}d: "${c.text.slice(0, 50)}"`
-        : `Commitment due: "${c.text.slice(0, 50)}"`,
+        ? `Overdue by ${days}d: "${truncate(c.text, 50)}"`
+        : `Commitment due: "${truncate(c.text, 50)}"`,
       whyItMatters: `Your credibility compounds. ${overdue ? 'This is urgent.' : 'Handle it before it slips.'}`,
       recommendation: overdue
         ? `Reply now — ${days}d overdue, and a partial answer beats continued silence.`
@@ -175,6 +182,79 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
     });
     if (c.threadId) usedThreads.add(c.threadId);
     if (c.counterpartyEmail) usedPeople.add(c.counterpartyEmail.toLowerCase());
+  }
+
+  // 1b. Deadline-bearing emails — time-bounded actions (applications, submissions, RSVPs).
+  // These surface regardless of category tag because the deadline is the signal.
+  {
+    const DEADLINE_RE = /\bapplication deadline|apply by|deadline[^.]*\d{4}[-\/]\d{2}[-\/]\d{2}|\bdeadline[^.]*(\d+)\s+days?\b|\b(\d+)\s+days?\b[^.]*deadline|due\s+(by|date)[^.]*\d|closes?\s+(on|in)\b|submission\s+deadline|rsvp\s+by\b/i;
+    const DAYS_FROM_NOW_RE = /\b(\d+)\s+days?\s+(?:from now|left|remaining|away)\b/i;
+    const ISO_DATE_RE = /\b(\d{4}-\d{2}-\d{2})\b/g;
+
+    const deadlineCandidates = [...emails]
+      .filter((e) => !['Archived', 'Saved', 'Deleted', 'Replied'].includes(e.status))
+      .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+    for (const e of deadlineCandidates) {
+      const text = `${e.subject || ''} ${e.body_text || e.snippet || ''}`;
+      if (!DEADLINE_RE.test(text)) continue;
+
+      const thread = e.thread_id || e.id;
+      if (usedThreads.has(thread)) continue;
+      const { name, email } = parseSender(e.sender || '');
+      if (isSelf(email, userEmail) || isAutomatedSender(e.sender || '')) continue;
+
+      // Estimate days until deadline
+      let daysUntil = 7;
+      const daysMatch = text.match(DAYS_FROM_NOW_RE);
+      if (daysMatch) {
+        daysUntil = parseInt(daysMatch[1], 10);
+      } else {
+        // Find the nearest future ISO date in the text
+        const dates: Date[] = [];
+        let m: RegExpExecArray | null;
+        const re = new RegExp(ISO_DATE_RE.source, 'g');
+        while ((m = re.exec(text)) !== null) {
+          const d = new Date(m[1]);
+          if (!isNaN(d.getTime()) && d > now) dates.push(d);
+        }
+        if (dates.length > 0) {
+          dates.sort((a, b) => a.getTime() - b.getTime());
+          daysUntil = Math.round((dates[0].getTime() - now.getTime()) / 86400000);
+        }
+      }
+
+      if (daysUntil < 0 || daysUntil > 14) continue; // Skip if passed or far out
+
+      const severity = daysUntil <= 1 ? 97 : daysUntil <= 2 ? 93 : daysUntil <= 3 ? 89 : daysUntil <= 5 ? 85 : 78;
+      const urgencyLabel = daysUntil <= 1 ? 'today' : daysUntil <= 2 ? 'in 2 days' : `in ${daysUntil} days`;
+      const first = name.split(' ')[0];
+
+      items.push({
+        id: `att-deadline-${e.id}`,
+        kind: 'urgent_email',
+        title: name,
+        outcomeTitle: `Act on ${first}'s deadline — ${urgencyLabel}`,
+        detail: e.subject || '',
+        situation: `Deadline ${urgencyLabel}: "${truncate(e.subject || '', 60)}"`,
+        whyItMatters: `Hard deadline — missing it forfeits the opportunity entirely.`,
+        recommendation: daysUntil <= 2
+          ? `Do this today — only ${daysUntil === 1 ? '1 day' : '2 days'} left.`
+          : `Block time this week — ${daysUntil} days sounds like enough but it isn't.`,
+        meta: `Due ${urgencyLabel}`,
+        person: { name, email },
+        emailId: e.id,
+        threadId: thread,
+        channel: 'email',
+        severity,
+        suggestions: [
+          { label: 'Reply', action: 'reply', payload: { emailId: e.id } },
+          { label: 'Open', action: 'open', payload: { emailId: e.id } },
+        ],
+      });
+      usedThreads.add(thread);
+      if (email) usedPeople.add(email.toLowerCase());
+    }
   }
 
   // 2. Sent mail awaiting a reply past its window — customer/investor risk.
@@ -195,8 +275,8 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
       outcomeTitle: buildAttentionOutcome('awaiting_reply', name, e.subject || ''),
       detail: e.subject ? `Re: ${e.subject}` : 'Your message',
       situation: risk
-        ? `Thread going cold (${days}d since you sent: "${(e.subject || '').slice(0, 50)}")`
-        : `Awaiting reply (${days}d): "${(e.subject || '').slice(0, 50)}"`,
+        ? `Thread going cold (${days}d since you sent: "${truncate(e.subject || '', 50)}")`
+        : `Awaiting reply (${days}d): "${truncate(e.subject || '', 50)}"`,
       whyItMatters: risk
         ? `${days}d of silence risks going cold. A nudge now could save the conversation.`
         : `No reply in ${days}d — they may have missed it or need a gentle reminder.`,
@@ -228,6 +308,8 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
     const isUrgent = e.category === 'Urgent';
     const needsReply = e.requires_reply === true || e.category === 'Important';
     if (!isUrgent && !needsReply) continue;
+    // Keep social/logistical noise out of Today's Focus — these belong in the inbox
+    if (!isUrgent && SOCIAL_NOISE_RE.test(`${e.subject || ''} ${e.body_text || e.snippet || ''}`)) continue;
     const thread = e.thread_id || e.id;
     if (usedThreads.has(thread)) continue;
     const { name, email } = parseSender(e.sender || '');
@@ -319,7 +401,7 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
       title: m.authorName,
       outcomeTitle: buildAttentionOutcome('slack', m.authorName, m.preview),
       detail: m.preview,
-      situation: `${firstName} messaged in ${m.title}: "${m.preview.slice(0, 80)}"`,
+      situation: `${firstName} messaged in ${m.title}: "${truncate(m.preview, 80)}"`,
       whyItMatters: `Slack is real-time — they expect a quicker response than email.`,
       recommendation: undefined, // Generic - all Slack messages expect fast responses
       meta: relativeTime(m.timestamp),
@@ -344,9 +426,14 @@ export function peopleInAttention(items: AttentionItem[]): Set<string> {
 /* Opportunities — relationship leverage, real people only             */
 /* ------------------------------------------------------------------ */
 
+const SOCIAL_NOISE_RE = /\b(lunch|dinner|breakfast|pizza|burger|taco|salad|food|restaurant|eat|coffee|drinks|happy hour|team lunch|team dinner|office lunch|splitting the (check|bill)|who's (coming|in)|can you make it|vote|poll|preference|rsvp|celebrating|celebration|birthday|party|welcome|farewell|goodbye|congrats|congrats to|shout.?out)\b/i;
+
 const OPP_SIGNALS: Array<{
   re: RegExp;
-  build: (name: string, daysAgo?: number) => { title: string; detail: string; recommendation: string };
+  build: (
+    name: string,
+    daysAgo?: number,
+  ) => { title: string; detail: string; recommendation: string; draftPrompt: string; subject: string };
 }> = [
   {
     re: /\b(hiring|looking to hire|need a|searching for|recruit|vp of|head of|open role|job opening|join (our|the) team)\b/i,
@@ -354,6 +441,8 @@ const OPP_SIGNALS: Array<{
       title: `${name} is hiring`,
       detail: `Hiring signal detected${daysAgo > 0 ? ` ${daysAgo}d ago` : ''}`,
       recommendation: `Make an intro${daysAgo > 0 ? ` — signal is ${daysAgo}d old so timing is still warm` : ' — the signal is fresh'}. You may know someone who fits.`,
+      draftPrompt: `Write a short, warm note to ${name} responding to their hiring news. Offer to help — mention I may know strong candidates and would be happy to make an introduction. Keep it genuine and low-pressure.`,
+      subject: `Happy to help with your search`,
     }),
   },
   {
@@ -362,6 +451,8 @@ const OPP_SIGNALS: Array<{
       title: `${name} shared fundraising news`,
       detail: `Funding milestone detected${daysAgo > 0 ? ` ${daysAgo}d ago` : ''}`,
       recommendation: `Send a quick congratulations — a timely, specific note keeps you top of mind for their next phase${daysAgo > 5 ? ', though the window is narrowing' : ''}.`,
+      draftPrompt: `Write a brief, warm congratulations to ${name} on their recent funding news. Make it feel genuine and personal, not a form note. Two or three sentences, no ask.`,
+      subject: `Congrats!`,
     }),
   },
   {
@@ -370,6 +461,8 @@ const OPP_SIGNALS: Array<{
       title: `Intro opportunity via ${name}`,
       detail: `Introduction offer${daysAgo > 0 ? ` ${daysAgo}d ago` : ''}`,
       recommendation: `Reply to lock the intro — warm intros convert far better than cold outreach${daysAgo > 3 ? ', but the offer won\'t stay open' : ''}.`,
+      draftPrompt: `Write a brief, appreciative reply to ${name} taking them up on the introduction they offered. Express enthusiasm and suggest an easy next step (e.g. happy to send a short blurb they can forward).`,
+      subject: `Thanks — would love the intro`,
     }),
   },
   {
@@ -378,6 +471,8 @@ const OPP_SIGNALS: Array<{
       title: `${name} is leaning in`,
       detail: `Partnership signal${daysAgo > 0 ? ` ${daysAgo}d ago` : ''}`,
       recommendation: `Propose a concrete next step — they've signalled interest and momentum stalls fast if you don't move first.`,
+      draftPrompt: `Write a concise, confident note to ${name} building on their interest in working together. Propose one concrete next step — a short call or a specific deliverable — and offer a couple of times. Keep momentum.`,
+      subject: `Next steps`,
     }),
   },
   {
@@ -386,6 +481,18 @@ const OPP_SIGNALS: Array<{
       title: `${name} has momentum`,
       detail: `Launch or milestone${daysAgo > 0 ? ` ${daysAgo}d ago` : ''}`,
       recommendation: `Send a short note now — congratulations during momentum feel genuine; the same message a month later feels opportunistic.`,
+      draftPrompt: `Write a short, genuine congratulations to ${name} on their recent launch/milestone. Mention something specific if you can and keep it warm and brief.`,
+      subject: `Congrats on the launch`,
+    }),
+  },
+  {
+    re: /\b(fellowship|scholarship|grant|award|residency|program|apply|application|i'd love for you to apply|i think you'd be a great fit)\b/i,
+    build: (name, daysAgo = 0) => ({
+      title: `${name} shared an opportunity`,
+      detail: `Application or program opportunity${daysAgo > 0 ? ` (${daysAgo}d ago)` : ''}`,
+      recommendation: `Review the details and decide quickly — opportunities like this close fast and a timely response signals genuine interest.`,
+      draftPrompt: `Write a brief, enthusiastic reply to ${name} expressing genuine interest in the opportunity they shared, thanking them for thinking of me, and asking about the next step or deadline.`,
+      subject: `Thanks for thinking of me`,
     }),
   },
 ];
@@ -411,6 +518,7 @@ export function deriveOpportunities(input: BrainInput, excludeEmails: Set<string
     if (email && seen.has(email.toLowerCase())) continue;
 
     const text = `${e.subject || ''} ${e.body_text || e.snippet || ''}`;
+    if (SOCIAL_NOISE_RE.test(text)) continue;
     const contact = findContact(contacts, email);
 
     for (const sig of OPP_SIGNALS) {
@@ -422,13 +530,11 @@ export function deriveOpportunities(input: BrainInput, excludeEmails: Set<string
           title: built.title,
           outcomeTitle: buildOppOutcome(built.title, name),
           detail: built.detail,
-          whyNow: built.whyNow,
-          yourAdvantage: built.yourAdvantage,
           recommendation: built.recommendation,
           person: { name, email },
           emailId: e.id,
           suggestions: [
-            { label: 'Draft a note', action: 'compose', payload: { to: email } },
+            { label: 'Draft a note', action: 'compose', payload: { to: email, prompt: built.draftPrompt, subject: built.subject } },
             { label: 'Open email', action: 'open', payload: { emailId: e.id } },
           ],
         });
@@ -460,7 +566,17 @@ export function deriveOpportunities(input: BrainInput, excludeEmails: Set<string
         detail: `A strong ${c.category.toLowerCase()} relationship that's gone quiet ${c.days_since_contact}d.`,
         recommendation: `Send a short no-ask check-in — ${c.days_since_contact}d of silence can erode even strong relationships.`,
         person: { name: nurtureName, email: c.email_address },
-        suggestions: [{ label: 'Reach out', action: 'compose', payload: { to: c.email_address } }],
+        suggestions: [
+          {
+            label: 'Reach out',
+            action: 'compose',
+            payload: {
+              to: c.email_address,
+              subject: 'Been thinking of you',
+              prompt: `Write a short, warm, no-ask check-in to ${nurtureName} to reconnect after a while out of touch. Make it personal and genuine — ask how they're doing, not for anything. Two or three sentences.`,
+            },
+          },
+        ],
       });
       seen.add(c.email_address.toLowerCase());
     }
@@ -482,10 +598,10 @@ export function deriveContextBullets(emails: any[], sentEmails: any[], email?: s
   );
   const bullets: string[] = [];
   const patterns: Array<{ re: RegExp; label: (m: string) => string }> = [
-    { re: /\b(budget|pricing|cost|expensive|cheaper)\b[^.!?]*/i, label: (m) => `Sensitive on cost: "${m.trim().slice(0, 80)}"` },
-    { re: /\b(deadline|timeline|by (next )?(week|month|friday|monday|q[1-4]))\b[^.!?]*/i, label: (m) => `Timeline: "${m.trim().slice(0, 80)}"` },
-    { re: /\b(implementation|onboarding|integration|rollout|speed|fast)\b[^.!?]*/i, label: (m) => `Cares about: "${m.trim().slice(0, 80)}"` },
-    { re: /\b(team|committee|stakeholder|my boss|decision)\b[^.!?]*/i, label: (m) => `Buying process: "${m.trim().slice(0, 80)}"` },
+    { re: /\b(budget|pricing|cost|expensive|cheaper)\b[^.!?]*/i, label: (m) => `Sensitive on cost: "${truncate(m.trim(), 80)}"` },
+    { re: /\b(deadline|timeline|by (next )?(week|month|friday|monday|q[1-4]))\b[^.!?]*/i, label: (m) => `Timeline: "${truncate(m.trim(), 80)}"` },
+    { re: /\b(implementation|onboarding|integration|rollout|speed|fast)\b[^.!?]*/i, label: (m) => `Cares about: "${truncate(m.trim(), 80)}"` },
+    { re: /\b(team|committee|stakeholder|my boss|decision)\b[^.!?]*/i, label: (m) => `Buying process: "${truncate(m.trim(), 80)}"` },
   ];
   for (const e of related.slice(0, 12)) {
     const text = e.body_text || e.snippet || '';
