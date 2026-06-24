@@ -52,9 +52,18 @@ export const Inbox: React.FC = () => {
   const needsCount = useMemo(() => all.filter(isActionable).length, [all]);
 
   const list = useMemo(() => {
-    let arr = all;
-    if (view === 'needs') arr = arr.filter(isActionable);
+    let arr = all; // `all` is already newest-first
     if (channel !== 'all') arr = arr.filter((m) => m.channel === channel);
+    if (view === 'needs') {
+      // Triage order: most urgent first (unread breaks ties), then recency.
+      const rank = (p?: string) => (p === 'high' ? 3 : p === 'medium' ? 2 : 1);
+      arr = arr.filter(isActionable).sort((a, b) => {
+        const r = rank(b.priority) - rank(a.priority);
+        if (r !== 0) return r;
+        if (a.unread !== b.unread) return a.unread ? -1 : 1;
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      });
+    }
     return arr;
   }, [all, view, channel]);
 
