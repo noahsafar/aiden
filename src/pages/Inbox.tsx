@@ -275,10 +275,11 @@ const SlackReply: React.FC<{ message: UnifiedMessage; onSent: () => void }> = ({
   const draft = async () => {
     setDrafting(true);
     try {
-      const reply = await answerFromContext(
-        `Write a brief, friendly Slack reply to ${message.authorName}'s message. Reply with only the message text, no preamble.`,
-        `${message.authorName}: ${message.preview}`,
-      );
+      const intent = text.trim();
+      const instruction = intent
+        ? `Write a brief, friendly Slack reply to ${message.authorName}'s message, following this instruction from me: "${intent}". Reply with only the message text, no preamble.`
+        : `Write a brief, friendly Slack reply to ${message.authorName}'s message. Reply with only the message text, no preamble.`;
+      const reply = await answerFromContext(instruction, `${message.authorName}: ${message.preview}`);
       if (reply) setText(reply);
     } finally {
       setDrafting(false);
@@ -291,7 +292,7 @@ const SlackReply: React.FC<{ message: UnifiedMessage; onSent: () => void }> = ({
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={2}
-        placeholder={`Reply to ${message.authorName}…`}
+        placeholder={`Reply to ${message.authorName}, or jot what to say and let Aiden draft it…`}
         className="w-full resize-none bg-transparent px-1 py-1 text-[13px] text-foreground outline-none placeholder:text-muted"
       />
       <div className="mt-1.5 flex items-center gap-2">
