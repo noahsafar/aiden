@@ -22,7 +22,6 @@ interface NavItem {
   to: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  glyph: string;
   badge?: number;
   badgeTone?: 'neutral' | 'rose';
 }
@@ -60,12 +59,12 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
   );
 
   const navItems: NavItem[] = [
-    { to: '/today', label: 'Today', icon: Home, glyph: '⌂' },
-    { to: '/relationships', label: 'Relationships', icon: Users, glyph: '◎' },
-    { to: '/schedule', label: 'Schedule', icon: CalendarDays, glyph: '◷' },
-    { to: '/commitments', label: 'Commitments', icon: CheckCircle2, glyph: '✓', badge: overdueCount, badgeTone: 'rose' },
-    { to: '/inbox', label: 'Inbox', icon: InboxIcon, glyph: '✉', badge: inboxUnread, badgeTone: 'neutral' },
-    { to: '/ask', label: 'Ask', icon: Sparkles, glyph: '✦' },
+    { to: '/today', label: 'Today', icon: Home },
+    { to: '/relationships', label: 'Relationships', icon: Users },
+    { to: '/schedule', label: 'Schedule', icon: CalendarDays },
+    { to: '/commitments', label: 'Commitments', icon: CheckCircle2, badge: overdueCount, badgeTone: 'rose' },
+    { to: '/inbox', label: 'Inbox', icon: InboxIcon, badge: inboxUnread, badgeTone: 'neutral' },
+    { to: '/ask', label: 'Ask', icon: Sparkles },
   ];
 
   return (
@@ -73,7 +72,7 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
       {/* ---- Left rail ---- */}
       <nav className="flex w-[236px] flex-shrink-0 flex-col border-r border-gray-200/70 bg-gray-50/60 backdrop-blur-xl dark:border-white/[0.06] dark:bg-[#0c0e14]/80">
         {/* Brand */}
-        <div className="flex items-center gap-2.5 px-5 pb-2 pt-5">
+        <div className="flex items-center gap-2.5 px-5 py-4">
           <img src={logo} alt="Aiden" className="h-7 w-7" />
           <span className="text-[17px] font-semibold tracking-tight">Aiden</span>
         </div>

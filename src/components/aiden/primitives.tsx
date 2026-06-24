@@ -69,6 +69,8 @@ interface SectionLabelProps {
   dot?: 'rose' | 'emerald' | 'amber' | 'violet' | 'sky' | 'none';
   count?: number;
   action?: React.ReactNode;
+  /** tighter bottom margin (mb-3) for compact groupings */
+  dense?: boolean;
   className?: string;
 }
 
@@ -78,6 +80,7 @@ export const SectionLabel: React.FC<SectionLabelProps> = ({
   dot = 'none',
   count,
   action,
+  dense = false,
   className = '',
 }) => {
   const dots: Record<string, string> = {
@@ -89,7 +92,7 @@ export const SectionLabel: React.FC<SectionLabelProps> = ({
     none: '',
   };
   return (
-    <div className={cn('flex items-center justify-between mb-4', className)}>
+    <div className={cn('flex items-center justify-between', dense ? 'mb-3' : 'mb-4', className)}>
       <div className="flex items-center gap-2.5">
         {dot !== 'none' && <span className={cn('h-2 w-2 rounded-full', dots[dot])} />}
         {icon && <span className="text-muted">{icon}</span>}
@@ -197,7 +200,7 @@ export const SoftButton: React.FC<SoftButtonProps> = ({
   return (
     <button
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none',
+        'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900',
         variants[variant],
         className,
       )}
@@ -241,7 +244,7 @@ export const EmptyState: React.FC<{
 }> = ({ icon, title, description, className = '', children }) => (
   <div className={cn('flex flex-col items-center justify-center px-8 py-16 text-center', className)}>
     {icon && (
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-muted dark:bg-white/[0.05]">
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-muted dark:bg-white/[0.05]">
         {icon}
       </div>
     )}

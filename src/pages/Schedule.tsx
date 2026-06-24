@@ -112,7 +112,7 @@ export const Schedule: React.FC = () => {
           </SoftButton>
         </EmptyState>
       ) : (
-        <div className="space-y-7">
+        <div className="space-y-6">
           {grouped.map(([date, evs]) => (
             <div key={date}>
               <SectionLabel dot="sky">{prettyDay(date)}</SectionLabel>
@@ -177,9 +177,9 @@ const EventRow: React.FC<{ event: CalendarEvent }> = ({ event }) => {
           </>
         )}
       </div>
-      <div className="mt-0.5 h-9 w-px flex-shrink-0 bg-gray-200 dark:bg-white/10" />
+      <div className="mt-0.5 h-9 w-px flex-shrink-0 bg-gray-100 dark:bg-white/[0.08]" />
       <div className="min-w-0 flex-1">
-        <h3 className="text-[15px] font-medium text-foreground">{event.summary}</h3>
+        <h3 className="text-[15px] font-semibold text-foreground">{event.summary}</h3>
         {(event.location || cleanDescription) && (
           <div className="mt-1 space-y-1">
             {event.location && (
