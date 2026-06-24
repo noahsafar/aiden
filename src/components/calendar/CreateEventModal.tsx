@@ -10,9 +10,11 @@ interface CreateEventModalProps {
   timezone: string;
   /** Pre-fill the attendees field (e.g. when scheduling with a specific person). */
   initialAttendees?: string;
+  /** Pre-fill the title field (e.g. "Meeting with Sarah Chen"). */
+  initialTitle?: string;
 }
 
-export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, initialAttendees }: CreateEventModalProps) {
+export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, initialAttendees, initialTitle }: CreateEventModalProps) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [startTime, setStartTime] = useState('09:00');
@@ -21,10 +23,11 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
   const [location, setLocation] = useState('');
   const [attendees, setAttendees] = useState('');
 
-  // Pre-fill attendees when opened for a specific person.
+  // Pre-fill attendees/title when opened for a specific person.
   useEffect(() => {
     if (isOpen && initialAttendees) setAttendees(initialAttendees);
-  }, [isOpen, initialAttendees]);
+    if (isOpen && initialTitle) setTitle(initialTitle);
+  }, [isOpen, initialAttendees, initialTitle]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successLink, setSuccessLink] = useState<string | null>(null);

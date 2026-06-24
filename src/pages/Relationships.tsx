@@ -33,6 +33,7 @@ import { useEmailStore } from '@/stores/emailStore';
 import { useCommitmentStore } from '@/stores/commitmentStore';
 import { relationshipContext } from '@/api/aiden';
 import { NetworkGraph } from '@/components/crm/NetworkGraph';
+import { CreateEventModal } from '@/components/calendar/CreateEventModal';
 import { cn } from '@/lib/utils';
 
 const categoryTone: Record<string, 'violet' | 'sky' | 'emerald' | 'amber' | 'rose' | 'neutral'> = {
@@ -356,6 +357,25 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
   const updateContactVIP = useCrmStore((s) => s.updateContactVIP);
   const navigate = useNavigate();
   const [ctxBullets, setCtxBullets] = useState<string[]>([]);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [timezone, setTimezone] = useState('America/New_York');
+
+  // Resolve the user's timezone for the inline scheduler (settings → browser default).
+  useEffect(() => {
+    let cancelled = false;
+    import('@tauri-apps/api/core')
+      .then(({ invoke }) => invoke<{ timezone?: string }>('get_settings'))
+      .then((s) => {
+        if (cancelled) return;
+        setTimezone(s?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York');
+      })
+      .catch(() => {
+        if (!cancelled) setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Recent emails with this person (deduped by subject) — used for the thread
   // list, the AI context notes, and the activity heatmap.
@@ -549,10 +569,20 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
         <SoftButton variant="soft" icon={<Mail className="h-3.5 w-3.5" />} onClick={() => act({ action: 'compose', payload: { to: contact.email_address } })}>
           Email {name.split(' ')[0]}
         </SoftButton>
-        <SoftButton variant="ghost" icon={<CalendarDays className="h-3.5 w-3.5" />} onClick={() => act({ action: 'schedule', payload: { to: contact.email_address } })}>
+        <SoftButton variant="ghost" icon={<CalendarDays className="h-3.5 w-3.5" />} onClick={() => setShowSchedule(true)}>
           Schedule time
         </SoftButton>
       </div>
+
+      {/* Inline scheduler — stays on this page, blurs the relationship behind it */}
+      <CreateEventModal
+        isOpen={showSchedule}
+        onClose={() => setShowSchedule(false)}
+        onEventCreated={() => setShowSchedule(false)}
+        timezone={timezone}
+        initialAttendees={contact.email_address}
+        initialTitle={`Meeting with ${name}`}
+      />
     </DetailShell>
   );
 };
