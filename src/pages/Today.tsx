@@ -325,7 +325,7 @@ const MeetingBriefCard: React.FC<{
       </div>
 
       {/* ── AIDEN Prep section ── */}
-      <div className="border-t border-dashed border-gray-200 dark:border-white/[0.08] bg-gray-50/40 dark:bg-white/[0.015] px-5 py-4">
+      <div className="bg-gray-50/40 dark:bg-white/[0.015] px-5 py-4">
         {/* Badge header */}
         <div className="flex items-center gap-1.5 mb-3">
           <div className="flex h-5 w-5 items-center justify-center rounded-full bg-violet-100 dark:bg-violet-500/20">
