@@ -322,59 +322,13 @@ const MeetingBriefCard: React.FC<{
             </p>
           )}
         </div>
-      </div>
-
-      {/* ── AIDEN Prep section ── */}
-      <div className="bg-gray-50/40 dark:bg-white/[0.015] px-5 py-4">
-        {/* Badge header */}
-        <div className="flex items-center gap-1.5 mb-3">
-          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-violet-100 dark:bg-violet-500/20">
-            <Sparkles className="h-3 w-3 text-violet-500" />
-          </div>
-          <span className="text-[10px] font-bold uppercase tracking-widest text-violet-500/80">
-            {hasPrepContent ? 'Aiden prep ready' : 'Aiden prep'}
-          </span>
-        </div>
-
-        {/* What Aiden actually found — only shown when real data exists */}
-        {hasPrepContent && (
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {recentSubjects.length > 0 && (
-              <PrepChip>
-                {recentSubjects.length} conversation{recentSubjects.length > 1 ? 's' : ''}
-              </PrepChip>
-            )}
-            {contextBullets.length > 0 && (
-              <PrepChip>
-                {contextBullets.length} note{contextBullets.length > 1 ? 's' : ''}
-              </PrepChip>
-            )}
-            {openWith.length > 0 && (
-              <PrepChip urgent>
-                {openWith.length} open loop{openWith.length > 1 ? 's' : ''}
-              </PrepChip>
-            )}
-          </div>
-        )}
-
-        {/* Last subject if available */}
-        {recentSubjects.length > 0 && (
-          <p className="text-[12px] text-muted/60 mb-2.5 italic truncate">
-            Last: {recentSubjects[0]}
-          </p>
-        )}
-
-        {/* Goal */}
-        <p className="text-[12px] text-muted/60 mb-3.5">
-          <span className="font-semibold text-muted/70">Goal:</span> {goal}
-        </p>
 
         <SoftButton
           variant="primary"
           icon={<Sparkles className="h-3.5 w-3.5" />}
           onClick={() => onViewBriefing(prepQuery)}
         >
-          View briefing
+          Get briefing
         </SoftButton>
       </div>
     </Surface>
