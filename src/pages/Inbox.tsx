@@ -230,7 +230,14 @@ const MessageRow: React.FC<{
           {isEmail && <div className="mt-0.5 truncate text-[13px] font-medium text-foreground/80">{subtitle}</div>}
           <div className="mt-0.5 flex items-start gap-1.5">
             {aiSummary && <Sparkles className="mt-0.5 h-3 w-3 flex-shrink-0 text-violet-400" />}
-            <p className={cn('text-[13px] leading-snug text-muted', expanded ? '' : 'line-clamp-2')}>{body}</p>
+            <p
+              className={cn(
+                'text-[13px] leading-snug text-muted',
+                expanded ? 'max-h-56 overflow-y-auto whitespace-pre-wrap' : 'line-clamp-2',
+              )}
+            >
+              {body}
+            </p>
           </div>
 
           {/* actions — revealed on hover (space reserved, so no layout shift) */}
