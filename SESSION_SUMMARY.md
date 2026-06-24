@@ -1,4 +1,35 @@
-# Overnight work summary — AI chief-of-staff hardening
+# Session 2 — revamp toward sellable/venture-scale (latest)
+
+Shipped to `main` (small commits, authored by you, no Claude attribution):
+- **Relationship graph fully revamped** — force-directed clustering (d3-force), circular
+  avatar nodes sized by strength + colored by category, calm edges that light up on
+  selection, dots background, loading constellation + real empty state, click a node →
+  PersonDetail slides in. Removed the manual-connection toy + debug cruft.
+- **Relationships list** — segment filters (All/VIPs/Needs attention/Strong), sort,
+  last-touch dates, category legend, and a "replies in ~Xh" response-time signal.
+- **Today got smarter** — an AI "morning brief" sentence that names your top priority;
+  a time-aware "Next up" meeting banner; a "Waiting on them" section for stale balls in
+  others' courts (with one-click AI nudge).
+- **Routing accuracy** — deadline detection now resolves real dates (no fabricated/past
+  urgency, social-RSVP guard, catches no-reply deadlines); commitments no longer
+  double-surface; cold-sales filtered; opportunity signals tightened; attention cards use
+  real AI summaries.
+- **Design system unified** — the two modals + the Inbox surface migrated off the legacy
+  gray look to the violet/token system (rounded-2xl, backdrop-blur, scale-in, EmptyState);
+  Schedule/Commitments/AidenShell/primitives consistency sweep (focus rings, spacing,
+  hairlines, dead code removed).
+- **AI prompt quality** — anti-hallucination meeting briefs; confidence-gated commitment
+  extraction that ignores pleasantries.
+
+Remaining polish is tracked in `REMAINING_WORK.md` (Today card-padding unification, a shared
+MeetingRow, AidenBox/AiSuggestion consolidation, "what changed since yesterday", quick-capture,
+AI talking-points). All lower-risk/reward; the build is green and every surface works.
+
+A self-rescheduling wake-up continues this plan autonomously while you're away.
+
+---
+
+# Session 1 — AI chief-of-staff hardening
 
 **Status: all changes verified — `npm run build` passes (exit 0), and every file I changed is type-clean.**
 Nothing is left in a broken state. Changes are uncommitted (working tree) so you can review before committing.
