@@ -56,15 +56,26 @@ function parseJsonLoose<T>(raw: string): T | null {
 export async function extractCommitments(input: ExtractInput): Promise<Commitment[]> {
   const heuristic = extractCommitmentsHeuristic(input);
   try {
-    const prompt = `Extract concrete commitments (promises to do something, or requests asked of the reader) from this message. The user ${
+    const prompt = `You extract CONCRETE commitments from an email — a real promise to do a specific thing, or a specific request asked of the reader. The user ${
       input.outgoing ? 'WROTE' : 'RECEIVED'
-    } it. Counterparty: ${input.counterpartyName}.\n\nMessage:\n"""${input.body.slice(0, 2000)}"""\n\nReturn ONLY a JSON array. Each item: {"text": short action, "direction": "you_owe"|"they_owe", "due": natural-language deadline or null}. Empty array if none.`;
+    } this message. Counterparty: ${input.counterpartyName}.
+
+Message:
+"""${input.body.slice(0, 2000)}"""
+
+RULES:
+- Only real, actionable commitments. IGNORE pleasantries and filler like "let me know if you have questions", "thanks", "looking forward", "feel free to reach out", "hope you're well".
+- "due" must be null UNLESS the message states an explicit time reference (a date, weekday, "by EOD", "next week", etc.). Never invent a deadline.
+- "confidence" 0–1: how sure you are this is a genuine commitment (not a vague intention or social nicety).
+
+Return ONLY a JSON array. Each item: {"text": short imperative action, "direction": "you_owe"|"they_owe", "due": string|null, "confidence": number}. Empty array if none.`;
     const raw = await runAidenPrompt(prompt);
-    const parsed = parseJsonLoose<Array<{ text: string; direction: string; due?: string | null }>>(raw);
+    const parsed = parseJsonLoose<Array<{ text: string; direction: string; due?: string | null; confidence?: number }>>(raw);
     if (!parsed || !Array.isArray(parsed)) return heuristic;
 
     return parsed
       .filter((p) => p.text && (p.direction === 'you_owe' || p.direction === 'they_owe'))
+      .filter((p) => (typeof p.confidence === 'number' ? p.confidence >= 0.5 : true))
       .slice(0, 4)
       .map((p, i) => {
         const due = p.due ? resolveDueDate(p.due, input.timestamp ? new Date(input.timestamp) : new Date()) : {};
@@ -82,7 +93,7 @@ export async function extractCommitments(input: ExtractInput): Promise<Commitmen
           dueText: (due as any).label || (p.due ?? undefined),
           status: 'open' as const,
           createdAt: input.timestamp || new Date().toISOString(),
-          confidence: 0.9,
+          confidence: typeof p.confidence === 'number' ? p.confidence : 0.75,
           source: 'ai' as const,
         };
       });
@@ -237,16 +248,31 @@ export interface MeetingBrief {
 
 export async function generateMeetingBrief(input: MeetingBriefInput): Promise<MeetingBrief> {
   try {
-    const prompt = `You are a chief of staff preparing the user for a meeting with ${input.personName}${
+    const hasContext =
+      input.recentSubjects.length > 0 || input.context.length > 0 || input.openCommitments.length > 0;
+    const prompt = `You are a sharp chief of staff preparing the user for a meeting with ${input.personName}${
       input.role ? ` (${input.role})` : ''
-    }. Recent threads: ${input.recentSubjects.join('; ') || 'none'}. Context: ${
-      input.context.join('; ') || 'none'
-    }. Open commitments: ${input.openCommitments.map((c) => c.text).join('; ') || 'none'}.
+    }${input.lastContact ? `, last in touch ${input.lastContact}` : ''}.
 
-Return ONLY JSON: {"headline": one sentence, "objectives": [2-3 strings], "suggestedQuestions": [2-3 strings], "watchOuts": [1-2 strings]}.`;
+Context you have:
+- Recent threads: ${input.recentSubjects.join('; ') || 'none'}
+- What they care about: ${input.context.join('; ') || 'none'}
+- Open commitments between you: ${input.openCommitments.map((c) => `${c.direction === 'you_owe' ? 'you owe' : 'they owe'}: ${c.text}`).join('; ') || 'none'}
+
+RULES:
+- Base everything ONLY on the context above. Do NOT invent specifics, numbers, or events that aren't stated.
+- objectives and suggestedQuestions must be specific to this relationship — never generic filler like "understand their priorities" or "what's changed since we last spoke" unless the context points to it.
+- If context is thin, return fewer items (even empty arrays) rather than padding.
+- watchOuts only if the context reveals a real tension/risk.
+
+Return ONLY JSON: {"headline": one concrete sentence, "objectives": [up to 3], "suggestedQuestions": [up to 3], "watchOuts": [up to 2]}.`;
     const raw = await runAidenPrompt(prompt);
     const parsed = parseJsonLoose<Omit<MeetingBrief, 'generatedByAi'>>(raw);
     if (parsed && parsed.objectives) return { ...parsed, generatedByAi: true };
+    if (!hasContext) {
+      // Nothing to ground a brief on — don't fall through to generic deterministic filler.
+      return { headline: `${input.personName} — limited history to brief on.`, objectives: [], suggestedQuestions: [], watchOuts: [], generatedByAi: false };
+    }
   } catch {
     /* fall through */
   }
