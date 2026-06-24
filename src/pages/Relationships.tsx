@@ -145,7 +145,7 @@ export const Relationships: React.FC = () => {
   };
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="mx-auto flex h-full w-full max-w-6xl flex-col animate-fade-in px-8 py-8">
       <SurfaceHeader
         title="Relationships"
         subtitle="Your network brain — every meaningful relationship, with the context that matters."
@@ -169,7 +169,7 @@ export const Relationships: React.FC = () => {
       />
 
       {view === 'graph' ? (
-        <div className="space-y-3">
+        <div className="mt-6 flex min-h-0 flex-1 flex-col space-y-3">
           {/* Category legend */}
           <div className="flex flex-wrap items-center gap-1.5">
             {GRAPH_CATEGORIES.map((cat) => {
@@ -192,7 +192,7 @@ export const Relationships: React.FC = () => {
             })}
           </div>
 
-          <Surface tone="raised" className="relative h-[640px] overflow-hidden p-0">
+          <Surface tone="raised" className="relative min-h-0 flex-1 overflow-hidden p-0">
             <NetworkGraph
               selectedCategories={graphCats}
               selectedContactId={selectedId}
@@ -215,15 +215,17 @@ export const Relationships: React.FC = () => {
           </Surface>
         </div>
       ) : !hasExtractedContacts ? (
-        <Surface tone="subtle" className="px-6 py-10 text-center text-sm text-muted">
+        <Surface tone="subtle" className="mt-6 px-6 py-10 text-center text-sm text-muted">
           Building your relationship graph from your conversations…
         </Surface>
       ) : contacts.length === 0 ? (
-        <EmptyState icon={<Inbox className="h-5 w-5" />} title="No relationships yet" description="As you exchange emails, people will appear here with full context." />
+        <div className="mt-6">
+          <EmptyState icon={<Inbox className="h-5 w-5" />} title="No relationships yet" description="As you exchange emails, people will appear here with full context." />
+        </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
+        <div className="mt-6 grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
           {/* Master list */}
-          <div className="space-y-3">
+          <div className="flex min-h-0 flex-col gap-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
               <input
@@ -289,7 +291,7 @@ export const Relationships: React.FC = () => {
               )}
             </div>
 
-            <div className="space-y-1.5">
+            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
               {filtered.map((c) => {
                 const cooling = isCooling(c);
                 return (
@@ -329,8 +331,8 @@ export const Relationships: React.FC = () => {
             </div>
           </div>
 
-          {/* Detail */}
-          <div>{selected ? <PersonDetail key={selected.id} contact={selected} /> : null}</div>
+          {/* Detail — scrolls within the card, not the whole page */}
+          <div className="min-h-0 overflow-y-auto pr-1">{selected ? <PersonDetail key={selected.id} contact={selected} /> : null}</div>
         </div>
       )}
     </div>

@@ -1045,7 +1045,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
       />
       <Route
         path="/relationships"
-        element={isAuthenticated ? (<AidenShell><Relationships /></AidenShell>) : <Navigate to="/login" replace />}
+        element={isAuthenticated ? (<AidenShell bleed><Relationships /></AidenShell>) : <Navigate to="/login" replace />}
       />
       <Route
         path="/commitments"
