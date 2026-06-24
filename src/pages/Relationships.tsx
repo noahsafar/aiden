@@ -353,6 +353,7 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
   const emails = useEmailStore((s) => s.emails);
   const sentEmails = useEmailStore((s) => s.sentEmails);
   const commitments = useCommitmentStore((s) => s.commitments);
+  const updateContactVIP = useCrmStore((s) => s.updateContactVIP);
   const [insight, setInsight] = useState<string>('');
 
   const context = useMemo(
@@ -389,6 +390,14 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
     };
   }, [contact, personCommitments]);
 
+  const activityDates = useMemo(() => {
+    const lower = contact.email_address.toLowerCase();
+    return [...emails, ...sentEmails]
+      .filter((e) => `${e.sender || ''} ${e.recipients || ''}`.toLowerCase().includes(lower))
+      .map((e) => (e.date ? new Date(e.date).getTime() : 0))
+      .filter(Boolean);
+  }, [emails, sentEmails, contact.email_address]);
+
   const name = contact.name || contact.email_address.split('@')[0];
   const role = contact.domain ? `${contact.category} · ${contact.domain}` : contact.category;
 
@@ -407,7 +416,18 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-semibold text-foreground">{name}</h2>
-            {contact.is_vip && <Star className="h-4 w-4 fill-amber-400 text-amber-400" />}
+            <button
+              onClick={() => updateContactVIP(contact.id, !contact.is_vip)}
+              title={contact.is_vip ? 'Remove VIP' : 'Mark as VIP'}
+              className="rounded-md p-0.5 transition-colors"
+            >
+              <Star
+                className={cn(
+                  'h-4 w-4 transition-colors',
+                  contact.is_vip ? 'fill-amber-400 text-amber-400' : 'text-muted/30 hover:text-amber-400',
+                )}
+              />
+            </button>
           </div>
           <p className="text-[14px] text-muted">{role}</p>
           <p className="text-[13px] text-muted/70">{contact.email_address}</p>
@@ -487,6 +507,16 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
         ))}
       </div>
 
+      {/* Activity heatmap — real cadence over the last ~6 months */}
+      {activityDates.length > 0 && (
+        <div className="mt-6">
+          <SectionLabel className="mb-3" dense>Communication cadence</SectionLabel>
+          <div className="overflow-x-auto rounded-xl bg-gray-50 px-4 py-3 dark:bg-white/[0.03]">
+            <ActivityHeatmap dates={activityDates} />
+          </div>
+        </div>
+      )}
+
       {/* Recent threads */}
       {subjects.length > 0 && (
         <div className="mt-6">
@@ -519,6 +549,72 @@ function formatResponseTime(mins: number): string {
   if (mins < 1440) return `${Math.round(mins / 60)}h`;
   return `${Math.round(mins / 1440)}d`;
 }
+
+/* ------------------------------------------------------------------ */
+/* Activity heatmap — real email cadence with a contact (GitHub-style) */
+/* ------------------------------------------------------------------ */
+function heatColor(count: number): string {
+  if (count <= 0) return 'bg-gray-100 dark:bg-white/[0.05]';
+  if (count === 1) return 'bg-violet-200 dark:bg-violet-500/40';
+  if (count === 2) return 'bg-violet-300 dark:bg-violet-500/60';
+  if (count <= 4) return 'bg-violet-400 dark:bg-violet-500/80';
+  return 'bg-violet-500 dark:bg-violet-400';
+}
+
+const ActivityHeatmap: React.FC<{ dates: number[] }> = ({ dates }) => {
+  const WEEKS = 24;
+  const counts = new Map<string, number>();
+  for (const ts of dates) {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) continue;
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+  const lastShown = new Date(end);
+  lastShown.setDate(end.getDate() + (6 - end.getDay())); // Saturday of the current week
+  const total = WEEKS * 7;
+  const cells: { label: string; count: number; future: boolean }[] = [];
+  for (let i = total - 1; i >= 0; i--) {
+    const d = new Date(lastShown);
+    d.setDate(lastShown.getDate() - i);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const count = counts.get(key) || 0;
+    cells.push({
+      label: `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}: ${count} message${count === 1 ? '' : 's'}`,
+      count,
+      future: d.getTime() > end.getTime(),
+    });
+  }
+  const columns: (typeof cells)[] = [];
+  for (let w = 0; w < WEEKS; w++) columns.push(cells.slice(w * 7, w * 7 + 7));
+
+  return (
+    <div>
+      <div className="flex gap-[3px]">
+        {columns.map((col, ci) => (
+          <div key={ci} className="flex flex-col gap-[3px]">
+            {col.map((cell, ri) => (
+              <div
+                key={ri}
+                title={cell.future ? undefined : cell.label}
+                className={cn('h-[10px] w-[10px] rounded-[2px]', cell.future ? 'bg-transparent' : heatColor(cell.count))}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center gap-1 text-[10px] text-muted/60">
+        <span>Less</span>
+        {[0, 1, 2, 3, 5].map((n) => (
+          <span key={n} className={cn('h-[10px] w-[10px] rounded-[2px]', heatColor(n))} />
+        ))}
+        <span>More</span>
+      </div>
+    </div>
+  );
+};
 
 const DetailShell: React.FC<{ bare?: boolean; children: React.ReactNode }> = ({ bare, children }) =>
   bare ? <div className="p-5">{children}</div> : <Surface className="p-6">{children}</Surface>;

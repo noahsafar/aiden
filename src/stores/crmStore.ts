@@ -246,6 +246,16 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       const { useAuthStore } = await import('./authStore');
       const userEmail = useAuthStore.getState().user?.email?.toLowerCase() || '';
 
+      // Pull the user's VIP sender list from settings so we can auto-flag those contacts.
+      let vipSenders = new Set<string>();
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const s = await invoke<{ vip_senders?: string[] }>('get_settings');
+        vipSenders = new Set((s?.vip_senders || []).map((e) => e.toLowerCase()));
+      } catch {
+        /* settings unavailable (e.g. web/dev) — fall back to score-based VIP only */
+      }
+
       const contactsMap = new Map<string, Contact>();
 
       for (const email of allEmails) {
@@ -343,10 +353,13 @@ export const useCrmStore = create<CrmState>((set, get) => ({
           ? (sent > received ? received / sent : sent / received) * 100
           : 0;
 
+        const relationship_score = Math.min(100, recencyScore * 0.4 + frequencyScore * 0.3 + mutualityScore * 0.3);
         return {
           ...contact,
-          relationship_score: Math.min(100, recencyScore * 0.4 + frequencyScore * 0.3 + mutualityScore * 0.3),
+          relationship_score,
           days_since_contact: daysSince,
+          // Auto-flag VIPs: anyone on the user's VIP-senders list, or a very strong relationship.
+          is_vip: vipSenders.has(contact.email_address.toLowerCase()) || relationship_score >= 85,
         };
       });
 
