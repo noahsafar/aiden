@@ -172,6 +172,36 @@ export const Ask: React.FC = () => {
       return { kind: 'brief', brief, person: name, context, subjects };
     }
 
+    // Compose / send an email to someone — draft it (never answer it as a question).
+    const COMPOSE_VERB = /^(send|write|draft|compose|shoot|fire off|email|message|ask|tell|reach out to|reach out|follow up with|follow up|ping)\b/i;
+    if (COMPOSE_VERB.test(prompt.trim())) {
+      const nameMatch = prompt.match(
+        /\b(?:to|email|ask|tell|message|ping|with)\s+([A-Za-z][\w'’.-]*(?:\s+[A-Z][a-z]+)?)/i,
+      );
+      const rawName = nameMatch?.[1]?.trim();
+      const contact = rawName ? bestContactMatch(contacts, rawName) : undefined;
+      if (contact) {
+        const who = contact.name || rawName!;
+        // Is there actual content beyond "email <name>"? If so, auto-draft from it.
+        const residual = prompt
+          .replace(COMPOSE_VERB, ' ')
+          .replace(/\b(an?|the|to|email|message|note)\b/gi, ' ')
+          .replace(new RegExp(`\\b${rawName!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'), ' ')
+          .trim();
+        const hasContent = residual.split(/\s+/).filter(Boolean).length >= 2;
+        act({
+          action: 'compose',
+          payload: { to: contact.email_address, prompt: hasContent ? prompt : undefined },
+        });
+        return {
+          kind: 'text',
+          text: hasContent
+            ? `Drafting your email to ${who} now — review and send when it looks right.`
+            : `Opening a draft to ${who} — tell me what you'd like to say.`,
+        };
+      }
+    }
+
     // Attention
     if (/\b(attention|focus|matter|important|priorit|what should i|catch me up|today)\b/.test(p)) {
       const items = deriveAttention({ emails, sentEmails, contacts, commitments, slack, userEmail: user?.email });
@@ -376,14 +406,15 @@ export const Ask: React.FC = () => {
         </div>
       </div>
 
-      {/* Composer */}
-      <div className="border-t border-gray-200/70 bg-background/80 px-8 py-3 backdrop-blur-xl dark:border-white/[0.06]">
+      {/* Composer — fixed 72px footer so its divider aligns exactly with the
+          sidebar profile footer (p-3 + 32px avatar = 72px). */}
+      <div className="flex min-h-[72px] items-center border-t border-gray-200/70 bg-background/80 px-8 backdrop-blur-xl dark:border-white/[0.06]">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             run(input);
           }}
-          className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-gray-200/80 bg-white px-4 py-2 shadow-elevated-sm focus-within:border-violet-400 dark:border-white/[0.08] dark:bg-white/[0.04]"
+          className="mx-auto flex w-full max-w-3xl items-end gap-2 rounded-2xl border border-gray-200/80 bg-white px-4 py-2 shadow-elevated-sm focus-within:border-violet-400 dark:border-white/[0.08] dark:bg-white/[0.04]"
         >
           <textarea
             value={input}
