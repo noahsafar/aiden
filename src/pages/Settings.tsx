@@ -1,21 +1,40 @@
-import { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Bell, Moon, Users, Zap, Check, LogOut, ArrowLeft, Palette, Eye, Clock } from 'lucide-react';
+import {
+  Bell,
+  Moon,
+  Users,
+  Zap,
+  Check,
+  LogOut,
+  Palette,
+  Eye,
+  Clock,
+  Sun,
+  Monitor,
+  X,
+  Plus,
+} from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
-import { useChatStore } from '@/stores/chatStore';
-import logo from '/aiden-logo.png';
+import {
+  Surface,
+  SurfaceHeader,
+  SoftButton,
+  PersonAvatar,
+} from '@/components/aiden/primitives';
+import { cn } from '@/lib/utils';
 
+/* ------------------------------------------------------------------ */
+/* Settings shape — mirrors the Rust AppSettings struct. Backend-only  */
+/* fields (important_senders, anthropic_api_key) are preserved on save */
+/* via the raw-loaded ref so a save never silently drops them.         */
+/* ------------------------------------------------------------------ */
 interface AppSettings {
-  // Appearance
   theme: 'light' | 'dark' | 'auto';
-  // Calendar
   timezone: string;
-  // Notifications
   enable_notifications: boolean;
   show_notification_preview: boolean;
-  // Smart notification settings
   notification_mode: 'all' | 'smart' | 'vip_only';
   quiet_hours_enabled: boolean;
   quiet_hours_start: string;
@@ -24,7 +43,6 @@ interface AppSettings {
   batch_interval_minutes: number;
   vip_senders: string[];
   emergency_keywords: string[];
-  // Email behavior
   visible_categories: string[];
   mark_as_read_on_view: boolean;
 }
@@ -46,7 +64,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   mark_as_read_on_view: true,
 };
 
-// Common timezone options
 const TIMEZONE_OPTIONS = [
   { value: 'America/New_York', label: 'Eastern Time (ET)' },
   { value: 'America/Chicago', label: 'Central Time (CT)' },
@@ -66,44 +83,124 @@ const TIMEZONE_OPTIONS = [
   { value: 'UTC', label: 'UTC' },
 ];
 
-// Toggle Switch Component
-function Switch({ checked, onChange, color = 'blue' }: { checked: boolean; onChange: () => void; color?: 'blue' | 'purple' | 'yellow' | 'green' }) {
-  const colors = {
-    blue: 'bg-blue-600',
-    purple: 'bg-purple-600',
-    yellow: 'bg-yellow-600',
-    green: 'bg-green-600',
-  };
-
-  return (
-    <button
-      onClick={onChange}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-        checked ? colors[color] : 'bg-gray-200 dark:bg-gray-700'
-      }`}
-      type="button"
-    >
-      <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
-          checked ? 'translate-x-6' : 'translate-x-1'
-        }`}
-      />
-    </button>
-  );
-}
-
-// Email validation regex (more permissive than RFC 5322 but practical)
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const isValidEmail = (email: string) => EMAIL_REGEX.test(email.trim());
 
-function isValidEmail(email: string): boolean {
-  return EMAIL_REGEX.test(email.trim());
-}
+const THEME_OPTIONS = [
+  { id: 'light', label: 'Light', icon: Sun },
+  { id: 'dark', label: 'Dark', icon: Moon },
+  { id: 'auto', label: 'System', icon: Monitor },
+] as const;
 
+const CATEGORY_TONE: Record<string, string> = {
+  Urgent: 'bg-rose-50 text-rose-700 ring-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300',
+  Important: 'bg-amber-50 text-amber-700 ring-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300',
+  Normal: 'bg-sky-50 text-sky-700 ring-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300',
+  Low: 'bg-gray-100 text-gray-600 ring-gray-400/30 dark:bg-white/10 dark:text-gray-300',
+};
+
+/* ------------------------------------------------------------------ */
+/* Small building blocks                                               */
+/* ------------------------------------------------------------------ */
+
+const Card: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}> = ({ icon, title, description, children }) => (
+  <Surface tone="raised" className="overflow-hidden">
+    <div className="flex items-center gap-3 border-b border-gray-100 px-6 py-4 dark:border-white/[0.06]">
+      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-500 dark:bg-violet-500/10 dark:text-violet-400">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <h2 className="text-[15px] font-semibold text-foreground">{title}</h2>
+        {description && <p className="text-[12px] text-muted">{description}</p>}
+      </div>
+    </div>
+    <div className="px-6 py-5">{children}</div>
+  </Surface>
+);
+
+const Row: React.FC<{
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  divided?: boolean;
+}> = ({ title, description, children, divided }) => (
+  <div
+    className={cn(
+      'flex items-center justify-between gap-4',
+      divided && 'mt-5 border-t border-gray-100 pt-5 dark:border-white/[0.06]',
+    )}
+  >
+    <div className="min-w-0">
+      <p className="text-[14px] font-medium text-foreground">{title}</p>
+      {description && <p className="mt-0.5 text-[12.5px] text-muted">{description}</p>}
+    </div>
+    <div className="flex-shrink-0">{children}</div>
+  </div>
+);
+
+const Toggle: React.FC<{ checked: boolean; onChange: () => void }> = ({ checked, onChange }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    onClick={onChange}
+    className={cn(
+      'relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50',
+      checked ? 'bg-violet-500' : 'bg-gray-200 dark:bg-white/[0.12]',
+    )}
+  >
+    <span
+      className={cn(
+        'inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200',
+        checked ? 'translate-x-6' : 'translate-x-1',
+      )}
+    />
+  </button>
+);
+
+const TokenChips: React.FC<{
+  values: string[];
+  onRemove: (v: string) => void;
+  tone: 'violet' | 'rose';
+  empty: string;
+}> = ({ values, onRemove, tone, empty }) => {
+  const tones = {
+    violet: 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300',
+    rose: 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300',
+  };
+  if (values.length === 0) return <p className="text-[13px] italic text-muted/70">{empty}</p>;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {values.map((v) => (
+        <span
+          key={v}
+          className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] font-medium', tones[tone])}
+        >
+          {v}
+          <button onClick={() => onRemove(v)} className="rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/10">
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+};
+
+const inputCls =
+  'w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2 text-[14px] text-foreground transition-colors placeholder:text-muted focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-400/40 dark:border-white/[0.1] dark:bg-white/[0.04]';
+
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
 export function Settings() {
-  const navigate = useNavigate();
   const { signOut, user } = useAuthStore();
-  const { setTheme, setThemeWithoutSave, themeMode: currentThemeMode } = useThemeStore();
-  const { isOpen: isChatOpen } = useChatStore();
+  const { setTheme, setThemeWithoutSave } = useThemeStore();
+
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -111,17 +208,21 @@ export function Settings() {
   const [hasChanges, setHasChanges] = useState(false);
   const [vipEmailInput, setVipEmailInput] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
-  const [emailError, setEmailError] = useState('');
+  const [vipError, setVipError] = useState('');
+
+  // The full settings object as loaded from disk — used to preserve fields the
+  // UI doesn't surface (important_senders, anthropic_api_key) when saving.
+  const rawLoadedRef = useRef<Record<string, unknown>>({});
   const originalThemeRef = useRef<'light' | 'dark' | 'auto'>('auto');
   const isLoadedRef = useRef(false);
 
-  // Load settings on mount
   useEffect(() => {
     invoke<AppSettings>('get_settings')
-      .then(loaded => {
-        const loadedSettings = { ...DEFAULT_SETTINGS, ...loaded };
-        setSettings(loadedSettings);
-        originalThemeRef.current = loadedSettings.theme;
+      .then((loaded) => {
+        rawLoadedRef.current = (loaded as unknown as Record<string, unknown>) || {};
+        const merged = { ...DEFAULT_SETTINGS, ...loaded };
+        setSettings(merged);
+        originalThemeRef.current = merged.theme;
         isLoadedRef.current = true;
         setLoading(false);
       })
@@ -133,18 +234,27 @@ export function Settings() {
       });
   }, []);
 
-  // Track changes (except theme - theme is tracked separately for preview)
+  // Revert any unsaved theme preview when leaving the page.
   useEffect(() => {
-    if (!loading) {
-      setHasChanges(true);
-    }
-  }, [settings, loading]);
+    return () => {
+      if (isLoadedRef.current) setThemeWithoutSave(originalThemeRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+    setHasChanges(true);
+  };
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await invoke('save_settings', { settings });
-      // Now persist the theme
+      // Spread the raw loaded object first so backend-only fields survive,
+      // then overlay the UI-managed values.
+      const payload = { ...rawLoadedRef.current, ...settings };
+      await invoke('save_settings', { settings: payload });
+      rawLoadedRef.current = payload;
       setTheme(settings.theme);
       originalThemeRef.current = settings.theme;
       setSaved(true);
@@ -157,619 +267,289 @@ export function Settings() {
     }
   };
 
-  // Revert theme when navigating away without saving
-  const handleNavigateAway = () => {
-    setThemeWithoutSave(originalThemeRef.current);
-    navigate('/dashboard');
-  };
-
-  // Also revert on unmount (in case user navigates via browser back button)
-  useEffect(() => {
-    return () => {
-      if (isLoadedRef.current) {
-        setThemeWithoutSave(originalThemeRef.current);
-      }
-    };
-  }, []);
-
-  const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-  };
-
-  const removeListItem = (key: keyof AppSettings, value: string) => {
-    const arr = (settings[key] as string[]) || [];
-    updateSetting(key as any, arr.filter(v => v !== value));
-  };
-
-  const addVipSender = () => {
+  const addVip = () => {
     const email = vipEmailInput.trim();
-    if (!email) {
-      setEmailError('Please enter an email address');
-      return;
-    }
-    if (!isValidEmail(email)) {
-      setEmailError('Please enter a valid email address');
-      return;
-    }
-    if (settings.vip_senders.some(s => s.toLowerCase() === email.toLowerCase())) {
-      setEmailError('This email is already in your VIP list');
-      return;
-    }
-    updateSetting('vip_senders', [...settings.vip_senders, email]);
+    if (!isValidEmail(email)) return setVipError('Enter a valid email address');
+    if (settings.vip_senders.some((s) => s.toLowerCase() === email.toLowerCase())) return setVipError('Already in your VIP list');
+    update('vip_senders', [...settings.vip_senders, email]);
     setVipEmailInput('');
-    setEmailError('');
+    setVipError('');
   };
 
-  const addEmergencyKeyword = () => {
-    const keyword = keywordInput.trim().toLowerCase();
-    if (!keyword) {
-      setEmailError('Please enter a keyword');
-      return;
-    }
-    if (settings.emergency_keywords.some(k => k.toLowerCase() === keyword)) {
-      setEmailError('This keyword is already in your emergency keywords list');
-      return;
-    }
-    updateSetting('emergency_keywords', [...settings.emergency_keywords, keyword]);
+  const addKeyword = () => {
+    const kw = keywordInput.trim().toLowerCase();
+    if (!kw) return;
+    if (settings.emergency_keywords.some((k) => k.toLowerCase() === kw)) return;
+    update('emergency_keywords', [...settings.emergency_keywords, kw]);
     setKeywordInput('');
-    setEmailError('');
   };
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-500 dark:text-gray-400">Loading settings...</p>
+          <div className="mx-auto mb-4 h-7 w-7 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+          <p className="text-sm text-muted">Loading settings…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header - matches dashboard style */}
-      <header className="h-14 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 z-10">
-        <div className="flex items-center gap-0">
-          <Link to="/dashboard" onClick={(e) => { e.preventDefault(); handleNavigateAway(); }} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors mr-2" title="Back to Dashboard">
-            <ArrowLeft className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-          </Link>
-          <img
-            src={logo}
-            alt="Aiden Logo"
-            className="h-8 w-8"
-          />
-          <div className="flex items-center">
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-white leading-none">Aiden</h1>
-            <span className="text-sm text-gray-500 leading-tight pt-0.5 ml-1.5">/ Settings</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500 hidden sm:block">
-            {user ? user.email : 'Not logged in'}
-          </span>
-          <button
-            onClick={signOut}
-            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-            title="Sign out"
+    <div className="mx-auto max-w-3xl space-y-7 pb-16">
+      <SurfaceHeader
+        title="Settings"
+        subtitle="Manage how Aiden works for you."
+        actions={
+          <SoftButton
+            variant={saved ? 'soft' : 'primary'}
+            icon={saved ? <Check className="h-3.5 w-3.5" /> : undefined}
+            onClick={handleSave}
+            disabled={saving || (!hasChanges && !saved)}
           >
-            <LogOut className="h-4 w-4" />
-          </button>
-        </div>
-      </header>
+            {saved ? 'Saved' : saving ? 'Saving…' : 'Save changes'}
+          </SoftButton>
+        }
+      />
 
-      {/* Content */}
-      <main className={`max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 transition-all duration-300 ease-in-out ${isChatOpen ? 'mr-[400px]' : ''}`}>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h2>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Configure your preferences</p>
+      {/* Account */}
+      <Card icon={<Users className="h-4 w-4" />} title="Account" description="Your signed-in Google account">
+        <div className="flex items-center gap-3">
+          <PersonAvatar name={user?.name} email={user?.email} size={44} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[14px] font-medium text-foreground">{user?.name || 'You'}</p>
+            <p className="truncate text-[12.5px] text-muted">{user?.email || 'Not signed in'}</p>
           </div>
-          {hasChanges && (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all ${
-                saved
-                  ? 'bg-green-600 text-white'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              } ${saving ? 'opacity-70 cursor-wait' : ''}`}
-            >
-              {saved ? (
-                <>
-                  <Check className="w-4 h-4" />
-                  Saved
-                </>
-              ) : (
-                saving ? 'Saving...' : 'Save Changes'
-              )}
-            </button>
-          )}
+          <SoftButton variant="ghost" icon={<LogOut className="h-3.5 w-3.5" />} onClick={signOut} className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-500/10">
+            Sign out
+          </SoftButton>
         </div>
+      </Card>
 
-        <div className="space-y-6">
-          {/* Notifications Section */}
-          <section className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <Bell className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+      {/* Appearance */}
+      <Card icon={<Palette className="h-4 w-4" />} title="Appearance" description="How Aiden looks">
+        <Row title="Theme" description="Choose light, dark, or follow your system">
+          <div className="flex items-center gap-1 rounded-xl bg-gray-100 p-1 dark:bg-white/[0.06]">
+            {THEME_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => {
+                  setThemeWithoutSave(opt.id);
+                  update('theme', opt.id);
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors',
+                  settings.theme === opt.id
+                    ? 'bg-white text-foreground shadow-sm dark:bg-white/[0.12]'
+                    : 'text-muted hover:text-foreground',
+                )}
+              >
+                <opt.icon className="h-3.5 w-3.5" />
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </Row>
+      </Card>
+
+      {/* Notifications */}
+      <Card icon={<Bell className="h-4 w-4" />} title="Notifications" description="When and how Aiden reaches you">
+        <Row title="Enable notifications" description="Get notified about new messages">
+          <Toggle checked={settings.enable_notifications} onChange={() => update('enable_notifications', !settings.enable_notifications)} />
+        </Row>
+
+        {settings.enable_notifications && (
+          <>
+            <Row title="Show preview" description="Include a summary in the notification" divided>
+              <Toggle checked={settings.show_notification_preview} onChange={() => update('show_notification_preview', !settings.show_notification_preview)} />
+            </Row>
+
+            <div className="mt-5 border-t border-gray-100 pt-5 dark:border-white/[0.06]">
+              <p className="text-[14px] font-medium text-foreground">Notification mode</p>
+              <p className="mt-0.5 mb-3 text-[12.5px] text-muted">Decide what's worth interrupting you</p>
+              <div className="grid grid-cols-3 gap-2.5">
+                {([
+                  { id: 'all', label: 'All', desc: 'Every message' },
+                  { id: 'smart', label: 'Smart', desc: 'Priority instant, rest batched' },
+                  { id: 'vip_only', label: 'VIP only', desc: 'Priority senders only' },
+                ] as const).map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => update('notification_mode', m.id)}
+                    className={cn(
+                      'relative rounded-xl border px-3.5 py-3 text-left transition-all',
+                      settings.notification_mode === m.id
+                        ? 'border-violet-400 bg-violet-50/60 dark:border-violet-500/40 dark:bg-violet-500/[0.08]'
+                        : 'border-gray-200 hover:border-gray-300 dark:border-white/[0.08] dark:hover:border-white/[0.15]',
+                    )}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[13px] font-semibold text-foreground">{m.label}</span>
+                      {m.id === 'smart' && (
+                        <span className="rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">
+                          Rec
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 text-[11.5px] leading-tight text-muted">{m.desc}</div>
+                    {settings.notification_mode === m.id && (
+                      <Check className="absolute right-2 top-2 h-3.5 w-3.5 text-violet-500" />
+                    )}
+                  </button>
+                ))}
               </div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Smart Notifications</h2>
             </div>
 
-            <div className="p-6 space-y-6">
-              {/* Enable Notifications */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Enable Notifications</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Receive notifications for new emails</p>
+            <Row title="Batch notifications" description="Group non-urgent messages into a digest" divided>
+              <Toggle checked={settings.batch_notifications_enabled} onChange={() => update('batch_notifications_enabled', !settings.batch_notifications_enabled)} />
+            </Row>
+
+            {settings.batch_notifications_enabled && (
+              <div className="mt-4 rounded-xl bg-gray-50 px-4 py-3.5 dark:bg-white/[0.03]">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[13px] font-medium text-foreground">Batch every</span>
+                  <span className="text-[13px] font-semibold tabular-nums text-violet-600 dark:text-violet-400">
+                    {settings.batch_interval_minutes} min
+                  </span>
                 </div>
-                <Switch
-                  checked={settings.enable_notifications}
-                  onChange={() => updateSetting('enable_notifications', !settings.enable_notifications)}
-                  color="blue"
+                <input
+                  type="range"
+                  min={5}
+                  max={60}
+                  step={5}
+                  value={settings.batch_interval_minutes}
+                  onChange={(e) => update('batch_interval_minutes', Number(e.target.value))}
+                  className="w-full cursor-pointer accent-violet-500"
                 />
+                <div className="mt-1 flex justify-between text-[11px] text-muted">
+                  <span>5 min</span>
+                  <span>60 min</span>
+                </div>
               </div>
+            )}
+          </>
+        )}
+      </Card>
 
-              {settings.enable_notifications && (
-                <>
-                  {/* Show Notification Preview */}
-                  <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 pt-6">
-                    <div>
-                      <p className="font-medium text-gray-900 dark:text-white">Show Notification Preview</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Display email summary in notifications</p>
-                    </div>
-                    <Switch
-                      checked={settings.show_notification_preview}
-                      onChange={() => updateSetting('show_notification_preview', !settings.show_notification_preview)}
-                      color="blue"
-                    />
-                  </div>
-                </>
-              )}
+      {/* Quiet hours */}
+      {settings.enable_notifications && (
+        <Card icon={<Moon className="h-4 w-4" />} title="Quiet hours" description="Silence non-urgent notifications">
+          <Row title="Enable quiet hours" description="Mute notifications during these hours">
+            <Toggle checked={settings.quiet_hours_enabled} onChange={() => update('quiet_hours_enabled', !settings.quiet_hours_enabled)} />
+          </Row>
+          {settings.quiet_hours_enabled && (
+            <>
+              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-gray-100 pt-5 dark:border-white/[0.06]">
+                <div>
+                  <label className="mb-1.5 block text-[12.5px] font-medium text-muted">Start</label>
+                  <input type="time" value={settings.quiet_hours_start} onChange={(e) => update('quiet_hours_start', e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-[12.5px] font-medium text-muted">End</label>
+                  <input type="time" value={settings.quiet_hours_end} onChange={(e) => update('quiet_hours_end', e.target.value)} className={inputCls} />
+                </div>
+              </div>
+              <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-violet-50/60 px-3.5 py-2.5 dark:bg-violet-500/[0.07]">
+                <Zap className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-violet-500" />
+                <p className="text-[12.5px] leading-relaxed text-violet-900/80 dark:text-violet-200/90">
+                  Emergency keywords and VIP senders still reach you during quiet hours.
+                </p>
+              </div>
+            </>
+          )}
+        </Card>
+      )}
 
-              {settings.enable_notifications && (
-                <>
-                  <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                    <p className="font-medium text-gray-900 dark:text-white mb-1">Notification Mode</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Choose when to be notified about new emails</p>
-                    <div className="grid grid-cols-3 gap-3">
-                      <button
-                        onClick={() => updateSetting('notification_mode', 'all')}
-                        className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                          settings.notification_mode === 'all'
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm'
-                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                        }`}
-                      >
-                        <div className="font-medium text-gray-900 dark:text-white">All</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Every email</div>
-                        {settings.notification_mode === 'all' && (
-                          <div className="absolute top-2 right-2 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
-                            <Check className="w-3 h-3 text-white" />
-                          </div>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => updateSetting('notification_mode', 'smart')}
-                        className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                          settings.notification_mode === 'smart'
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm'
-                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span className="font-medium text-gray-900 dark:text-white">Smart</span>
-                          <span className="text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">Recommended</span>
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Priority = instant, others = batched</div>
-                        {settings.notification_mode === 'smart' && (
-                          <div className="absolute top-2 right-2 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
-                            <Check className="w-3 h-3 text-white" />
-                          </div>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => updateSetting('notification_mode', 'vip_only')}
-                        className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                          settings.notification_mode === 'vip_only'
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm'
-                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                        }`}
-                      >
-                        <div className="font-medium text-gray-900 dark:text-white">VIP Only</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Priority senders only</div>
-                        {settings.notification_mode === 'vip_only' && (
-                          <div className="absolute top-2 right-2 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
-                            <Check className="w-3 h-3 text-white" />
-                          </div>
-                        )}
-                      </button>
-                    </div>
-                  </div>
+      {/* VIP senders */}
+      {settings.enable_notifications && (
+        <Card icon={<Users className="h-4 w-4" />} title="VIP senders" description="Always notify immediately — even during quiet hours">
+          <div className="mb-3 flex gap-2">
+            <input
+              type="email"
+              value={vipEmailInput}
+              onChange={(e) => {
+                setVipEmailInput(e.target.value);
+                setVipError('');
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addVip())}
+              placeholder="name@company.com"
+              className={inputCls}
+            />
+            <SoftButton variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={addVip}>
+              Add
+            </SoftButton>
+          </div>
+          {vipError && <p className="mb-3 text-[12.5px] text-rose-600 dark:text-rose-400">{vipError}</p>}
+          <TokenChips values={settings.vip_senders} onRemove={(v) => update('vip_senders', settings.vip_senders.filter((s) => s !== v))} tone="violet" empty="No VIP senders yet" />
+        </Card>
+      )}
 
-                  <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 pt-6">
-                    <div>
-                      <p className="font-medium text-gray-900 dark:text-white">Batch Notifications</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Combine multiple emails into one digest</p>
-                    </div>
-                    <Switch
-                      checked={settings.batch_notifications_enabled}
-                      onChange={() => updateSetting('batch_notifications_enabled', !settings.batch_notifications_enabled)}
-                      color="blue"
-                    />
-                  </div>
+      {/* Emergency keywords */}
+      {settings.enable_notifications && (
+        <Card icon={<Zap className="h-4 w-4" />} title="Emergency keywords" description="These bypass every notification setting, including quiet hours">
+          <div className="mb-3 flex gap-2">
+            <input
+              type="text"
+              value={keywordInput}
+              onChange={(e) => setKeywordInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addKeyword())}
+              placeholder="e.g. emergency, asap"
+              className={inputCls}
+            />
+            <SoftButton variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={addKeyword}>
+              Add
+            </SoftButton>
+          </div>
+          <TokenChips values={settings.emergency_keywords} onRemove={(v) => update('emergency_keywords', settings.emergency_keywords.filter((k) => k !== v))} tone="rose" empty="No emergency keywords yet" />
+        </Card>
+      )}
 
-                  {settings.batch_notifications_enabled && (
-                    <div className="ml-2 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl">
-                      <div className="flex items-center justify-between mb-3">
-                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          Batch every {settings.batch_interval_minutes} minutes
-                        </label>
-                      </div>
-                      <input
-                        type="range"
-                        min="5"
-                        max="60"
-                        step="5"
-                        value={settings.batch_interval_minutes}
-                        onChange={(e) => updateSetting('batch_interval_minutes', Number(e.target.value))}
-                        className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                      />
-                      <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-2">
-                        <span>5 min</span>
-                        <span>60 min</span>
-                      </div>
-                    </div>
+      {/* Calendar */}
+      <Card icon={<Clock className="h-4 w-4" />} title="Calendar" description="Used for events and scheduling">
+        <Row title="Timezone" description="Your local timezone for calendar events">
+          <select value={settings.timezone} onChange={(e) => update('timezone', e.target.value)} className={cn(inputCls, 'w-auto min-w-[200px] cursor-pointer')}>
+            {TIMEZONE_OPTIONS.map((tz) => (
+              <option key={tz.value} value={tz.value}>
+                {tz.label}
+              </option>
+            ))}
+          </select>
+        </Row>
+      </Card>
+
+      {/* Email behavior */}
+      <Card icon={<Eye className="h-4 w-4" />} title="Email behavior" description="How Aiden handles your inbox">
+        <Row title="Mark as read when opened" description="Automatically mark emails read when you view them">
+          <Toggle checked={settings.mark_as_read_on_view} onChange={() => update('mark_as_read_on_view', !settings.mark_as_read_on_view)} />
+        </Row>
+        <div className="mt-5 border-t border-gray-100 pt-5 dark:border-white/[0.06]">
+          <p className="text-[14px] font-medium text-foreground">Visible categories</p>
+          <p className="mt-0.5 mb-3 text-[12.5px] text-muted">Which priority levels show in your inbox</p>
+          <div className="flex flex-wrap gap-2">
+            {['Urgent', 'Important', 'Normal', 'Low'].map((cat) => {
+              const on = settings.visible_categories.includes(cat);
+              return (
+                <button
+                  key={cat}
+                  onClick={() =>
+                    update(
+                      'visible_categories',
+                      on ? settings.visible_categories.filter((c) => c !== cat) : [...settings.visible_categories, cat],
+                    )
+                  }
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium ring-1 transition-all',
+                    on ? CATEGORY_TONE[cat] : 'bg-transparent text-muted/60 ring-gray-200 dark:ring-white/[0.08]',
                   )}
-                </>
-              )}
-            </div>
-          </section>
-
-          {/* Quiet Hours Section */}
-          {settings.enable_notifications && (
-            <section className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
-                <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-                  <Moon className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                </div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Quiet Hours</h2>
-              </div>
-
-              <div className="p-6 space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-white">Enable Quiet Hours</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Silence notifications during sleep time</p>
-                  </div>
-                  <Switch
-                    checked={settings.quiet_hours_enabled}
-                    onChange={() => updateSetting('quiet_hours_enabled', !settings.quiet_hours_enabled)}
-                    color="purple"
-                  />
-                </div>
-
-                {settings.quiet_hours_enabled && (
-                  <>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Start Time
-                        </label>
-                        <input
-                          type="time"
-                          value={settings.quiet_hours_start}
-                          onChange={(e) => updateSetting('quiet_hours_start', e.target.value)}
-                          className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          End Time
-                        </label>
-                        <input
-                          type="time"
-                          value={settings.quiet_hours_end}
-                          onChange={(e) => updateSetting('quiet_hours_end', e.target.value)}
-                          className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
-                      <Zap className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0" />
-                      <p className="text-sm text-purple-800 dark:text-purple-300">
-                        Emergency keywords like "emergency", "911", and "urgent" will bypass quiet hours. VIP senders can also reach you.
-                      </p>
-                    </div>
-                  </>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* VIP Senders Section */}
-          {settings.enable_notifications && (
-            <section className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
-                <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                  <Users className="w-5 h-5 text-green-600 dark:text-green-400" />
-                </div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">VIP Senders</h2>
-              </div>
-
-              <div className="p-6">
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                  Add email addresses that should always notify you immediately, even during quiet hours.
-                </p>
-
-                <div className="flex gap-2 mb-4">
-                  <input
-                    type="email"
-                    value={vipEmailInput}
-                    onChange={(e) => {
-                      setVipEmailInput(e.target.value);
-                      setEmailError('');
-                    }}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addVipSender();
-                      }
-                    }}
-                    placeholder="example@email.com"
-                    className={`flex-1 px-4 py-2 rounded-lg border ${
-                      emailError
-                        ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
-                        : 'border-gray-300 dark:border-gray-600 focus:ring-green-500 focus:border-green-500'
-                    } bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:border-transparent`}
-                  />
-                  <button
-                    onClick={addVipSender}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm transition-colors"
-                  >
-                    Add
-                  </button>
-                </div>
-                {emailError && (
-                  <p className="text-sm text-red-600 dark:text-red-400 mb-4">{emailError}</p>
-                )}
-
-                {settings.vip_senders.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {settings.vip_senders.map(sender => (
-                      <span
-                        key={sender}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded-full text-sm"
-                      >
-                        {sender}
-                        <button
-                          onClick={() => removeListItem('vip_senders', sender)}
-                          className="hover:bg-green-200 dark:hover:bg-green-800 rounded-full p-0.5 transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400 dark:text-gray-500 italic">No VIP senders added yet</p>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* Emergency Keywords Section */}
-          {settings.enable_notifications && (
-            <section className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
-                <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
-                  <Zap className="w-5 h-5 text-red-600 dark:text-red-400" />
-                </div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Emergency Keywords</h2>
-              </div>
-
-              <div className="p-6">
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                  Keywords that bypass all notification settings, including quiet hours.
-                </p>
-
-                <div className="flex gap-2 mb-4">
-                  <input
-                    type="text"
-                    value={keywordInput}
-                    onChange={(e) => {
-                      setKeywordInput(e.target.value);
-                      setEmailError('');
-                    }}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addEmergencyKeyword();
-                      }
-                    }}
-                    placeholder="e.g., emergency, 911"
-                    className={`flex-1 px-4 py-2 rounded-lg border ${
-                      emailError
-                        ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
-                        : 'border-gray-300 dark:border-gray-600 focus:ring-red-500 focus:border-red-500'
-                    } bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:border-transparent`}
-                  />
-                  <button
-                    onClick={addEmergencyKeyword}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm transition-colors"
-                  >
-                    Add
-                  </button>
-                </div>
-                {emailError && (
-                  <p className="text-sm text-red-600 dark:text-red-400 mb-4">{emailError}</p>
-                )}
-
-                {settings.emergency_keywords.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {settings.emergency_keywords.map(keyword => (
-                      <span
-                        key={keyword}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 rounded-full text-sm"
-                      >
-                        {keyword}
-                        <button
-                          onClick={() => removeListItem('emergency_keywords', keyword)}
-                          className="hover:bg-red-200 dark:hover:bg-red-800 rounded-full p-0.5 transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400 dark:text-gray-500 italic">No emergency keywords added yet</p>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* Appearance Section */}
-          <section className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
-              <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
-                <Palette className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-              </div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Appearance</h2>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Theme */}
-              <div>
-                <p className="font-medium text-gray-900 dark:text-white mb-1">Theme</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Choose your preferred color scheme</p>
-                <div className="grid grid-cols-3 gap-3">
-                  {(['light', 'dark', 'auto'] as const).map((themeOption) => (
-                    <button
-                      key={themeOption}
-                      onClick={() => {
-                        setThemeWithoutSave(themeOption);
-                        updateSetting('theme', themeOption);
-                      }}
-                      className={`relative p-4 rounded-xl border-2 text-left transition-all capitalize ${
-                        settings.theme === themeOption
-                          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 shadow-sm'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                      }`}
-                    >
-                      <div className="font-medium text-gray-900 dark:text-white">{themeOption}</div>
-                      {themeOption === 'auto' && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Follows system</div>
-                      )}
-                      {settings.theme === themeOption && (
-                        <div className="absolute top-2 right-2 w-4 h-4 bg-indigo-500 rounded-full flex items-center justify-center">
-                          <Check className="w-3 h-3 text-white" />
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Calendar Section */}
-          <section className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
-              <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                <Clock className="w-5 h-5 text-green-600 dark:text-green-400" />
-              </div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Calendar</h2>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Timezone */}
-              <div>
-                <p className="font-medium text-gray-900 dark:text-white mb-1">Timezone</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Choose your timezone for calendar events</p>
-                <select
-                  value={settings.timezone}
-                  onChange={(e) => updateSetting('timezone', e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 >
-                  {TIMEZONE_OPTIONS.map((tz) => (
-                    <option key={tz.value} value={tz.value}>
-                      {tz.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </section>
-
-          {/* Email Behavior Section */}
-          <section className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3">
-              <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
-                <Eye className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-              </div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Email Behavior</h2>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Mark as Read */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">Mark as read when viewed</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Automatically mark emails as read when you open them</p>
-                </div>
-                <Switch
-                  checked={settings.mark_as_read_on_view}
-                  onChange={() => updateSetting('mark_as_read_on_view', !settings.mark_as_read_on_view)}
-                  color="blue"
-                />
-              </div>
-
-              {/* Visible Categories */}
-              <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-                <p className="font-medium text-gray-900 dark:text-white mb-1">Visible Categories</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Choose which email categories to show in your inbox</p>
-                <div className="flex flex-wrap gap-2">
-                  {['Urgent', 'Important', 'Normal', 'Low'].map((category) => (
-                    <button
-                      key={category}
-                      onClick={() => {
-                        const updated = settings.visible_categories.includes(category)
-                          ? settings.visible_categories.filter(c => c !== category)
-                          : [...settings.visible_categories, category];
-                        updateSetting('visible_categories', updated);
-                      }}
-                      className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
-                        settings.visible_categories.includes(category)
-                          ? category === 'Urgent'
-                            ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-2 border-red-500'
-                            : category === 'Important'
-                            ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border-2 border-yellow-500'
-                            : category === 'Normal'
-                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-2 border-blue-500'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-2 border-gray-500'
-                          : 'bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 border-2 border-transparent'
-                      }`}
-                    >
-                      {category}
-                      {settings.visible_categories.includes(category) && (
-                        <Check className="w-3 h-3 inline ml-1" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
+                  {cat}
+                  {on && <Check className="h-3 w-3" />}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </main>
+      </Card>
     </div>
   );
 }

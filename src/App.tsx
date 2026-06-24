@@ -1139,7 +1139,7 @@ ${instruction ? `\nAdditional instructions from user: ${instruction}` : ''}`;
         path="/settings"
         element={
           isAuthenticated ? (
-            <SettingsPage />
+            <AidenShell><SettingsPage /></AidenShell>
           ) : (
             <Navigate to="/login" replace />
           )
