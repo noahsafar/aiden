@@ -328,8 +328,15 @@ const MeetingBriefCard: React.FC<{
           icon={<Sparkles className="h-3.5 w-3.5" />}
           onClick={() => onViewBriefing(prepQuery)}
         >
-          Get briefing
+          Aiden prep
         </SoftButton>
+
+        {/* Goal */}
+        {goal && (
+          <p className="text-[12px] text-muted/60 mb-3.5">
+            <span className="font-semibold text-muted/70">Goal:</span> {goal}
+          </p>
+        )}
       </div>
     </Surface>
   );
