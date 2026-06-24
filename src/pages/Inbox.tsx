@@ -276,6 +276,7 @@ const ChannelReply: React.FC<{ message: UnifiedMessage; channelLabel: string; on
   channelLabel,
   onSent,
 }) => {
+  const channelMessages = useChannelStore((s) => s.channelMessages);
   const [text, setText] = useState('');
   const [drafting, setDrafting] = useState(false);
 
@@ -283,10 +284,18 @@ const ChannelReply: React.FC<{ message: UnifiedMessage; channelLabel: string; on
     setDrafting(true);
     try {
       const intent = text.trim();
+      // Build the thread so the draft has continuity, not just the latest line.
+      const thread = channelMessages
+        .filter((m) => m.threadId === message.threadId)
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        .map((m) => `${m.outgoing ? 'Me' : m.authorName}: ${m.preview}`)
+        .join('\n');
+      // Chat channels are casual — short, no greeting/sign-off, no email formality.
+      const voice = `Write in a casual chat voice for ${channelLabel}: short, direct, warm, no greeting or sign-off, no email formality. Output ONLY the message text — no surrounding quotation marks, no preamble.`;
       const instruction = intent
-        ? `Write a brief, friendly ${channelLabel} reply to ${message.authorName}'s message, following this instruction from me: "${intent}". Output ONLY the reply itself — no surrounding quotation marks, no preamble.`
-        : `Write a brief, friendly ${channelLabel} reply to ${message.authorName}'s message. Output ONLY the reply itself — no surrounding quotation marks, no preamble.`;
-      const reply = await answerFromContext(instruction, `${message.authorName}: ${message.preview}`);
+        ? `Reply to ${message.authorName} following this instruction from me: "${intent}". ${voice}`
+        : `Reply to ${message.authorName}'s latest message. ${voice}`;
+      const reply = await answerFromContext(instruction, thread || `${message.authorName}: ${message.preview}`);
       if (reply) setText(reply.trim().replace(/^["'“”]+|["'“”]+$/g, '').trim());
     } finally {
       setDrafting(false);

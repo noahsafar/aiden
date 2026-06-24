@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { useEmailStore } from '@/stores/emailStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useCrmStore, Contact } from '@/stores/crmStore';
-import { editReply } from '@/api/claude';
+import { editReply, getConversationContext, getRecipientWritingStyle } from '@/api/claude';
 
 interface AIComposeModalProps {
   isOpen: boolean;
@@ -91,7 +91,7 @@ export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, ini
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
-  const { sendEmail } = useEmailStore();
+  const { sendEmail, emails } = useEmailStore();
   const { user } = useAuthStore();
   const userName = user?.name || 'Your Name';
   const { contacts } = useCrmStore();
@@ -213,15 +213,39 @@ export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, ini
       const toneInstruction = TONE_OPTIONS.find(t => t.id === selectedTone)?.description || 'professional';
       const templatePrompt = selectedTemplate ? EMAIL_TEMPLATES.find(t => t.id === selectedTemplate)?.prompt : '';
 
+      // Parity with replies: ground the draft in prior conversation history with
+      // this recipient and any learned per-recipient writing style. Best-effort —
+      // a new contact (no history/style) just composes without these blocks.
+      const recipientEmail = (to || initialTo || '').trim();
+      let historyBlock = '';
+      let styleBlock = '';
+      if (recipientEmail.includes('@')) {
+        try {
+          const convo = await getConversationContext(recipientEmail, emails, undefined, 5);
+          if (convo?.previous_emails?.length) {
+            const lines = convo.previous_emails
+              .map(e => `${e.is_from_user ? 'Me' : (e.sender || 'Them')}: "${e.subject || '(no subject)'}" — ${(e.body || '').replace(/\s+/g, ' ').slice(0, 200)}`)
+              .join('\n');
+            historyBlock = `\nRecent conversation history with this recipient (most recent first):\n${lines}\nUse this to match the relationship's context and continuity.\n`;
+          }
+        } catch { /* no history — compose without it */ }
+        try {
+          const style = await getRecipientWritingStyle(recipientEmail);
+          if (style) {
+            styleBlock = `\nMatch how I usually write to this person:\n- Tone: ${style.tone_description}\n- Greeting: ${style.greeting_style}\n- Sign-off: ${style.sign_off_style}${style.common_phrases?.length ? `\n- Phrases I use: ${style.common_phrases.slice(0, 5).join(', ')}` : ''}\n`;
+          }
+        } catch { /* no learned style — use the selected tone */ }
+      }
+
       const fullPrompt = `Write a new email with the following details:
 
 ${templatePrompt}
 ${instruction}
 
 Tone: ${toneInstruction}
-Recipient: ${to || initialTo || 'not specified'}
+Recipient: ${recipientEmail || 'not specified'}
 My name is ${userName} - sign off with "${userName}", not "[Your Name]" or a placeholder
-
+${historyBlock}${styleBlock}
 Please write a complete email with an appropriate subject line. Format your response as JSON:
 {
   "subject": "your subject line here",
