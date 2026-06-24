@@ -14,7 +14,6 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { useEmailStore } from '@/stores/emailStore';
 import { useCommitmentStore } from '@/stores/commitmentStore';
-import { useChannelStore } from '@/stores/channelStore';
 import { PersonAvatar } from '@/components/aiden/primitives';
 import logo from '/aiden-logo.png';
 
@@ -39,15 +38,16 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
   const navigate = useNavigate();
   const { user, signOut } = useAuthStore();
   const emails = useEmailStore((s) => s.emails);
-  const slack = useChannelStore((s) => s.slackMessages);
   const commitments = useCommitmentStore((s) => s.commitments);
 
+  // Count only what the Inbox list actually shows (unread emails) so the badge
+  // matches the surface. Slack lives in its own channel, not this email count.
   const inboxUnread = useMemo(
     () =>
       emails.filter(
         (e: any) => !e.is_read && e.status !== 'Archived' && e.status !== 'Saved' && e.status !== 'Deleted',
-      ).length + slack.filter((m) => m.unread).length,
-    [emails, slack],
+      ).length,
+    [emails],
   );
 
   const overdueCount = useMemo(

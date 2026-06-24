@@ -528,6 +528,17 @@ function App() {
     initAuth();
   }, [initialize, isAuthenticated, loadThemeFromSettings, loadFromDisk, fetchEmails]);
 
+  // DEV MODE: ensure sample emails are loaded against the LIVE store. The
+  // module-init auto-loader can miss (HMR / store re-creation), leaving the
+  // inbox empty even though the loader "ran". This guarantees population.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (emails.length === 0 && typeof (window as any).loadSampleEmails === 'function') {
+      (window as any).loadSampleEmails();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
   // Set up polling for new emails - only poll when window is focused to reduce load
   // DEV MODE: polling disabled, using mock emails
   useEffect(() => {
