@@ -121,7 +121,8 @@ const FocusCard: React.FC<{
   focus: FocusItem;
   index: number;
   onAction: (s: ActionSuggestion) => void;
-}> = ({ focus, index, onAction }) => {
+  onDismiss?: () => void;
+}> = ({ focus, index, onAction, onDismiss }) => {
   if (focus.type === 'attention') {
     const item = focus.item;
     const isRed = item.severity >= 70;
@@ -157,11 +158,19 @@ const FocusCard: React.FC<{
                 {item.outcomeTitle}
               </h3>
             </div>
-            {/* Priority dot */}
-            <div className={cn(
-              'mt-1.5 h-2 w-2 flex-shrink-0 rounded-full',
-              isRed ? 'bg-rose-500' : 'bg-amber-400',
-            )} />
+            {/* Priority dot + dismiss */}
+            <div className="mt-0.5 flex flex-shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+              <div className={cn('h-2 w-2 rounded-full', isRed ? 'bg-rose-500' : 'bg-amber-400')} />
+              {onDismiss && (
+                <button
+                  onClick={onDismiss}
+                  title="Mark as handled"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted/40 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+                >
+                  <Check className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Situation / Context */}
@@ -492,6 +501,7 @@ export const Today: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const emails = useEmailStore((s) => s.emails);
   const sentEmails = useEmailStore((s) => s.sentEmails);
+  const dismissAttention = useEmailStore((s) => s.dismissAttention);
   const { contacts, hasExtractedContacts, extractContacts } = useCrmStore();
   const { commitments, hasExtracted, extract, getOpen, markDone } = useCommitmentStore();
   const slack = useChannelStore((s) => s.slackMessages);
@@ -731,6 +741,11 @@ export const Today: React.FC = () => {
                 focus={f}
                 index={idx + 1}
                 onAction={act}
+                onDismiss={
+                  f.type === 'attention' && f.item.emailId
+                    ? () => dismissAttention((f.item as AttentionItem).emailId!)
+                    : undefined
+                }
               />
             ))}
           </div>

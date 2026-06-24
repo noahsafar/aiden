@@ -200,7 +200,7 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
     const DEADLINE_RE = /\b(application deadline|apply by|deadline|due\s+(by|date)|closes?\s+(on|in)|submission deadline|rsvp\s+by|respond by|reply by|register by|sign ?up by|last day to|expires?\s+(on|in))\b/i;
 
     const deadlineCandidates = [...emails]
-      .filter((e) => !['Archived', 'Saved', 'Deleted', 'Replied'].includes(e.status))
+      .filter((e) => !['Archived', 'Saved', 'Deleted', 'Replied'].includes(e.status) && !e.attention_dismissed)
       .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 
     for (const e of deadlineCandidates) {
@@ -301,7 +301,7 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
   // 3. Urgent / important unhandled emails that want a reply.
   // Sort newest-first so the surviving thread item is the latest message.
   const candidates = [...emails]
-    .filter((e) => !['Archived', 'Saved', 'Deleted', 'Replied'].includes(e.status))
+    .filter((e) => !['Archived', 'Saved', 'Deleted', 'Replied'].includes(e.status) && !e.attention_dismissed)
     .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 
   for (const e of candidates) {
