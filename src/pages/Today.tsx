@@ -609,6 +609,7 @@ export const Today: React.FC = () => {
 
   // AI "morning brief" — one sharp, specific sentence orienting the day.
   const [dayBrief, setDayBrief] = useState<string>('');
+  const [dayBriefLoading, setDayBriefLoading] = useState<boolean>(true);
   const briefKey = `${attention.length}|${opportunities.length}|${events.length}|${openCommitments.length}|${
     focusItems[0] ? (focusItems[0].item as any).id : ''
   }`;
@@ -625,6 +626,7 @@ export const Today: React.FC = () => {
       .sort((a, b) => (a.start || '').localeCompare(b.start || ''))[0];
     const nextMeeting = upcoming ? `${upcoming.summary} at ${upcoming.time}` : undefined;
     let cancelled = false;
+    setDayBriefLoading(true);
     synthesizeDayBrief({
       attentionCount: attention.length,
       opportunityCount: opportunities.length,
@@ -633,9 +635,13 @@ export const Today: React.FC = () => {
       topPriority,
       mostOverdue,
       nextMeeting,
-    }).then((s) => {
-      if (!cancelled) setDayBrief(s);
-    });
+    })
+      .then((s) => {
+        if (!cancelled) setDayBrief(s);
+      })
+      .finally(() => {
+        if (!cancelled) setDayBriefLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -685,12 +691,24 @@ export const Today: React.FC = () => {
           {greeting()}, {firstName}.
         </h1>
 
-        {dayBrief && (
+        {dayBriefLoading ? (
+          <div className="flex items-center gap-2.5 mb-5">
+            <Sparkles className="h-4 w-4 flex-shrink-0 animate-pulse text-violet-500" />
+            <div className="flex items-center gap-2">
+              <span className="text-[15px] text-muted/70">Aiden is reading your day</span>
+              <span className="flex gap-1">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400 [animation-delay:-0.3s]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400 [animation-delay:-0.15s]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400" />
+              </span>
+            </div>
+          </div>
+        ) : dayBrief ? (
           <div className="flex items-start gap-2.5 mb-5 max-w-2xl">
             <Sparkles className="mt-1 h-4 w-4 flex-shrink-0 text-violet-500" />
             <p className="text-[17px] text-foreground/80 leading-relaxed">{dayBrief}</p>
           </div>
-        )}
+        ) : null}
 
         {aidenHandled > 0 && (
           <div className="inline-flex items-center gap-1.5 rounded-full bg-gray-100/80 dark:bg-white/[0.06] px-3 py-1.5 text-[12px] text-muted/60">
