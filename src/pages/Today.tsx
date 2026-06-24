@@ -281,16 +281,6 @@ const MeetingBriefCard: React.FC<{
       )
     : [];
 
-  const goal = useMemo(() => {
-    const name = event.summary.toLowerCase();
-    if (openWith.length > 0) return `Resolve ${openWith.length} open loop${openWith.length > 1 ? 's' : ''}`;
-    if (/investor|board|vc|funding/.test(name)) return 'Confirm timeline and reinforce confidence';
-    if (/check.?in|sync|standup|stand-up/.test(name)) return 'Align on priorities and blockers';
-    if (/clinic|office hours|1:1/.test(name)) return 'Leave with a clear next milestone';
-    if (/review|demo|walkthrough/.test(name)) return 'Gather feedback and confirm next steps';
-    return 'Leave with a clear decision';
-  }, [event.summary, openWith.length]);
-
   const prepQuery = personName
     ? `Prepare me for my meeting with ${personName}`
     : `Prepare me for "${event.summary}"`;
@@ -328,15 +318,8 @@ const MeetingBriefCard: React.FC<{
           icon={<Sparkles className="h-3.5 w-3.5" />}
           onClick={() => onViewBriefing(prepQuery)}
         >
-          Aiden prep
+          Prep with Aiden
         </SoftButton>
-
-        {/* Goal */}
-        {goal && (
-          <p className="text-[12px] text-muted/60 mb-3.5">
-            <span className="font-semibold text-muted/70">Goal:</span> {goal}
-          </p>
-        )}
       </div>
     </Surface>
   );
@@ -350,7 +333,7 @@ const RelationshipOpportunityCard: React.FC<{
   opp: Opportunity;
   onAction: (s: ActionSuggestion) => void;
 }> = ({ opp, onAction }) => (
-  <Surface interactive accent="opportunity" className="px-5 py-5" onClick={() => onAction(opp.suggestions[0])}>
+  <Surface interactive className="px-5 py-5" onClick={() => onAction(opp.suggestions[0])}>
     <div className="flex items-start gap-4">
       {opp.person ? (
         <PersonAvatar name={opp.person.name} email={opp.person.email} size={44} />
@@ -373,7 +356,7 @@ const RelationshipOpportunityCard: React.FC<{
 
         <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
           {opp.suggestions.map((s, i) => (
-            <SoftButton key={i} variant={i === 0 ? 'primary' : 'ghost'} onClick={() => onAction(s)}>
+            <SoftButton key={i} variant={i === 0 ? 'primary' : 'soft'} onClick={() => onAction(s)}>
               {s.label}
             </SoftButton>
           ))}
