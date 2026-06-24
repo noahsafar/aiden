@@ -398,6 +398,9 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
           <div className="text-[14px] font-medium text-foreground">
             {contact.last_contacted ? relativeTime(contact.last_contacted) : '—'}
           </div>
+          {contact.avg_response_time_minutes ? (
+            <div className="mt-0.5 text-[11px] text-muted/60">replies in ~{formatResponseTime(contact.avg_response_time_minutes)}</div>
+          ) : null}
         </div>
       </div>
 
@@ -474,6 +477,12 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
     </DetailShell>
   );
 };
+
+function formatResponseTime(mins: number): string {
+  if (mins < 60) return `${Math.round(mins)}m`;
+  if (mins < 1440) return `${Math.round(mins / 60)}h`;
+  return `${Math.round(mins / 1440)}d`;
+}
 
 const DetailShell: React.FC<{ bare?: boolean; children: React.ReactNode }> = ({ bare, children }) =>
   bare ? <div className="p-5">{children}</div> : <Surface className="p-6">{children}</Surface>;

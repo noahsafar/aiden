@@ -1,66 +1,48 @@
 # Aiden revamp — remaining work plan
 
-This is the prioritized, build-verified plan for the rest of the "venture-scale, sellable"
-revamp. Work in batches; after each batch run `npm run build` (must exit 0) and
-`npx tsc --noEmit` (no NEW errors), then commit + push to `main` with **no Claude
-attribution** (author = noahsafar; no Co-Authored-By / "Generated with" trailers).
+Work in build-verified batches; after each run `npm run build` (exit 0) + `npx tsc --noEmit`
+(no NEW errors), then commit + push to `main` with **no Claude attribution**
+(author = noahsafar; no Co-Authored-By / "Generated with" trailers).
 
-Derived from four deep audits (visual consistency, AI strategy, mock-email routing,
-relationship-graph revamp). Already shipped: tsc fix, crash landmine, global compose flow
-with AI auto-draft, dead-button fixes, server sync, Today AI day-brief, deadline/routing
-accuracy fixes, modal+inbox design-system migration, Schedule event details.
+## ✅ DONE (shipped to main)
+- tsc safety net (pinned @types/d3-dispatch), vite-env types
+- Crash landmine (email-click) fixed; restored safe email AI fns
+- Global compose flow with context-aware AI auto-draft across surfaces
+- Dead-button fixes (commitments, open-loops, schedule, inbox cluster)
+- Server sync (/chat, fetch_url, attendees) + root↔src-tauri identical
+- Today AI day-brief; "Next up" agenda banner; "Waiting on them" rollup
+- Routing accuracy: deadline date-resolution (no fabricated/past urgency, social
+  guard), no double-surfaced commitments, cold-sales filter, tighter opp signals,
+  real AI summaries used in attention
+- Design system: modals + Inbox migrated to tokens (violet, rounded-2xl, blur,
+  scale-in, EmptyState); Ask composer divider aligned
+- **Relationship graph fully revamped**: force-directed clustering (d3-force),
+  avatar nodes sized/colored, calm edges that light up on select, dots bg,
+  loading constellation + empty state, click→PersonDetail slide-in panel
+- Relationships list: segment filters, sort, last-touch dates, category legend,
+  response-time signal in profile
+- Visual sweep: SoftButton focus ring, rounded empty-state icon, SectionLabel
+  dense prop, Schedule/Commitments/AidenShell token + spacing fixes
+- AI prompt quality: anti-hallucination meeting brief, confidence-gated commitment
+  extraction
 
-## P0 — Relationship graph revamp (biggest remaining "wow")
-Files: `src/components/crm/NetworkGraph.tsx` (full rewrite), `src/pages/Relationships.tsx`.
-- Add `d3-force` dep (layout only). Run a headless force sim (charge + link + per-category
-  x/y anchors + collide), tick ~300x, freeze positions, hand to reactflow. Clusters by category.
-- Circular **avatar** nodes (reuse `PersonAvatar`), size by `relationship_score` (44–96px),
-  category-colored ring (unify palette with `categoryTone` in Relationships.tsx:
-  Colleague=violet, Client=emerald, Vendor=amber, Friend=sky, Family=rose, Other=gray).
-  VIP star badge; cooling (`days_since_contact>30`) = dimmed + dashed amber ring. Label below.
-- Edges: thin, neutral, `opacity 0.4`, width by shared-thread volume, NOT animated; remove
-  per-edge text labels; on node-select, light up only connected edges + dim the rest.
-- Remove NetworkGraph's internal `<h2>` header + debug overlay + all `console.log`s.
-- Custom legend (clickable category `Pill`s), styled Controls/MiniMap, Dots `<Background>`,
-  `fitView({padding:0.25,duration:600})`. Beautiful loading (pulsing constellation) + `EmptyState`.
-- Click node → lift `selectedId` to Relationships.tsx → show the SAME `PersonDetail` panel.
-- Cut the manual "Add Connection" mode (NetworkGraph + store `addManualConnection`/`removeManualConnection`).
+## Remaining (P1/P2 — nice-to-have, lower risk/reward)
+- **Today visual consistency**: FocusCard/MeetingBriefCard could use `<Surface interactive>`
+  instead of hand-rolled classes; unify card padding to `px-5 py-4` across Today cards.
+  (Low risk but unverifiable without rendering — do carefully.)
+- **Shared MeetingRow/MeetingCard** component used by both Today and Schedule.
+- **Consolidate** `AidenBox` (Today) + `AiSuggestion` (primitives) into one primitive.
+- **Today "what changed since yesterday"** (localStorage snapshot diff) + quick-capture
+  (`commitmentStore.addManual` exists) + surface `sender_tone` as a risk flag.
+- **PersonDetail "what to talk about next"**: 2–3 AI talking points + one-click
+  "Draft a check-in" (compose action already wired on the Email button).
+- **Turn on AI commitment extraction selectively** (commitmentStore.extract(true) for
+  key/ambiguous threads) — improved prompt is ready; currently heuristic-by-default
+  to avoid firing AI on every load in demo mode.
+- **Phishing/fake-urgency** brain-side severity cap (optional).
 
-## P0 — Relationships page functional upgrades
-- Smart segment filter rail above list: All · VIPs · Needs attention (cooling: score≥60 &
-  days_since_contact>30) · Strong (≥75) · New (first_seen<30d) · by category. Drives list+graph.
-- List rows: add right-aligned last-touch `relativeTime(last_contacted)`, amber if >30d.
-- Sort control (Strength · Last contact · Most emails · Cooling-first).
-- PersonDetail: 2–3 AI "what to talk about next" talking points + one-click "Draft a check-in"
-  (compose action, prefilled). Surface `avg_response_time_minutes` ("usually replies in ~2h").
-
-## P1 — Visual consistency sweep (from visual audit)
-- Canonical card padding `px-5 py-4`; card-list gap `space-y-3`, section gap `space-y-8`.
-- `FocusCard`/`MeetingBriefCard` should use `<Surface interactive>` not hand-rolled classes.
-- ONE segmented-control recipe across nav-active / view-toggle / sort / filter chips.
-- One hairline token (`gray-100 dark:white/[0.08]`); fix Schedule vs Today meeting-row divider/title weight.
-- Consolidate `AidenBox` (Today) + `AiSuggestion` (primitives) into one primitive.
-- `SoftButton`: add `focus-visible:ring-2 ring-violet-400/50`. EmptyState icon chip → `rounded-full`.
-- Collapse the 4 uppercase-label specs into 2 tokens (section label 13px/semibold/0.08em; eyebrow 11px/bold/0.12em).
-- Extract a shared `MeetingRow`/`MeetingCard` used by both Today and Schedule.
-
-## P1 — Today completeness (from AI audit)
-- Time-aware "Next up" agenda banner (sort events by `start`; "Team sync in 40 min").
-- "Waiting on them" rollup: surface stale `they_owe` commitments (currently dropped on Today).
-- Turn on AI commitment extraction selectively (commitmentStore.extract(true) for key/ambiguous
-  threads); stop hardcoding confidence 0.9 in aiden.ts extractCommitments.
-- "What changed since yesterday" (localStorage snapshot diff). Quick-capture → addManual.
-- Surface `sender_tone` as a relationship-risk flag.
-
-## P1 — AI prompt quality (from AI audit)
-- Port `generateEventBrief` anti-hallucination rules into `generateMeetingBrief`; feed it body
-  snippets, not just subject lines.
-- `extractCommitments`: return per-item confidence, drop <0.5, ignore pleasantries / "let me
-  know if you have questions", null due-date unless explicit.
-- Optional: brain-side phishing/fake-urgency severity cap.
-
-## Notes / constraints
-- App is in DEMO MODE (sample emails auto-load; real Gmail fetch disabled) — intentional; don't flip.
-- Root `oauth_server.py` is canonical (dev + bundle); keep it byte-identical to `src-tauri/oauth_server.py`.
-- ~70 pre-existing type errors are environmental (dual Email type, gapi, NodeJS.Timeout) — don't chase blind.
-- Can't click the live Tauri app; verify via tsc + build + careful review.
+## Constraints
+- DEMO MODE is intentional (sample emails; real Gmail fetch disabled) — don't flip.
+- Root `oauth_server.py` is canonical (dev + bundle); keep byte-identical to src-tauri copy.
+- ~70 pre-existing type errors are environmental (dual Email type, gapi, NodeJS.Timeout) — don't chase.
+- Can't render the live Tauri app; verify via tsc + build + adversarial review subagents.
