@@ -587,6 +587,12 @@ export const Today: React.FC = () => {
   const focusAttentionIds = new Set(
     focusItems.filter((f) => f.type === 'attention').map((f) => (f.item as AttentionItem).id),
   );
+  // Commitments already spotlighted in Focus (overdue/imminent) shouldn't also
+  // appear in Open Loops — each item lives in exactly one place on Today.
+  const focusCommitmentIds = new Set(
+    [...focusAttentionIds].filter((id) => id.startsWith('att-cmt-')).map((id) => id.slice('att-cmt-'.length)),
+  );
+  const visibleLoops = openCommitments.filter((c) => !focusCommitmentIds.has(c.id));
   const lowPriorityItems = useMemo(
     () => attention.filter((i) => !focusAttentionIds.has(i.id) && i.person !== undefined),
     [attention, focusAttentionIds],
@@ -807,18 +813,18 @@ export const Today: React.FC = () => {
       )}
 
       {/* ── 5. OPEN LOOPS ── */}
-      {openCommitments.length > 0 && (
+      {visibleLoops.length > 0 && (
         <section>
           <SectionLabel
             dot="amber"
-            count={openCommitments.length}
+            count={visibleLoops.length}
             action={<LinkRow onClick={() => navigate('/commitments')}>All loops</LinkRow>}
           >
             Open loops
           </SectionLabel>
 
           <div className="space-y-2">
-            {openCommitments.slice(0, 4).map((c) => (
+            {visibleLoops.slice(0, 4).map((c) => (
               <OpenLoopCard
                 key={c.id}
                 commitment={c}
@@ -841,12 +847,12 @@ export const Today: React.FC = () => {
                 }}
               />
             ))}
-            {openCommitments.length > 4 && (
+            {visibleLoops.length > 4 && (
               <button
                 className="w-full py-2 text-[13px] text-muted/40 hover:text-muted/70 transition-colors"
                 onClick={() => navigate('/commitments')}
               >
-                + {openCommitments.length - 4} more
+                + {visibleLoops.length - 4} more
               </button>
             )}
           </div>
