@@ -2200,7 +2200,6 @@ Sarah`,
 
   (window as any).clearSampleEmails = () => {
     getStoreState().setEmails([]);
-    getStoreState().set({ sentEmails: [] });
     console.log('✅ Cleared all emails');
   };
 
@@ -2224,11 +2223,9 @@ Sarah`,
   // Auto-load sample emails immediately (DEV MODE)
   setTimeout(() => {
     console.log('DEV MODE: Loading sample data for testing...');
-    // First clear any existing emails and persisted data
-    getStoreState().setEmails([]);
-    getStoreState().set({ sentEmails: [] });
-    console.log('DEV MODE: Cleared existing emails and sent emails');
-    // Then load the test email
+    // loadSampleEmails() replaces the email list, so no manual clear is needed.
+    // (The old code called a non-existent store `.set(...)` here, which threw
+    // AFTER clearing emails and BEFORE loading the sample — leaving the inbox empty.)
     (window as any).loadSampleEmails();
   }, 100);
 
