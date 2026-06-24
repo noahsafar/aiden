@@ -2,7 +2,7 @@ import React from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Sparkles } from 'lucide-react';
-import logo from '/aiden-logo.png';
+import logo from '/aiden-wordmark.svg';
 
 export const Login: React.FC = () => {
   const { signIn, isLoading, error } = useAuthStore();
@@ -15,14 +15,7 @@ export const Login: React.FC = () => {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="bg-surface rounded-2xl shadow-elevated-xl p-8 w-full max-w-md border border-border">
         <div className="flex items-center justify-center mb-8">
-          <div className="flex items-center gap-0">
-            <img
-              src={logo}
-              alt="Aiden Logo"
-              className="h-12 w-12"
-            />
-            <span className="text-3xl font-bold text-foreground">Aiden</span>
-          </div>
+          <img src={logo} alt="Aiden" className="h-12 w-auto" />
         </div>
 
         <div className="text-center mb-8">

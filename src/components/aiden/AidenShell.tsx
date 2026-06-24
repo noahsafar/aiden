@@ -15,7 +15,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useEmailStore } from '@/stores/emailStore';
 import { useCommitmentStore } from '@/stores/commitmentStore';
 import { PersonAvatar } from '@/components/aiden/primitives';
-import logo from '/aiden-logo.png';
+import logo from '/aiden-mark.svg';
 
 interface NavItem {
   to: string;

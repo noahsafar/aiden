@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Aiden — download mark &amp; wordmark</title>
+<style>
+  body { margin: 0; min-height: 100vh; background: #0B0F17; color: #F1F5F9; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 48px; box-sizing: border-box; }
+  h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px 0; }
+  .hint { font-size: 14px; opacity: .65; margin: 0 0 32px 0; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+  .card { background: #131B2B; border: 1px solid #27324A; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+  .card h2 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: .04em; text-transform: uppercase; opacity: .75; }
+  .preview { background: repeating-conic-gradient(#222a3d 0% 25%, #1A2338 0% 50%) 50% / 24px 24px; border-radius: 10px; padding: 28px; display: flex; align-items: center; justify-content: center; min-height: 180px; }
+  .buttons { display: flex; gap: 12px; flex-wrap: wrap; }
+  button { font: inherit; font-size: 15px; font-weight: 600; padding: 12px 22px; border: none; border-radius: 9px; cursor: pointer; background: linear-gradient(135deg, #38BDF8, #6366F1); color: white; transition: transform .12s ease; }
+  button:hover { transform: translateY(-1px); }
+  button.secondary { background: #1F2937; }
+  .options { display: flex; gap: 12px; align-items: center; font-size: 14px; opacity: .85; margin-bottom: 24px; }
+  select { font: inherit; padding: 8px 12px; border-radius: 8px; background: #1F2937; color: #F1F5F9; border: 1px solid #27324A; }
+  .status { font-size: 13px; opacity: .55; min-height: 18px; margin-top: 8px; }
+  .note { font-size: 13px; opacity: .55; margin-top: 24px; line-height: 1.5; max-width: 800px; }
+</style>
+</head>
+<body>
+
+<h1>Aiden — mark &amp; wordmark</h1>
+<p class="hint">Each file downloads with a transparent background. Pick a PNG resolution, then click the download buttons.</p>
+
+<div class="options">
+  PNG resolution:
+  <select id="size-select">
+    <option value="512">512 px (web)</option>
+    <option value="1024" selected>1024 px (high-res)</option>
+    <option value="2048">2048 px (print)</option>
+    <option value="4096">4096 px (extra high)</option>
+  </select>
+  <button id="dl-all" class="secondary">Download all 4</button>
+</div>
+
+<div class="row">
+
+  <!-- Mark -->
+  <div class="card">
+    <h2>App icon (mark)</h2>
+    <div class="preview">
+      <svg id="src-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="160" height="160">
+        <defs>
+          <linearGradient id="markBg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#38BDF8"/>
+            <stop offset="100%" stop-color="#6366F1"/>
+          </linearGradient>
+        </defs>
+        <rect width="256" height="256" rx="56" fill="url(#markBg)"/>
+        <path d="M 80 200 L 128 60 L 176 200" stroke="#FFFFFF" stroke-width="22" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="128" cy="152" r="12" fill="#FFFFFF"/>
+      </svg>
+    </div>
+    <div class="buttons">
+      <button data-action="mark-svg">Download SVG</button>
+      <button data-action="mark-png">Download PNG</button>
+    </div>
+  </div>
+
+  <!-- Wordmark -->
+  <div class="card">
+    <h2>Wordmark (text only)</h2>
+    <div class="preview">
+      <svg id="src-wordmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 140" width="360" height="105">
+        <defs>
+          <linearGradient id="wmText" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#38BDF8"/>
+            <stop offset="100%" stop-color="#6366F1"/>
+          </linearGradient>
+        </defs>
+        <text x="0" y="105" font-family="Inter, 'SF Pro Display', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="120" font-weight="800" letter-spacing="-4">
+          <tspan fill="url(#wmText)">Ai</tspan><tspan fill="#F1F5F9">den</tspan>
+        </text>
+      </svg>
+    </div>
+    <div class="buttons">
+      <button data-action="wm-svg">Download SVG</button>
+      <button data-action="wm-png">Download PNG</button>
+    </div>
+  </div>
+
+</div>
+
+<p class="note">
+  Preview shows the "Aiden" wordmark in light text because this page has a dark background — the actual SVG and PNG files render the "den" in dark navy (#0F172A), which is what you want on a white application form. If you need a light-on-dark wordmark for a dark-background context, let me know and I'll add a variant.
+</p>
+
+<div class="status" id="status">Ready.</div>
+<canvas id="canvas" hidden></canvas>
+
+<script>
+const sizeSelect = document.getElementById('size-select');
+const status = document.getElementById('status');
+
+// --- File helpers ----------------------------------------------------
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// --- SVG strings exported with transparent background ----------------
+const markSvg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="aidenBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#aidenBg)"/>
+  <path d="M 80 200 L 128 60 L 176 200" stroke="#FFFFFF" stroke-width="22" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="128" cy="152" r="12" fill="#FFFFFF"/>
+</svg>
+`;
+
+const wordmarkSvg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 140" width="480" height="140">
+  <defs>
+    <linearGradient id="aiText" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+  </defs>
+  <text x="0" y="105"
+        font-family="Inter, 'SF Pro Display', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="120" font-weight="800" letter-spacing="-4">
+    <tspan fill="url(#aiText)">Ai</tspan><tspan fill="#0F172A">den</tspan>
+  </text>
+</svg>
+`;
+
+// --- Canvas drawing (primitives = crisp at any res) ------------------
+function drawMark(ctx, targetW) {
+  const scale = targetW / 256;
+  ctx.save();
+  ctx.scale(scale, scale);
+
+  const grad = ctx.createLinearGradient(0, 0, 256, 256);
+  grad.addColorStop(0, '#38BDF8');
+  grad.addColorStop(1, '#6366F1');
+  ctx.fillStyle = grad;
+  const r = 56;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(256 - r, 0);
+  ctx.arcTo(256, 0, 256, r, r);
+  ctx.lineTo(256, 256 - r);
+  ctx.arcTo(256, 256, 256 - r, 256, r);
+  ctx.lineTo(r, 256);
+  ctx.arcTo(0, 256, 0, 256 - r, r);
+  ctx.lineTo(0, r);
+  ctx.arcTo(0, 0, r, 0, r);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 22;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(80, 200);
+  ctx.lineTo(128, 60);
+  ctx.lineTo(176, 200);
+  ctx.stroke();
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  ctx.arc(128, 152, 12, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawWordmark(ctx, targetW) {
+  // Source viewport: 480 × 140 (matches the SVG file)
+  const sourceW = 480, sourceH = 140;
+  const scale = targetW / sourceW;
+  ctx.save();
+  ctx.scale(scale, scale);
+
+  ctx.font = '800 120px Inter, "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  ctx.textBaseline = 'alphabetic';
+  try { ctx.letterSpacing = '-4px'; } catch (_) {}
+
+  const aiWidth = ctx.measureText('Ai').width;
+
+  const aiGrad = ctx.createLinearGradient(0, 0, aiWidth, sourceH);
+  aiGrad.addColorStop(0, '#38BDF8');
+  aiGrad.addColorStop(1, '#6366F1');
+  ctx.fillStyle = aiGrad;
+  ctx.fillText('Ai', 0, 105);
+
+  ctx.fillStyle = '#0F172A';
+  ctx.fillText('den', aiWidth, 105);
+
+  ctx.restore();
+}
+
+async function ensureFontReady() {
+  if (document.fonts && document.fonts.load) {
+    try { await document.fonts.load('800 120px Inter'); } catch (_) {}
+    try { await document.fonts.ready; } catch (_) {}
+  }
+}
+
+// --- Download routines -----------------------------------------------
+function dlMarkSvg() {
+  saveBlob(new Blob([markSvg], {type: 'image/svg+xml;charset=utf-8'}), 'aiden-mark.svg');
+  status.textContent = 'aiden-mark.svg saved.';
+}
+
+function dlWordmarkSvg() {
+  saveBlob(new Blob([wordmarkSvg], {type: 'image/svg+xml;charset=utf-8'}), 'aiden-wordmark.svg');
+  status.textContent = 'aiden-wordmark.svg saved.';
+}
+
+async function dlMarkPng() {
+  const size = parseInt(sizeSelect.value, 10);
+  status.textContent = `Rendering aiden-mark.png (${size}×${size})…`;
+  await ensureFontReady();
+  const canvas = document.getElementById('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  drawMark(ctx, size);
+  return new Promise(resolve => canvas.toBlob(blob => {
+    saveBlob(blob, 'aiden-mark.png');
+    status.textContent = `aiden-mark.png saved (${size}×${size}).`;
+    resolve();
+  }, 'image/png'));
+}
+
+async function dlWordmarkPng() {
+  const size = parseInt(sizeSelect.value, 10);
+  // Wordmark aspect 480:140 ≈ 3.43:1 — pick the larger axis from the selector
+  const w = size, h = Math.round(size * (140/480));
+  status.textContent = `Rendering aiden-wordmark.png (${w}×${h})…`;
+  await ensureFontReady();
+  const canvas = document.getElementById('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  drawWordmark(ctx, w);
+  return new Promise(resolve => canvas.toBlob(blob => {
+    saveBlob(blob, 'aiden-wordmark.png');
+    status.textContent = `aiden-wordmark.png saved (${w}×${h}).`;
+    resolve();
+  }, 'image/png'));
+}
+
+// --- Wire up buttons --------------------------------------------------
+document.querySelectorAll('button[data-action]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const a = btn.dataset.action;
+    if (a === 'mark-svg') dlMarkSvg();
+    else if (a === 'mark-png') await dlMarkPng();
+    else if (a === 'wm-svg') dlWordmarkSvg();
+    else if (a === 'wm-png') await dlWordmarkPng();
+  });
+});
+
+document.getElementById('dl-all').addEventListener('click', async () => {
+  dlMarkSvg();
+  await new Promise(r => setTimeout(r, 400));
+  dlWordmarkSvg();
+  await new Promise(r => setTimeout(r, 400));
+  await dlMarkPng();
+  await new Promise(r => setTimeout(r, 400));
+  await dlWordmarkPng();
+  status.textContent = 'All four files saved to Downloads.';
+});
+</script>
+</body>
+</html>
