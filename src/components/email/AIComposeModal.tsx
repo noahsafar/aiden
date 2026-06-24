@@ -22,52 +22,6 @@ interface AIComposeModalProps {
   initialPrompt?: string;
 }
 
-interface EmailTemplate {
-  id: string;
-  name: string;
-  description: string;
-  prompt: string;
-}
-
-const EMAIL_TEMPLATES: EmailTemplate[] = [
-  {
-    id: 'professional',
-    name: 'Professional Email',
-    description: 'Formal business communication',
-    prompt: 'Write a professional email regarding:',
-  },
-  {
-    id: 'follow-up',
-    name: 'Follow Up',
-    description: 'Follow up on a previous conversation',
-    prompt: 'Write a follow-up email to check in about:',
-  },
-  {
-    id: 'request',
-    name: 'Request/Ask',
-    description: 'Make a request or ask for something',
-    prompt: 'Write a polite email requesting:',
-  },
-  {
-    id: 'thank-you',
-    name: 'Thank You',
-    description: 'Express gratitude',
-    prompt: 'Write a thank you email for:',
-  },
-  {
-    id: 'apology',
-    name: 'Apology',
-    description: 'Apologize for an issue or mistake',
-    prompt: 'Write a sincere apology email for:',
-  },
-  {
-    id: 'meeting',
-    name: 'Meeting Request',
-    description: 'Request a meeting or call',
-    prompt: 'Write a meeting request email for:',
-  },
-];
-
 const TONE_OPTIONS = [
   { id: 'professional', name: 'Professional', description: 'Formal and business-like' },
   { id: 'friendly', name: 'Friendly', description: 'Warm and approachable' },
@@ -80,7 +34,6 @@ export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, ini
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [aiPrompt, setAiPrompt] = useState('');
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [selectedTone, setSelectedTone] = useState('professional');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -131,7 +84,6 @@ export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, ini
         setSubject('');
         setBody('');
         setAiPrompt('');
-        setSelectedTemplate(null);
         setSelectedTone('professional');
         setShowAIPanel(true);
         setRegenerateInstruction('');
@@ -211,7 +163,6 @@ export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, ini
     try {
       // Build the full prompt for AI
       const toneInstruction = TONE_OPTIONS.find(t => t.id === selectedTone)?.description || 'professional';
-      const templatePrompt = selectedTemplate ? EMAIL_TEMPLATES.find(t => t.id === selectedTemplate)?.prompt : '';
 
       // Parity with replies: ground the draft in prior conversation history with
       // this recipient and any learned per-recipient writing style. Best-effort —
@@ -239,7 +190,6 @@ export function AIComposeModal({ isOpen, onClose, initialTo, initialSubject, ini
 
       const fullPrompt = `Write a new email with the following details:
 
-${templatePrompt}
 ${instruction}
 
 Tone: ${toneInstruction}
@@ -315,7 +265,6 @@ Please write a complete email with an appropriate subject line. Format your resp
       setSubject('');
       setBody('');
       setAiPrompt('');
-      setSelectedTemplate(null);
       onClose();
     } catch (error) {
       console.error('Failed to send email:', error);
@@ -367,50 +316,23 @@ Please write a complete email with an appropriate subject line. Format your resp
                 />
               </div>
 
-              {/* Templates */}
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">
-                  Quick Templates
-                </label>
-                <div className="space-y-1">
-                  {EMAIL_TEMPLATES.map((template) => (
-                    <button
-                      key={template.id}
-                      onClick={() => {
-                        setSelectedTemplate(template.id);
-                        setAiPrompt(template.prompt + ' ');
-                      }}
-                      className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                        selectedTemplate === template.id
-                          ? 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-300 dark:border-violet-500/30'
-                          : 'bg-surface text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.06] border border-gray-200/80 dark:border-white/[0.08]'
-                      }`}
-                    >
-                      <div className="font-medium text-xs">{template.name}</div>
-                      <div className="text-xs text-muted">{template.description.split(' ').slice(0, 3).join(' ')}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Tone Selection */}
+              {/* Tone — compact pills */}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">
                   Tone
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {TONE_OPTIONS.map((tone) => (
                     <button
                       key={tone.id}
                       onClick={() => setSelectedTone(tone.id)}
-                      className={`px-3 py-1.5 rounded-lg text-sm transition-colors text-left ${
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                         selectedTone === tone.id
                           ? 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-300 dark:border-violet-500/30'
                           : 'bg-surface text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/[0.06] border border-gray-200/80 dark:border-white/[0.08]'
                       }`}
                     >
-                      <div className="font-medium text-xs">{tone.name}</div>
-                      <div className="text-xs text-muted">{tone.description.split(' ')[0]}</div>
+                      {tone.name}
                     </button>
                   ))}
                 </div>
