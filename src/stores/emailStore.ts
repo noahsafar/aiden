@@ -483,22 +483,41 @@ function generateSummaryForEmail(emailId: string): void {
   const email = useEmailStore.getState().emails.find((e) => e.id === emailId);
   if (!email || email.summary) return; // nothing to do — already summarized
   processingEmails.add(key);
+
+  // Track that we're generating a summary for this email
+  useEmailStore.setState((state) => ({
+    generatingSummaries: new Set(state.generatingSummaries).add(emailId),
+  }));
+
   queueAIOperation(async () => {
     try {
+      console.log(`[AI Processing] Starting summary for email: ${emailId}`);
       const content = `From: ${email.sender}\nSubject: ${email.subject}\n\n${email.body_text || email.snippet || ''}`;
+      console.log(`[AI Processing] Email content length: ${content.length} chars`);
       const result = await summarizeEmailClaude(content);
+      console.log(`[AI Processing] Result received:`, result ? 'SUCCESS' : 'NULL');
       if (result?.summary) {
+        console.log(`[AI Processing] Summary generated: ${result.summary.substring(0, 100)}...`);
         useEmailStore.setState((state) => ({
           emails: state.emails.map((e) =>
             e.id === emailId ? { ...e, summary: result.summary, key_points: result.key_points || [] } : e,
           ),
         }));
         persistEmailsToDisk();
+        console.log(`[AI Processing] ✅ Summary saved and persisted`);
+      } else {
+        console.warn(`[AI Processing] No summary generated from API response`);
       }
     } catch (e) {
-      console.warn('[AI] summary generation failed (non-fatal):', e);
+      console.error('[AI Processing] ❌ Summary generation failed:', e);
     } finally {
       processingEmails.delete(key);
+      // Remove from generating set when done
+      useEmailStore.setState((state) => {
+        const newSet = new Set(state.generatingSummaries);
+        newSet.delete(emailId);
+        return { generatingSummaries: newSet };
+      });
     }
   });
 }
@@ -2067,164 +2086,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   // Add mock waiting-on-reply emails for testing
   loadMockWaitingEmails: () => {
-    const now = new Date();
-    const fourDaysAgo = new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000);
-    const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
-    const oneDayAgo = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
-
-    const mockWaitingEmails: Email[] = [
-      {
-        id: 'waiting-sent-1',
-        gmail_id: 'waiting-sent-1',
-        thread_id: 'thread-waiting-1',
-        subject: 'Re: Project Proposal - Next Steps',
-        sender: 'me@example.com',
-        recipients: 'john@company.com',
-        date: fourDaysAgo.toISOString(),
-        body_text: 'Hi John,\n\nThanks for the call earlier. Per our discussion, I\'ll send over the revised proposal by end of week.\n\nBest,\nNoah',
-        snippet: 'Thanks for the call earlier. Per our discussion...',
-        is_read: true,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Replied',
-        category: 'Normal',
-        requires_reply: false,
-        inReplyTo: 'original-1',
-        // Reminder fields - this one is OVERDUE (4 days ago, 3 day reminder)
-        waiting_on_reply_since: fourDaysAgo.toISOString(),
-        reminder_due_date: new Date(fourDaysAgo.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-        reminder_triggered: false,
-        reminder_count: 0,
-        // Mark if this needs follow-up (based on original email requiring reply)
-        needs_follow_up: true,
-        originalEmail: {
-          id: 'original-1',
-          gmail_id: 'original-1',
-          thread_id: 'thread-waiting-1',
-          subject: 'Project Proposal - Next Steps',
-          sender: 'john@company.com',
-          recipients: 'me@example.com',
-          date: fourDaysAgo.toISOString(),
-          body_text: 'Hi Noah,\n\nGreat chatting with you! Looking forward to seeing the revised proposal.\n\nBest,\nJohn',
-          snippet: 'Great chatting with you! Looking forward...',
-          is_read: true,
-          is_starred: false,
-          has_attachments: false,
-          status: 'Replied',
-          category: 'Normal',
-          requires_reply: true,
-        } as Email,
-      },
-      {
-        id: 'waiting-sent-2',
-        gmail_id: 'waiting-sent-2',
-        thread_id: 'thread-waiting-2',
-        subject: 'Re: Invoice #INV-2024-089',
-        sender: 'me@example.com',
-        recipients: 'billing@vendor.com',
-        date: twoDaysAgo.toISOString(),
-        body_text: 'Hi,\n\nPlease find attached the payment details for Invoice #INV-2024-089. Let me know if you need anything else.\n\nThanks,\nNoah',
-        snippet: 'Please find attached the payment details...',
-        is_read: true,
-        is_starred: false,
-        has_attachments: true,
-        attachments: [
-          {
-            id: 'att-inv-2024-089',
-            filename: 'INV-2024-089_Payment_Details.pdf',
-            mimeType: 'application/pdf',
-            size: 245760, // ~240KB
-          }
-        ],
-        status: 'Replied',
-        category: 'Normal',
-        requires_reply: false,
-        inReplyTo: 'original-2',
-        // Reminder fields - this one is NOT due yet (2 days ago, 3 day reminder)
-        waiting_on_reply_since: twoDaysAgo.toISOString(),
-        reminder_due_date: new Date(twoDaysAgo.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-        reminder_triggered: false,
-        reminder_count: 0,
-        needs_follow_up: true,
-        originalEmail: {
-          id: 'original-2',
-          gmail_id: 'original-2',
-          thread_id: 'thread-waiting-2',
-          subject: 'Invoice #INV-2024-089',
-          sender: 'billing@vendor.com',
-          recipients: 'me@example.com',
-          date: twoDaysAgo.toISOString(),
-          body_text: 'Dear Noah,\n\nPlease find attached Invoice #INV-2024-089 for $2,500. Payment is due within 30 days.\n\nBest regards,\nBilling Department',
-          snippet: 'Please find attached Invoice #INV-2024-089...',
-          is_read: true,
-          is_starred: false,
-          has_attachments: true,
-          attachments: [
-            {
-              id: 'att-inv-2024-089-original',
-              filename: 'INV-2024-089.pdf',
-              mimeType: 'application/pdf',
-              size: 125829, // ~123KB
-            }
-          ],
-          status: 'Replied',
-          category: 'Important',
-          requires_reply: true,
-        } as Email,
-      },
-      {
-        id: 'waiting-sent-3',
-        gmail_id: 'waiting-sent-3',
-        thread_id: 'thread-waiting-3',
-        subject: 'Re: Conference Sponsorship Opportunity',
-        sender: 'me@example.com',
-        recipients: 'events@techconf.com',
-        date: oneDayAgo.toISOString(),
-        body_text: 'Hi Sarah,\n\nYes, we\'re interested in the Gold sponsorship package. Please send over the contract.\n\nBest regards,\nNoah',
-        snippet: 'Yes, we\'re interested in the Gold sponsorship...',
-        is_read: true,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Replied',
-        category: 'Normal',
-        requires_reply: false,
-        inReplyTo: 'original-3',
-        // Reminder fields - this one was just sent yesterday (1 day ago, 3 day reminder)
-        waiting_on_reply_since: oneDayAgo.toISOString(),
-        reminder_due_date: new Date(oneDayAgo.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-        reminder_triggered: false,
-        reminder_count: 0,
-        needs_follow_up: true,
-        originalEmail: {
-          id: 'original-3',
-          gmail_id: 'original-3',
-          thread_id: 'thread-waiting-3',
-          subject: 'Conference Sponsorship Opportunity',
-          sender: 'events@techconf.com',
-          recipients: 'me@example.com',
-          date: oneDayAgo.toISOString(),
-          body_text: 'Hi Noah,\n\nI hope this email finds you well. We\'d love to have your company as a sponsor for our upcoming TechConf 2024.\n\nWould you be interested in discussing sponsorship opportunities?\n\nBest,\nSarah\nEvents Coordinator',
-          snippet: 'I hope this email finds you well...',
-          is_read: true,
-          is_starred: false,
-          has_attachments: false,
-          status: 'Replied',
-          category: 'Important',
-          requires_reply: true,
-        } as Email,
-      },
-    ];
-
-    // Add to pending reminders for the overdue one
-    const pendingReminders = new Set(get().pendingReminders);
-    pendingReminders.add('waiting-sent-1'); // This one is overdue
-
-    set({
-      sentEmails: [...get().sentEmails, ...mockWaitingEmails],
-      pendingReminders,
-    });
-
-    console.log('[Mock Data] Added', mockWaitingEmails.length, 'waiting-on-reply emails');
+    // DISABLED: Using single test email approach
+    console.log('[Mock Data] loadMockWaitingEmails() is disabled - using single test email');
   },
 }));
 
@@ -2238,546 +2101,57 @@ if (typeof window !== 'undefined') {
     const baseThreadId = 'sample-thread-';
 
     const sampleEmails: Email[] = [
-      // Thread 1: Meeting Request (3 emails back and forth)
+      // Single test email - work deadline request
       {
-        id: `sample-1`,
-        gmail_id: `sample-1`,
-        thread_id: `${baseThreadId}1`,
-        subject: 'Q4 Planning Meeting - Tuesday 3pm',
+        id: `test-1`,
+        gmail_id: `test-1`,
+        thread_id: `test-thread-1`,
+        subject: 'Project deadline extension request',
         sender: 'Sarah Chen <schen@company.com>',
-        recipients: 'me@company.com, team@company.com',
-        date: new Date(baseTime - 1000 * 60 * 2).toISOString(), // 2 minutes ago
-        body_text: 'Hi team, let\'s sync on Q4 planning this Tuesday at 3pm. Please bring your roadmap updates.',
-        snippet: 'Hi team, let\'s sync on Q4 planning this Tuesday at 3pm...',
-        is_read: false,
-        is_starred: false,
-        has_attachments: true,
-        status: 'Unhandled',
-        category: 'Urgent',
-        summary: 'Sarah is proposing a Q4 planning meeting for Tuesday at 3pm',
-        key_points: ['Meeting proposed for Tuesday 3pm', 'Bring roadmap updates'],
-        action_items: ['RSVP to meeting', 'Prepare roadmap updates'],
-        requires_reply: true,
-        attachments: [{ id: 'att1', filename: 'Q4_Roadmap_Draft.pdf', mimeType: 'application/pdf', size: 2400000 }],
-      },
-      {
-        id: `sample-2`,
-        gmail_id: `sample-2`,
-        thread_id: `${baseThreadId}1`,
-        subject: 'Re: Q4 Planning Meeting - Tuesday 3pm',
-        sender: 'Me <me@company.com>',
-        recipients: 'schen@company.com, team@company.com',
-        date: new Date(baseTime - 1000 * 60 * 1.5).toISOString(), // 90 seconds ago
-        body_text: 'Sounds good! I\'ll have the product roadmap ready.',
-        snippet: 'Sounds good! I\'ll have the product roadmap ready.',
-        is_read: true,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Replied',
-        category: 'Normal',
-        summary: 'You confirmed attendance',
-        key_points: ['Confirmed attendance', 'Will bring product roadmap'],
-        action_items: [],
-        requires_reply: false,
-      },
-      {
-        id: `sample-3`,
-        gmail_id: `sample-3`,
-        thread_id: `${baseThreadId}1`,
-        subject: 'Re: Q4 Planning Meeting - Tuesday 3pm',
-        sender: 'Sarah Chen <schen@company.com>',
-        recipients: 'me@company.com, team@company.com',
-        date: new Date(baseTime - 1000 * 60 * 1).toISOString(), // 1 minute ago
-        body_text: 'Great! I\'ve sent a calendar invite. See you there.',
-        snippet: 'Great! I\'ve sent a calendar invite. See you there.',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Normal',
-        summary: 'Sarah sent a calendar invite',
-        key_points: ['Calendar invite sent'],
-        action_items: ['Accept calendar invite'],
-        requires_reply: false,
-      },
-
-      // Thread 2: Shipping Updates (2 emails)
-      {
-        id: `sample-4`,
-        gmail_id: `sample-4`,
-        thread_id: `${baseThreadId}2`,
-        subject: 'Your order has shipped! 📦',
-        sender: 'Amazon Shipping <ship-confirm@amazon.com>',
-        recipients: 'me@gmail.com',
-        date: new Date(baseTime - 1000 * 50).toISOString(), // 50 seconds ago
-        body_text: 'Your Amazon order is on its way! Track your package for delivery estimated tomorrow.',
-        snippet: 'Your Amazon order is on its way! Track your package...',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Low',
-        summary: 'Amazon shipping notification for package delivery',
-        key_points: ['Package shipped', 'Delivery expected tomorrow'],
-        action_items: [],
-        requires_reply: false,
-      },
-      {
-        id: `sample-5`,
-        gmail_id: `sample-5`,
-        thread_id: `${baseThreadId}2`,
-        subject: 'Re: Your order has shipped! 📦',
-        sender: 'Amazon Shipping <ship-confirm@amazon.com>',
-        recipients: 'me@gmail.com',
-        date: new Date(baseTime - 1000 * 30).toISOString(), // 30 seconds ago
-        body_text: 'Your package is out for delivery and will arrive by 8pm today.',
-        snippet: 'Your package is out for delivery and will arrive by 8pm today.',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Low',
-        summary: 'Package is out for delivery today by 8pm',
-        key_points: ['Out for delivery', 'Expected by 8pm'],
-        action_items: [],
-        requires_reply: false,
-      },
-
-      // Thread 3: Newsletter
-      {
-        id: `sample-6`,
-        gmail_id: `sample-6`,
-        thread_id: `${baseThreadId}3`,
-        subject: 'Weekly Tech Digest: AI Breakthroughs This Week',
-        sender: 'Tech Newsletter <digest@technewsletter.com>',
-        recipients: 'me@gmail.com',
-        date: new Date(baseTime - 1000 * 25).toISOString(), // 25 seconds ago
-        body_text: 'This week in AI: New models, exciting research, and industry news. Unsubscribe to stop receiving these emails.',
-        snippet: 'This week in AI: New models, exciting research...',
-        is_read: true,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Low',
-        summary: 'Weekly tech newsletter about AI developments',
-        key_points: ['AI model updates', 'Industry news roundup'],
-        action_items: [],
-        requires_reply: false,
-      },
-
-      // Thread 4: Finance/Invoice (4 emails in thread)
-      {
-        id: `sample-7`,
-        gmail_id: `sample-7`,
-        thread_id: `${baseThreadId}4`,
-        subject: 'Invoice #12345 - October Services',
-        sender: 'Billing <billing@saas-tool.com>',
         recipients: 'me@company.com',
-        date: new Date(baseTime - 1000 * 60 * 3).toISOString(), // 3 minutes ago
-        body_text: 'Please find attached invoice for October services. Amount: $299.00',
-        snippet: 'Please find attached invoice for October services. Amount: $299.00',
-        is_read: false,
-        is_starred: false,
-        has_attachments: true,
-        status: 'Unhandled',
-        category: 'Important',
-        summary: 'Invoice for October services - $299',
-        key_points: ['Invoice #12345', 'Amount: $299', 'October services'],
-        action_items: ['Review invoice', 'Process payment'],
-        requires_reply: false,
-        attachments: [{ id: 'att2', filename: 'Invoice_12345.pdf', mimeType: 'application/pdf', size: 159744 }],
-      },
-      {
-        id: `sample-8`,
-        gmail_id: `sample-8`,
-        thread_id: `${baseThreadId}4`,
-        subject: 'Re: Invoice #12345 - October Services',
-        sender: 'Me <me@company.com>',
-        recipients: 'billing@saas-tool.com',
-        date: new Date(baseTime - 1000 * 60 * 2.5).toISOString(), // 2.5 minutes ago
-        body_text: 'Thanks, can you clarify line item 3?',
-        snippet: 'Thanks, can you clarify line item 3?',
-        is_read: true,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Replied',
-        category: 'Normal',
-        summary: 'You asked for clarification on line item 3',
-        key_points: ['Question about line item 3'],
-        action_items: [],
-        requires_reply: false,
-      },
-      {
-        id: `sample-9`,
-        gmail_id: `sample-9`,
-        thread_id: `${baseThreadId}4`,
-        subject: 'Re: Invoice #12345 - October Services',
-        sender: 'Billing <billing@saas-tool.com>',
-        recipients: 'me@company.com',
-        date: new Date(baseTime - 1000 * 60 * 2).toISOString(), // 2 minutes ago
-        body_text: 'Line item 3 is for the additional storage add-on you requested.',
-        snippet: 'Line item 3 is for the additional storage add-on you requested.',
-        is_read: true,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Normal',
-        summary: 'Billing clarified line item 3 is for storage add-on',
-        key_points: ['Line item 3 = storage add-on'],
-        action_items: [],
-        requires_reply: false,
-      },
-      {
-        id: `sample-10`,
-        gmail_id: `sample-10`,
-        thread_id: `${baseThreadId}4`,
-        subject: 'Re: Invoice #12345 - October Services',
-        sender: 'Me <me@company.com>',
-        recipients: 'billing@saas-tool.com',
-        date: new Date(baseTime - 1000 * 60 * 1.5).toISOString(), // 90 seconds ago
-        body_text: 'Got it, thanks for the clarification. Payment scheduled.',
-        snippet: 'Got it, thanks for the clarification. Payment scheduled.',
-        is_read: true,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Replied',
-        category: 'Normal',
-        summary: 'You acknowledged and scheduled payment',
-        key_points: ['Payment scheduled'],
-        action_items: [],
-        requires_reply: false,
-      },
+        date: new Date(baseTime - 1000 * 60 * 5).toISOString(), // 5 minutes ago
+        body_text: `Hi team,
 
-      // Thread 5: Meeting invite from Zoom
-      {
-        id: `sample-11`,
-        gmail_id: `sample-11`,
-        thread_id: `${baseThreadId}5`,
-        subject: 'Invitation: Product Review with Alex',
-        sender: 'Zoom <noreply@zoom.us>',
-        recipients: 'me@company.com',
-        date: new Date(baseTime - 1000 * 15).toISOString(), // 15 seconds ago
-        body_text: 'You are invited to a Zoom meeting: Product Review with Alex. Thursday, Nov 7, 2024 2:00 PM',
-        snippet: 'You are invited to a Zoom meeting: Product Review with Alex...',
-        is_read: false,
-        is_starred: true,
-        has_attachments: true,
-        status: 'Unhandled',
-        category: 'Urgent',
-        summary: 'Zoom meeting invite for Product Review with Alex on Thursday',
-        key_points: ['Thursday Nov 7 at 2pm', 'Product Review', 'With Alex'],
-        action_items: ['Accept meeting invitation'],
-        requires_reply: true,
-        attachments: [{ id: 'att3', filename: 'meeting.ics', mimeType: 'text/calendar', size: 2048 }],
-      },
+I need to request an extension for the Q4 report deadline. Due to some unexpected delays in data collection and team availability challenges, I won't be able to submit the final report by this Friday (Nov 15th).
 
-      // Thread 6: Social media updates
-      {
-        id: `sample-12`,
-        gmail_id: `sample-12`,
-        thread_id: `${baseThreadId}6`,
-        subject: 'You have 5 new followers on LinkedIn!',
-        sender: 'LinkedIn <notifications-noreply@linkedin.com>',
-        recipients: 'me@gmail.com',
-        date: new Date(baseTime - 1000 * 10).toISOString(), // 10 seconds ago
-        body_text: 'See who\'s viewing your profile and connect with new people in your industry.',
-        snippet: 'See who\'s viewing your profile and connect with new people...',
-        is_read: true,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Low',
-        summary: 'LinkedIn notification about new followers',
-        key_points: ['5 new followers'],
-        action_items: [],
-        requires_reply: false,
-      },
+Could we push the deadline to next Wednesday (Nov 20th)? This would give me enough time to ensure the report is comprehensive and accurate.
 
-      // Thread 7: Work discussion (3 emails)
-      {
-        id: `sample-13`,
-        gmail_id: `sample-13`,
-        thread_id: `${baseThreadId}7`,
-        subject: 'API Integration Question',
-        sender: 'Mike Johnson <mjohnson@partner.com>',
-        recipients: 'me@company.com',
-        date: new Date(baseTime - 1000 * 60 * 1.2).toISOString(), // 72 seconds ago
-        body_text: 'Hey, we\'re having trouble with the API integration. The auth token seems to expire after 1 hour.',
-        snippet: 'Hey, we\'re having trouble with the API integration...',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Important',
-        summary: 'Mike is reporting an API integration issue with auth tokens',
-        key_points: ['Auth token expires after 1 hour', 'API integration problem'],
-        action_items: ['Investigate auth token expiry', 'Respond to Mike'],
-        requires_reply: true,
-      },
-      {
-        id: `sample-14`,
-        gmail_id: `sample-14`,
-        thread_id: `${baseThreadId}7`,
-        subject: 'Re: API Integration Question',
-        sender: 'Me <me@company.com>',
-        recipients: 'mjohnson@partner.com',
-        date: new Date(baseTime - 1000 * 50).toISOString(), // 50 seconds ago
-        body_text: 'Sorry to hear that. Can you share your request headers? We\'ll look into it.',
-        snippet: 'Sorry to hear that. Can you share your request headers?...',
-        is_read: true,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Replied',
-        category: 'Normal',
-        summary: 'You asked for request headers to debug',
-        key_points: ['Asked for request headers'],
-        action_items: [],
-        requires_reply: false,
-      },
-      {
-        id: `sample-15`,
-        gmail_id: `sample-15`,
-        thread_id: `${baseThreadId}7`,
-        subject: 'Re: API Integration Question',
-        sender: 'Mike Johnson <mjohnson@partner.com>',
-        recipients: 'me@company.com',
-        date: new Date(baseTime - 1000 * 25).toISOString(), // 25 seconds ago
-        body_text: 'Here are the headers. Let me know if you need anything else!',
-        snippet: 'Here are the headers. Let me know if you need anything else!',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Important',
-        summary: 'Mike shared the request headers',
-        key_points: ['Headers shared', 'Waiting for fix'],
-        action_items: ['Debug with provided headers'],
-        requires_reply: true,
-      },
+Key reasons for the extension:
+- Data collection took 3 extra days due to API integration issues
+- Two team members were out sick last week
+- Quality assurance needs more thorough testing
 
-      // Thread 8: Another shipping update
-      {
-        id: `sample-16`,
-        gmail_id: `sample-16`,
-        thread_id: `${baseThreadId}8`,
-        subject: 'Delivery Update: Your package from Etsy',
-        sender: 'Etsy Shipping <shipping@etsy.com>',
-        recipients: 'me@gmail.com',
-        date: new Date(baseTime - 1000 * 5).toISOString(), // 5 seconds ago
-        body_text: 'Good news! Your handmade item has been shipped and will arrive in 3-5 business days.',
-        snippet: 'Good news! Your handmade item has been shipped...',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Low',
-        summary: 'Etsy shipping notification - 3-5 business days',
-        key_points: ['Handmade item shipped', '3-5 business days delivery'],
-        action_items: [],
-        requires_reply: false,
-      },
+I understand this may impact the review schedule, and I'm happy to discuss alternative timelines if next Wednesday doesn't work for the team.
 
-      // Thread 9: Test email for improved question generation - choices without meeting
-      {
-        id: `sample-17`,
-        gmail_id: `sample-17`,
-        thread_id: `${baseThreadId}9`,
-        subject: 'Team lunch this Friday - pick your spot!',
-        sender: 'Jamie <jamie@company.com>',
-        recipients: 'me@company.com, team@company.com',
-        date: new Date(baseTime - 1000 * 60 * 0.5).toISOString(), // 30 seconds ago
-        body_text: `Hey team! We're doing team lunch this Friday to celebrate the launch.
-
-We're deciding between:
-- Pizza from Joe's (classic choice)
-- Burgers from Shake Shack
-- Tacos from the new place downtown
-- Salads from Sweetgreen
-
-Can you make it? And what's your preference? Let me know by end of day!
-
-Also, are you cool with splitting the check evenly?`,
-        snippet: 'Hey team! Team lunch this Friday - choosing between pizza, burgers...',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Important',
-        summary: 'Jamie is organizing a team lunch for Friday and needs your preference',
-        key_points: ['Team lunch Friday to celebrate launch', 'Choosing restaurant: pizza, burgers, tacos, or salads', 'RSVP and food preference needed by EOD'],
-        action_items: ['Confirm attendance', 'Choose restaurant preference'],
-        requires_reply: true,
-      },
-
-      // Thread 10: Test email - text input question (specific info AI can't know)
-      {
-        id: `sample-18`,
-        gmail_id: `sample-18`,
-        thread_id: `${baseThreadId}10`,
-        subject: 'Shipping address for your gift',
-        sender: 'HR <hr@company.com>',
-        recipients: 'me@company.com',
-        date: new Date(baseTime - 1000 * 20).toISOString(), // 20 seconds ago
-        body_text: `Hi! As part of our employee appreciation program, we're sending you a gift card.
-
-Please confirm which address you'd like us to ship it to:
-- Home address
-- Office address
-
-If home, please reply with your current shipping address.
-
-Thanks!
-HR Team`,
-        snippet: 'Employee appreciation gift - please confirm shipping address...',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Normal',
-        summary: 'HR is sending a gift card and needs your shipping address preference',
-        key_points: ['Employee appreciation gift', 'Need to choose home or office address', 'Home address requires specific details'],
-        action_items: ['Choose shipping location', 'Provide address if home'],
-        requires_reply: true,
-      },
-
-      // Thread 11: Test email - AI should SKIP (optional/casual question)
-      {
-        id: `sample-19`,
-        gmail_id: `sample-19`,
-        thread_id: `${baseThreadId}11`,
-        subject: 'Hope you had a great weekend!',
-        sender: 'Alex <alex@company.com>',
-        recipients: 'me@company.com',
-        date: new Date(baseTime - 1000 * 18).toISOString(), // 18 seconds ago
-        body_text: `Hey!
-
-Just wanted to say hi and see how you're doing. How was your weekend? Do anything fun?
-
-Let's catch up soon!
-
-Alex`,
-        snippet: 'Just wanted to say hi and see how you\'re doing...',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Normal',
-        summary: 'Casual check-in from Alex',
-        key_points: ['Saying hi', 'Asking about weekend'],
-        action_items: [],
-        requires_reply: false,
-      },
-
-      // Thread 12: Test email - AI should SKIP meeting timing (handled by calendar)
-      {
-        id: `sample-20`,
-        gmail_id: `sample-20`,
-        thread_id: `${baseThreadId}12`,
-        subject: 'Quick sync needed - when are you free?',
-        sender: 'Taylor <taylor@company.com>',
-        recipients: 'me@company.com',
-        date: new Date(baseTime - 1000 * 12).toISOString(), // 12 seconds ago
-        body_text: `Hey!
-
-Need to sync with you on the project roadmap. When are you free this week?
-
-I'm flexible Monday afternoon, Tuesday morning, or Wednesday after 2pm. Let me know what works!
-
-Taylor`,
-        snippet: 'Need to sync on project roadmap - when are you free this week?',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Important',
-        summary: 'Taylor wants to sync on the project roadmap and has proposed some times',
-        key_points: ['Project roadmap sync needed', 'Proposed: Mon afternoon, Tue morning, Wed after 2pm'],
-        action_items: [],
-        requires_reply: true,
-        meeting_request: {
-          is_meeting: true,
-          proposed_times: ['Monday afternoon', 'Tuesday morning', 'Wednesday after 2pm'],
-          duration_minutes: 30,
-          subject: 'Project roadmap sync',
-        },
-      },
-
-      // Thread 13: Test email - attachment request (resume, transcript, portfolio)
-      {
-        id: `sample-21`,
-        gmail_id: `sample-21`,
-        thread_id: `${baseThreadId}13`,
-        subject: 'Application for Software Engineer Position',
-        sender: 'Recruiting <recruiting@techcorp.com>',
-        recipients: 'me@company.com',
-        date: new Date(baseTime - 1000 * 8).toISOString(), // 8 seconds ago
-        body_text: `Hi,
-
-Thank you for applying for the Software Engineer position at TechCorp.
-
-We've reviewed your application and are interested in moving forward. Could you please send us the following documents:
-
-1. Your resume (PDF format preferred)
-2. Your academic transcript (unofficial is fine to start)
-3. Your portfolio or GitHub profile link
-
-Also, please let us know your availability for an initial technical interview this week or next.
+Thanks for considering this request.
 
 Best regards,
-Sarah Thompson
-Technical Recruiter
-TechCorp`,
-        snippet: 'Application for Software Engineer position at TechCorp...',
+Sarah`,
+        snippet: 'I need to request an extension for the Q4 report deadline...',
         is_read: false,
         is_starred: false,
         has_attachments: false,
         status: 'Unhandled',
-        category: 'Important',
-        summary: 'Sarah from TechCorp recruiting is interested in your application and requests your resume, transcript, and portfolio for the next steps',
-        key_points: ['TechCorp is interested in your application', 'Requesting: resume (PDF)', 'Requesting: academic transcript', 'Requesting: portfolio or GitHub', 'Availability needed for technical interview this week or next'],
-        action_items: ['Send resume (PDF)', 'Send academic transcript', 'Send portfolio or GitHub link', 'Provide availability for interview'],
-        requires_reply: true,
-      },
-      // Deadline email - application with upcoming deadline
-      {
-        id: `sample-22`,
-        gmail_id: `sample-22`,
-        thread_id: `${baseThreadId}14`,
-        subject: 'Summer Research Fellowship - Application Deadline Approaching',
-        sender: 'Dr. Emily Chen <emily.chen@stanford.edu>',
-        recipients: 'me@company.com',
-        date: new Date(baseTime - 1000 * 60 * 60 * 24 * 2).toISOString(), // 2 days ago
-        body_text: `Hi,
-
-I wanted to follow up on our conversation about the Summer Research Fellowship in AI/ML at Stanford. The application portal is now open and I'd love for you to apply.
-
-Here are the key details:
-- Application deadline: ${new Date(Date.now() + 1000 * 60 * 60 * 24 * 4).toISOString().split('T')[0]} (4 days from now)
-- Duration: 10 weeks (June - August)
-- Stipend: $8,000 + housing
-- You'll need to submit a research proposal (2 pages max) and your CV
-
-I think you'd be a great fit given your background in machine learning. Let me know if you have any questions about the program or need a recommendation letter.
-
-Best,
-Dr. Emily Chen
-Associate Professor, Computer Science
-Stanford University`,
-        snippet: 'Summer Research Fellowship application deadline approaching...',
-        is_read: false,
-        is_starred: false,
-        has_attachments: false,
-        status: 'Unhandled',
-        category: 'Important',
-        summary: 'Dr. Chen is inviting you to apply for a Summer Research Fellowship at Stanford with a deadline in 4 days',
-        key_points: ['Summer Research Fellowship in AI/ML at Stanford', 'Application deadline in 4 days', 'Stipend: $8,000 + housing', 'Need research proposal (2 pages) and CV'],
-        action_items: ['Submit application before deadline', 'Prepare 2-page research proposal', 'Update CV', 'Consider asking for recommendation letter'],
+        category: 'Normal',
+        summary: undefined, // Will be AI-generated
+        key_points: undefined, // Will be AI-generated
+        action_items: undefined, // Will be AI-generated
         requires_reply: true,
       },
     ];
 
     // Set the sample emails in the store
     getStoreState().setEmails(sampleEmails);
+
+    // Trigger AI processing for the test email immediately
+    setTimeout(() => {
+      sampleEmails.forEach(email => {
+        if (!email.summary) {
+          console.log(`[Test Email] Triggering AI processing for: ${email.subject}`);
+          processEmailImmediately(email.id);
+        }
+      });
+    }, 500);
 
     // Set up the question data for the sample emails
     if (!(window as any).emailQuestionData) {
@@ -2786,44 +2160,8 @@ Stanford University`,
     const questionData = (window as any).emailQuestionData;
 
     sampleEmails.forEach(email => {
-      // For test emails, set up specific question data to test the improved prompt
+      // For test emails, set up minimal question data - let AI generate most of it
       let questions = [];
-      if (email.id === 'sample-17') {
-        // Team lunch - should have choice questions
-        questions = [
-          { type: 'choice', question: 'Can you make it to team lunch?', options: ['Yes', 'No'] },
-          { type: 'choice', question: 'What\'s your restaurant preference?', options: ['Pizza from Joe\'s', 'Burgers from Shake Shack', 'Tacos from new place', 'Salads from Sweetgreen'] },
-          { type: 'choice', question: 'Are you cool with splitting the check evenly?', options: ['Yes', 'No'] },
-        ];
-      } else if (email.id === 'sample-18') {
-        // Gift card - should have choice + text question
-        questions = [
-          { type: 'choice', question: 'Which address should we ship to?', options: ['Home address', 'Office address'] },
-          { type: 'text', question: 'What is your shipping address?', options: [] },
-        ];
-      } else if (email.id === 'sample-19') {
-        // Casual weekend - should have NO questions (AI can handle)
-        questions = [];
-      } else if (email.id === 'sample-20') {
-        // Meeting sync - should have NO questions (timing handled by calendar, but meeting_request is set)
-        questions = [];
-      } else if (email.id === 'sample-21') {
-        // Attachment request - should trigger attachment suggestions
-        questions = [
-          { type: 'choice', question: 'Do you have your resume ready to send?', options: ['Yes, I\'ll attach it', 'I need to update it first', 'I\'ll send it separately'] },
-          { type: 'choice', question: 'Should we also include your transcript and portfolio?', options: ['Yes, all documents', 'Resume and transcript only', 'I\'ll send portfolio separately'] },
-          { type: 'text', question: 'What is your availability for an interview this week or next?', options: [] },
-        ];
-      } else if (email.id === 'sample-22') {
-        // Deadline email - research fellowship
-        questions = [
-          { type: 'choice', question: 'Are you interested in applying for this fellowship?', options: ['Yes, I\'ll apply', 'Maybe, need more info', 'Not this time'] },
-          { type: 'choice', question: 'Do you need a recommendation letter from Dr. Chen?', options: ['Yes please', 'No, I have one already', 'I\'ll ask someone else'] },
-        ];
-      } else {
-        // Legacy emails - use action_items
-        questions = email.action_items.map(a => ({ question: a, options: [], type: 'text' })) || [];
-      }
 
       questionData.set(email.id, {
         questions,
@@ -2832,57 +2170,66 @@ Stanford University`,
         requiresReply: email.requires_reply || false,
         requires_reply: email.requires_reply || false,
         reply_reasoning: email.requires_reply ? 'This email requires a response' : 'FYI only',
-        loaded: true,
-        meetingRequest: email.meeting_request || (email.subject.includes('Meeting') || email.subject.includes('Invitation')
-          ? { is_meeting: true, proposed_times: [] }
-          : { is_meeting: false }),
-        // Add attachment_requests for sample-21 (attachment request test email)
-        attachment_requests: email.id === 'sample-21' ? [
-          { keyword: 'resume', file_type: 'pdf', description: 'Please attach your resume (PDF format preferred)' },
-          { keyword: 'transcript', file_type: 'pdf', description: 'Please attach your academic transcript' },
-          { keyword: 'portfolio', file_type: null, description: 'Please attach your portfolio or provide GitHub link' },
-        ] : [],
-        // Add deadline for sample-22 (deadline test email)
-        deadline: email.id === 'sample-22'
-          ? new Date(Date.now() + 1000 * 60 * 60 * 24 * 4).toISOString().split('T')[0]
-          : null,
+        loaded: false, // Will be loaded by AI processing
+        meetingRequest: { is_meeting: false },
+        attachment_requests: [],
+        deadline: null,
       });
     });
 
-    console.log(`✅ Loaded ${sampleEmails.length} sample emails for testing!`);
-    console.log('Sample data includes:');
-    console.log('  - Threaded conversations (try thread view!)');
-    console.log('  - Meeting requests');
-    console.log('  - Shipping updates');
-    console.log('  - Newsletters');
-    console.log('  - Finance/invoices');
-    console.log('  - Social notifications');
-    console.log('  - Attachment request emails (resume, transcript, portfolio)');
-    console.log('  - Deadline email (Stanford research fellowship, due in 4 days)');
-    console.log('  - QUESTION GENERATION TEST EMAILS:');
-    console.log('    • "Team lunch this Friday" - Choice questions (4 restaurant options + yes/no)');
-    console.log('    • "Shipping address for your gift" - Choice + text input questions');
-    console.log('    • "Hope you had a great weekend!" - Should show NO questions (AI can handle)');
-    console.log('    • "Quick sync needed" - Meeting request, no timing questions (calendar handles it)');
-    console.log('    • "Application for Software Engineer" - Attachment suggestions (resume, transcript, portfolio)');
+    console.log(`✅ Loaded ${sampleEmails.length} test email for testing!`);
+    console.log('Test email: "Project deadline extension request" from Sarah Chen');
+    console.log('');
+    console.log('How Aiden should handle this email:');
+    console.log('  1. AUTO-GENERATE SUMMARY: Extract key points (extension request, reasons, timeline)');
+    console.log('  2. CLASSIFY: Determine urgency (Normal/Important based on deadline proximity)');
+    console.log('  3. EXTRACT DEADLINE: Identify "next Wednesday (Nov 20th)" as deadline');
+    console.log('  4. GENERATE ACTION ITEMS: "Respond to extension request", "Review timeline impact"');
+    console.log('  5. DETERMINE REPLY NEEDED: Yes - Sarah is asking for a decision/approval');
+    console.log('  6. SUGGEST REPLY DRAFT: Professional response (approve/deny/counter-propose)');
+    console.log('  7. CREATE LIFE INTEL: Add deadline to Commitments/Today if time-sensitive');
     console.log('');
     console.log('Try these views:');
     console.log('  - Click "Inbox" in sidebar for normal inbox view');
-    console.log('  - Click "Threads" in sidebar for threaded view');
-    console.log('  - Click "Smart Triage" for grouped batch actions');
     console.log('  - Click "Focus Mode" for action-required emails only');
+    console.log('  - Click "Today" to see if deadline appears in commitments');
+    console.log('');
+    console.log('🔍 Watch for AI processing in the console logs!');
 
     return sampleEmails.length;
   };
 
   (window as any).clearSampleEmails = () => {
     getStoreState().setEmails([]);
-    console.log('✅ Cleared sample emails');
+    getStoreState().set({ sentEmails: [] });
+    console.log('✅ Cleared all emails');
+  };
+
+  // Debug function to check current email count
+  (window as any).debugEmails = () => {
+    const state = getStoreState();
+    console.log('📧 Current Email State:');
+    console.log(`  Inbox emails: ${state.emails.length}`);
+    console.log(`  Sent emails: ${state.sentEmails.length}`);
+    console.log(`  Total visible in inbox: ${state.emails.filter(e => e.status === 'Unhandled' || e.status === 'Saved').length}`);
+    console.log('\n📩 Inbox Emails:');
+    state.emails.forEach((e, i) => {
+      console.log(`  ${i + 1}. "${e.subject}" from ${e.sender.split('<')[0].trim()} (${e.status})`);
+    });
+    console.log('\n📤 Sent Emails:');
+    state.sentEmails.forEach((e, i) => {
+      console.log(`  ${i + 1}. "${e.subject}" to ${e.recipients} (${e.status})`);
+    });
   };
 
   // Auto-load sample emails immediately (DEV MODE)
   setTimeout(() => {
     console.log('DEV MODE: Loading sample data for testing...');
+    // First clear any existing emails and persisted data
+    getStoreState().setEmails([]);
+    getStoreState().set({ sentEmails: [] });
+    console.log('DEV MODE: Cleared existing emails and sent emails');
+    // Then load the test email
     (window as any).loadSampleEmails();
   }, 100);
 

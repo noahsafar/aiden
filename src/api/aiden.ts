@@ -60,6 +60,34 @@ Answer in 1–3 sentences, concrete and grounded. No preamble.`;
   }
 }
 
+/**
+ * 2–4 short, sensible context notes about a relationship, grounded in recent
+ * emails. Returns [] on failure or when there's nothing concrete (better than
+ * brittle, mislabeled regex fragments).
+ */
+export async function relationshipContext(
+  name: string,
+  messages: { subject: string; snippet: string }[],
+): Promise<string[]> {
+  if (messages.length === 0) return [];
+  const corpus = messages
+    .map((m) => `- "${m.subject}": ${m.snippet}`)
+    .join('\n')
+    .slice(0, 3000);
+  const prompt = `From these recent emails with ${name}, write 2–4 short context notes a chief of staff would want before talking to them — what they're working on, what they care about, open topics, or anything pending. Each note ≤ 14 words, specific and grounded in the emails. No generic filler, no category labels like "buying process". Return ONLY a JSON array of strings; [] if nothing concrete.
+
+Emails:
+${corpus}`;
+  try {
+    const raw = await runAidenPrompt(prompt, 12000);
+    const parsed = parseJsonLoose<string[]>(raw);
+    if (Array.isArray(parsed)) return parsed.filter((s) => typeof s === 'string' && s.trim()).slice(0, 4);
+  } catch {
+    /* fall through */
+  }
+  return [];
+}
+
 function parseJsonLoose<T>(raw: string): T | null {
   if (!raw) return null;
   const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/) || raw.match(/([\[{][\s\S]*[\]}])/);
@@ -345,9 +373,17 @@ export interface RelationshipInsightInput {
 
 export async function relationshipInsight(input: RelationshipInsightInput): Promise<string> {
   try {
-    const prompt = `In one short, specific sentence, advise the user on their relationship with ${input.name} (${input.category}, strength ${input.relationshipScore}/100, ${
-      input.daysSinceContact ?? '?'
-    } days since contact, ${input.pendingFromYou} things you owe them). Sound like a sharp chief of staff.`;
+    const strength =
+      input.relationshipScore >= 75 ? 'strong' : input.relationshipScore >= 50 ? 'solid' : input.relationshipScore >= 25 ? 'developing' : 'new/thin';
+    const prompt = `You are a calm, honest chief of staff. In ONE short sentence (max 18 words), suggest the single most useful next move for the user's relationship with ${input.name}.
+
+Use ONLY these facts. Do NOT invent numbers, percentages, leverage, deals, renewals, meetings, or any specifics not listed here:
+- Category: ${input.category}
+- Relationship strength: ${strength}
+- Days since last contact: ${input.daysSinceContact ?? 'unknown'}
+- Unfulfilled things the user owes them: ${input.pendingFromYou}
+
+Stay practical and grounded (reconnect, follow through on what's owed, keep it warm, or note no action is needed). No fabricated context, no numbers in your answer.`;
     const raw = await runAidenPrompt(prompt, 8000);
     const line = raw.trim().split('\n')[0];
     if (line) return line.replace(/^["']|["']$/g, '');

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Search,
   Mail,
@@ -23,7 +23,6 @@ import {
   StrengthBar,
   Pill,
   SoftButton,
-  AiSuggestion,
   PersonAvatar,
   EmptyState,
   relativeTime,
@@ -32,8 +31,7 @@ import { useAidenActions } from '@/components/aiden/useAidenActions';
 import { useCrmStore, Contact } from '@/stores/crmStore';
 import { useEmailStore } from '@/stores/emailStore';
 import { useCommitmentStore } from '@/stores/commitmentStore';
-import { deriveContextBullets, recentSubjectsWith } from '@/lib/aidenBrain';
-import { relationshipInsight } from '@/api/aiden';
+import { relationshipContext } from '@/api/aiden';
 import { NetworkGraph } from '@/components/crm/NetworkGraph';
 import { cn } from '@/lib/utils';
 
@@ -354,16 +352,26 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
   const sentEmails = useEmailStore((s) => s.sentEmails);
   const commitments = useCommitmentStore((s) => s.commitments);
   const updateContactVIP = useCrmStore((s) => s.updateContactVIP);
-  const [insight, setInsight] = useState<string>('');
+  const navigate = useNavigate();
+  const [ctxBullets, setCtxBullets] = useState<string[]>([]);
 
-  const context = useMemo(
-    () => deriveContextBullets(emails, sentEmails, contact.email_address),
-    [emails, sentEmails, contact.email_address],
-  );
-  const subjects = useMemo(
-    () => recentSubjectsWith(emails, sentEmails, contact.email_address),
-    [emails, sentEmails, contact.email_address],
-  );
+  // Recent emails with this person (deduped by subject) — used for the thread
+  // list, the AI context notes, and the activity heatmap.
+  const recentThreads = useMemo(() => {
+    const lower = contact.email_address.toLowerCase();
+    const seen = new Set<string>();
+    return [...emails, ...sentEmails]
+      .filter((e) => `${e.sender || ''} ${e.recipients || ''}`.toLowerCase().includes(lower))
+      .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+      .filter((e) => {
+        const key = (e.subject || '').trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 6);
+  }, [emails, sentEmails, contact.email_address]);
+
   const personCommitments = useMemo(
     () =>
       commitments.filter(
@@ -376,19 +384,19 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
 
   useEffect(() => {
     let cancelled = false;
-    relationshipInsight({
-      name: contact.name || contact.email_address.split('@')[0],
-      daysSinceContact: contact.days_since_contact,
-      relationshipScore: contact.relationship_score,
-      category: contact.category,
-      pendingFromYou: personCommitments.filter((c) => c.direction === 'you_owe').length,
-    }).then((i) => {
-      if (!cancelled) setInsight(i);
+    const personName = contact.name || contact.email_address.split('@')[0];
+    // Grounded, sensible context notes (replaces the old regex bullets).
+    const messages = recentThreads.map((e) => ({
+      subject: e.subject || '(no subject)',
+      snippet: (e.body_text || e.snippet || '').replace(/\s+/g, ' ').slice(0, 240),
+    }));
+    relationshipContext(personName, messages).then((b) => {
+      if (!cancelled) setCtxBullets(b);
     });
     return () => {
       cancelled = true;
     };
-  }, [contact, personCommitments]);
+  }, [contact, recentThreads]);
 
   const activityDates = useMemo(() => {
     const lower = contact.email_address.toLowerCase();
@@ -460,15 +468,12 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
         </div>
       </div>
 
-      {/* Aiden suggestion */}
-      {insight && <AiSuggestion className="mt-4">{insight}</AiSuggestion>}
-
-      {/* Important context */}
-      {context.length > 0 && (
+      {/* Important context — grounded AI notes from recent emails */}
+      {ctxBullets.length > 0 && (
         <div className="mt-6">
-          <SectionLabel className="mb-3">Important context</SectionLabel>
+          <SectionLabel className="mb-3" dense>Important context</SectionLabel>
           <ul className="space-y-2">
-            {context.map((b, i) => (
+            {ctxBullets.map((b, i) => (
               <li key={i} className="flex items-start gap-2.5 text-[14px] text-foreground/90">
                 <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-violet-400" />
                 {b}
@@ -517,15 +522,21 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
         </div>
       )}
 
-      {/* Recent threads */}
-      {subjects.length > 0 && (
+      {/* Recent threads — click to open the email */}
+      {recentThreads.length > 0 && (
         <div className="mt-6">
-          <SectionLabel className="mb-3">Recent threads</SectionLabel>
+          <SectionLabel className="mb-3" dense>Recent threads</SectionLabel>
           <div className="space-y-1">
-            {subjects.map((s, i) => (
-              <div key={i} className="truncate rounded-lg px-2 py-1.5 text-[13px] text-muted hover:bg-gray-50 dark:hover:bg-white/[0.03]">
-                {s}
-              </div>
+            {recentThreads.map((e) => (
+              <button
+                key={e.id}
+                onClick={() => navigate(`/today/email/${e.id}`, { state: { returnPath: '/relationships' } })}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04]"
+              >
+                <Mail className="h-3.5 w-3.5 flex-shrink-0 text-muted/40" />
+                <span className="truncate text-[13px] text-muted">{e.subject || '(no subject)'}</span>
+                {e.date && <span className="ml-auto flex-shrink-0 text-[11px] text-muted/40">{relativeTime(e.date)}</span>}
+              </button>
             ))}
           </div>
         </div>
