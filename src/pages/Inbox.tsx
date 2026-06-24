@@ -284,10 +284,11 @@ const SlackReply: React.FC<{ message: UnifiedMessage; onSent: () => void }> = ({
     try {
       const intent = text.trim();
       const instruction = intent
-        ? `Write a brief, friendly Slack reply to ${message.authorName}'s message, following this instruction from me: "${intent}". Reply with only the message text, no preamble.`
-        : `Write a brief, friendly Slack reply to ${message.authorName}'s message. Reply with only the message text, no preamble.`;
+        ? `Write a brief, friendly Slack reply to ${message.authorName}'s message, following this instruction from me: "${intent}". Output ONLY the reply itself — no surrounding quotation marks, no preamble.`
+        : `Write a brief, friendly Slack reply to ${message.authorName}'s message. Output ONLY the reply itself — no surrounding quotation marks, no preamble.`;
       const reply = await answerFromContext(instruction, `${message.authorName}: ${message.preview}`);
-      if (reply) setText(reply);
+      // Models sometimes wrap the reply in quotes — strip surrounding quotes.
+      if (reply) setText(reply.trim().replace(/^["'“”]+|["'“”]+$/g, '').trim());
     } finally {
       setDrafting(false);
     }
