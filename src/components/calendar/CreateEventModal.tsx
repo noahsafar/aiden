@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Loader2, Check, ExternalLink } from 'lucide-react';
 import { createEvent, CreateEventParams } from '@/api/calendar';
 
@@ -107,7 +108,10 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
 
   if (!isOpen) return null;
 
-  return (
+  // Portal to <body> so the fixed backdrop is viewport-relative — otherwise an
+  // ancestor stacking/containing-block context (the page tree) offsets it and a
+  // strip at the very top of the page never gets covered by the blur.
+  return createPortal(
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={handleClose}>
       <div
         className="bg-surface rounded-2xl shadow-elevated-lg border border-gray-200/70 dark:border-white/[0.08] w-full max-w-lg mx-4 max-h-[90vh] flex flex-col animate-scale-in"
@@ -285,6 +289,7 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
           </form>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
