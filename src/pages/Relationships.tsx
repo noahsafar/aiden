@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   Search,
@@ -14,6 +14,7 @@ import {
   X,
   ChevronDown,
   ArrowUpDown,
+  Check,
 } from 'lucide-react';
 import {
   SurfaceHeader,
@@ -54,6 +55,12 @@ const SEGMENTS = [
 ] as const;
 type Segment = (typeof SEGMENTS)[number]['id'];
 type SortBy = 'strength' | 'recent' | 'emails' | 'cooling';
+const SORT_OPTIONS: { id: SortBy; label: string }[] = [
+  { id: 'strength', label: 'Strongest first' },
+  { id: 'recent', label: 'Recent contact' },
+  { id: 'emails', label: 'Most emails' },
+  { id: 'cooling', label: 'Cooling first' },
+];
 
 export const Relationships: React.FC = () => {
   const location = useLocation();
@@ -63,7 +70,17 @@ export const Relationships: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [segment, setSegment] = useState<Segment>('all');
   const [sortBy, setSortBy] = useState<SortBy>('strength');
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
   const [graphCats, setGraphCats] = useState<Set<string>>(new Set(GRAPH_CATEGORIES));
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
 
   useEffect(() => {
     if (!hasExtractedContacts) extractContacts();
@@ -242,21 +259,36 @@ export const Relationships: React.FC = () => {
               ))}
             </div>
 
-            {/* Sort */}
-            <div className="relative inline-flex items-center">
-              <ArrowUpDown className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted/50" />
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortBy)}
-                aria-label="Sort people by"
-                className="cursor-pointer appearance-none rounded-lg border border-gray-200/70 bg-white py-1.5 pl-8 pr-8 text-[12px] font-medium text-foreground outline-none transition-colors hover:border-gray-300 focus:border-violet-400 dark:border-white/[0.07] dark:bg-white/[0.04] dark:hover:border-white/20"
+            {/* Sort — custom dropdown so the menu inherits the app font/theme */}
+            <div ref={sortRef} className="relative inline-block">
+              <button
+                onClick={() => setSortOpen((o) => !o)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200/70 bg-white py-1.5 pl-2.5 pr-2 text-[12px] font-medium text-foreground transition-colors hover:border-gray-300 dark:border-white/[0.07] dark:bg-white/[0.04] dark:hover:border-white/20"
               >
-                <option value="strength">Strongest first</option>
-                <option value="recent">Recent contact</option>
-                <option value="emails">Most emails</option>
-                <option value="cooling">Cooling first</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-muted/50" />
+                <ArrowUpDown className="h-3.5 w-3.5 text-muted/50" />
+                {SORT_OPTIONS.find((o) => o.id === sortBy)?.label}
+                <ChevronDown className={cn('h-3.5 w-3.5 text-muted/50 transition-transform', sortOpen && 'rotate-180')} />
+              </button>
+              {sortOpen && (
+                <div className="absolute left-0 z-20 mt-1.5 w-44 overflow-hidden rounded-xl border border-gray-200/70 bg-surface py-1 shadow-elevated-lg dark:border-white/[0.08]">
+                  {SORT_OPTIONS.map((o) => (
+                    <button
+                      key={o.id}
+                      onClick={() => {
+                        setSortBy(o.id);
+                        setSortOpen(false);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between px-3 py-1.5 text-left text-[13px] transition-colors hover:bg-gray-100/70 dark:hover:bg-white/[0.05]',
+                        sortBy === o.id ? 'font-medium text-foreground' : 'text-muted',
+                      )}
+                    >
+                      {o.label}
+                      {sortBy === o.id && <Check className="h-3.5 w-3.5 text-violet-500" />}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">

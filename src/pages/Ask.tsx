@@ -156,6 +156,17 @@ export const Ask: React.FC = () => {
       const email = contact?.email_address;
       const context = deriveContextBullets(emails, sentEmails, email);
       const subjects = recentSubjectsWith(emails, sentEmails, email);
+      // Ground the brief in the ACTUAL recent email content with this person,
+      // not just subject lines — so an existing thread (e.g. a meeting they
+      // proposed) is reflected in the objectives.
+      const lower = email?.toLowerCase();
+      const recentMessages = lower
+        ? [...emails, ...sentEmails]
+            .filter((e) => `${e.sender || ''} ${e.recipients || ''}`.toLowerCase().includes(lower))
+            .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+            .slice(0, 4)
+            .map((e) => `"${e.subject || '(no subject)'}": ${(e.body_text || e.snippet || '').replace(/\s+/g, ' ').slice(0, 240)}`)
+        : [];
       const personCommitments = commitments.filter(
         (c) => c.status === 'open' && email && c.counterpartyEmail?.toLowerCase() === email.toLowerCase(),
       );
@@ -166,7 +177,7 @@ export const Ask: React.FC = () => {
         lastContact: contact?.last_contacted ? new Date(contact.last_contacted).toLocaleDateString() : undefined,
         relationshipScore: contact?.relationship_score,
         recentSubjects: subjects,
-        context,
+        context: [...context, ...recentMessages],
         openCommitments: personCommitments,
       });
       return { kind: 'brief', brief, person: name, context, subjects };
@@ -408,7 +419,7 @@ export const Ask: React.FC = () => {
 
       {/* Composer — fixed 72px footer so its divider aligns exactly with the
           sidebar profile footer (p-3 + 32px avatar = 72px). */}
-      <div className="flex min-h-[72px] items-center border-t border-gray-200/70 bg-background/80 px-8 backdrop-blur-xl dark:border-white/[0.06]">
+      <div className="flex h-[72px] items-center border-t border-gray-200/70 bg-background/80 px-8 backdrop-blur-xl dark:border-white/[0.06]">
         <form
           onSubmit={(e) => {
             e.preventDefault();

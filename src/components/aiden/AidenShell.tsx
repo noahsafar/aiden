@@ -119,9 +119,9 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
           ))}
         </div>
 
-        {/* Profile / settings */}
-        <div className="border-t border-gray-200/70 p-3 dark:border-white/[0.06]">
-          <div className="flex items-center gap-2.5 rounded-xl px-2 py-2">
+        {/* Profile / settings — fixed height so its divider aligns with the Ask composer */}
+        <div className="flex h-[72px] items-center border-t border-gray-200/70 px-3 dark:border-white/[0.06]">
+          <div className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2">
             <PersonAvatar name={user?.name} email={user?.email} size={32} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-[13px] font-medium text-foreground">{user?.name || 'You'}</div>
