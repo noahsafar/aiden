@@ -2469,14 +2469,13 @@ Sarah`,
     });
   };
 
-  // Auto-load sample emails immediately (DEV MODE)
-  setTimeout(() => {
-    console.log('DEV MODE: Loading sample data for testing...');
-    // loadSampleEmails() replaces the email list, so no manual clear is needed.
-    // (The old code called a non-existent store `.set(...)` here, which threw
-    // AFTER clearing emails and BEFORE loading the sample — leaving the inbox empty.)
-    (window as any).loadSampleEmails();
-  }, 100);
+  // LIVE MODE: real Gmail is the source of truth — sample emails are NOT
+  // auto-loaded. `window.loadSampleEmails()` is still defined above, so you can
+  // load the demo set manually from the console when you want to test offline.
+  // To return to demo mode, uncomment the auto-loader below.
+  // setTimeout(() => {
+  //   (window as any).loadSampleEmails();
+  // }, 100);
 
   // Also make the sample emails available to the global window object for easier debugging
   // and to ensure they populate the inbox properly

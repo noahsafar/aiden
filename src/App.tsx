@@ -500,51 +500,33 @@ function App() {
       }
 
       await initialize();
-      // After auth is initialized, start fetching emails
-      // DEV MODE: disabled to use mock data instead
-      // if (isAuthenticated) {
-      //   fetchEmails();
-      // }
 
-      // Initialize the reminder checker for auto-reminders
+      // LIVE MODE: connect to the user's real Gmail once authenticated.
       if (isAuthenticated) {
-        // TEMPORARILY DISABLED TO TEST
-        // const { initializeReminderChecker } = useEmailStore.getState();
-        // initializeReminderChecker();
-
-        // DEV MODE: skip real Gmail fetch, sample emails loaded from emailStore
-        // Load cached emails from disk first (instant display)
-        // await loadFromDisk();
-        // Purge trash older than 30 days
-        // useEmailStore.getState().purgeOldTrash();
-        // Load life intelligence data from disk
-        // import('@/stores/lifeStore').then(({ useLifeStore }) => {
-        //   useLifeStore.getState().loadFromDisk();
-        // });
-        // Then fetch fresh emails from Gmail (silently if cache was loaded)
-        // fetchEmails();
+        // Load cached emails from disk first for instant display.
+        await loadFromDisk();
+        // Purge trash older than 30 days.
+        useEmailStore.getState().purgeOldTrash();
+        // Load life-intelligence data from disk.
+        import('@/stores/lifeStore').then(({ useLifeStore }) => {
+          useLifeStore.getState().loadFromDisk();
+        });
+        // Then fetch fresh mail from Gmail (silent backfill if cache was shown).
+        fetchEmails();
+        // Auto-reminder checker for follow-ups.
+        useEmailStore.getState().initializeReminderChecker();
       }
     };
 
     initAuth();
   }, [initialize, isAuthenticated, loadThemeFromSettings, loadFromDisk, fetchEmails]);
 
-  // DEV MODE: ensure sample emails are loaded against the LIVE store. The
-  // module-init auto-loader can miss (HMR / store re-creation), leaving the
-  // inbox empty even though the loader "ran". This guarantees population.
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    if (emails.length === 0 && typeof (window as any).loadSampleEmails === 'function') {
-      (window as any).loadSampleEmails();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]);
+  // LIVE MODE: no sample-email injection — the inbox is populated from real
+  // Gmail (cache-from-disk, then fetch) in initAuth above.
 
-  // Set up polling for new emails - only poll when window is focused to reduce load
-  // DEV MODE: polling disabled, using mock emails
+  // Set up polling for new emails - only poll when window is focused to reduce load.
   useEffect(() => {
     if (!isAuthenticated) return;
-    return; // DEV MODE: skip polling
 
     let interval: NodeJS.Timeout | null = null;
     let lastFetchTime = 0;
