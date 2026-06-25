@@ -48,6 +48,7 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
     const emailNeeds = emails.filter(
       (e: any) =>
         !['Deleted', 'Archived', 'Saved', 'Replied'].includes(e.status) &&
+        !e.attention_dismissed &&
         (e.requires_reply === true || e.category === 'Urgent' || e.category === 'Important'),
     ).length;
     const channelNeeds = channelMessages.filter((m) => !m.outgoing && m.unread && m.priority !== 'low').length;

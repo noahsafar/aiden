@@ -23,9 +23,9 @@ function isActionable(m: UnifiedMessage): boolean {
   if (m.outgoing) return false; // your own sent messages never need a response
   if (m.channel === 'email') {
     const r = m.raw as any;
-    // Once you've replied/handled it, it's no longer in "Needs you" — even if it
-    // was Urgent/Important (matches how a replied channel message drops out).
-    if (r?.status === 'Replied' || r?.status === 'Archived') return false;
+    // Once you've replied or dismissed/handled it, it's no longer in "Needs you" —
+    // even if it was Urgent/Important (matches how a handled channel message drops out).
+    if (r?.status === 'Replied' || r?.status === 'Archived' || r?.attention_dismissed) return false;
     return r?.requires_reply === true || r?.category === 'Urgent' || r?.category === 'Important';
   }
   // Any other channel: unread + not low-priority (DMs, mentions, assignments, reviews).
@@ -194,8 +194,11 @@ const MessageRow: React.FC<{
   const ChannelIcon = meta.icon;
   const aiSummary = isEmail ? (m.raw as any)?.summary : null;
   const body = aiSummary || m.preview;
-  // An inbound email you've already replied to (handled, but still browseable in "All").
+  // An inbound email you've already handled — replied to, or dismissed from Today.
+  // Still browseable in "All" with a tag, just out of "Needs you".
   const replied = isEmail && (m.raw as any)?.status === 'Replied';
+  const dismissed = isEmail && !replied && (m.raw as any)?.attention_dismissed === true;
+  const handled = replied || dismissed;
 
   return (
     <div
@@ -226,15 +229,15 @@ const MessageRow: React.FC<{
               {m.authorName}
             </span>
             {!isEmail && <span className="truncate text-[12px] text-muted/60">{m.title}</span>}
-            {m.priority === 'high' && !replied && (
+            {m.priority === 'high' && !handled && (
               <span className="rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
                 Urgent
               </span>
             )}
-            {replied && (
+            {handled && (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
-                <CornerUpLeft className="h-2.5 w-2.5" />
-                Replied
+                {replied ? <CornerUpLeft className="h-2.5 w-2.5" /> : <Check className="h-2.5 w-2.5" />}
+                {replied ? 'Replied' : 'Handled'}
               </span>
             )}
             <span className="ml-auto flex-shrink-0 text-[11px] text-muted/50">{relativeTime(m.timestamp)}</span>
@@ -263,7 +266,7 @@ const MessageRow: React.FC<{
             <SoftButton variant="soft" icon={<CornerUpLeft className="h-3.5 w-3.5" />} onClick={onReply}>
               {replied ? 'Reply again' : 'Reply'}
             </SoftButton>
-            {!replied && (
+            {!handled && (
               <button
                 onClick={onDone}
                 title="Mark handled"

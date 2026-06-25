@@ -253,7 +253,18 @@ const FocusCard: React.FC<{
               {opp.outcomeTitle}
             </h3>
           </div>
-          <div className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-emerald-500" />
+          <div className="mt-0.5 flex flex-shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <div className="h-2 w-2 rounded-full bg-emerald-500" />
+            {onDismiss && (
+              <button
+                onClick={onDismiss}
+                title="Dismiss"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-muted/40 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+              >
+                <Check className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {opp.detail && (
@@ -528,13 +539,45 @@ export const Today: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const emails = useEmailStore((s) => s.emails);
   const sentEmails = useEmailStore((s) => s.sentEmails);
-  const dismissAttention = useEmailStore((s) => s.dismissAttention);
   const { contacts, hasExtractedContacts, extractContacts } = useCrmStore();
   const { commitments, hasExtracted, extract, getOpen, markDone } = useCommitmentStore();
   const slack = useChannelStore((s) => s.channelMessages);
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [showLowPriority, setShowLowPriority] = useState(false);
+
+  // Dismissed focus items (any type — email, channel, commitment, opportunity),
+  // keyed by their stable id and persisted so they don't reappear on remount.
+  const [dismissedFocus, setDismissedFocus] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('aiden_dismissed_focus');
+      return new Set<string>(raw ? JSON.parse(raw) : []);
+    } catch {
+      return new Set<string>();
+    }
+  });
+  const dismissFocus = (f: FocusItem) => {
+    setDismissedFocus((prev) => {
+      const next = new Set(prev).add(f.item.id);
+      try {
+        localStorage.setItem('aiden_dismissed_focus', JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+    // Dismiss = handled. Propagate to the source so the item also leaves the
+    // Inbox's "Needs you" (it stays in "All" with a Handled/Replied tag).
+    if (f.type === 'attention') {
+      const item = f.item;
+      if (item.emailId) {
+        useEmailStore.getState().dismissAttention(item.emailId);
+      } else if (item.channel && item.channel !== 'email') {
+        const msgId = item.suggestions.find((s) => s.action === 'open_channel')?.payload?.id as string | undefined;
+        if (msgId) useChannelStore.getState().markRead(msgId);
+      }
+    }
+  };
 
   useEffect(() => {
     if (!hasExtractedContacts) extractContacts();
@@ -603,17 +646,19 @@ export const Today: React.FC = () => {
   }, [commitments]);
 
   // Focus: top real-person attention items, fill remainder with opportunities. Max 3.
+  // Dismissed items drop out and the next-most-important one promotes into view.
   const focusItems = useMemo<FocusItem[]>(() => {
     const topAttention: FocusItem[] = attention
-      .filter((i) => i.severity >= 40 && i.person !== undefined)
+      .filter((i) => i.severity >= 40 && i.person !== undefined && !dismissedFocus.has(i.id))
       .slice(0, 3)
       .map((item) => ({ type: 'attention', item }));
     const spots = Math.max(0, 3 - topAttention.length);
     const oppItems: FocusItem[] = opportunities
+      .filter((o) => !dismissedFocus.has(o.id))
       .slice(0, spots)
       .map((item) => ({ type: 'opportunity', item }));
     return [...topAttention, ...oppItems].slice(0, 3);
-  }, [attention, opportunities]);
+  }, [attention, opportunities, dismissedFocus]);
 
   const focusAttentionIds = new Set(
     focusItems.filter((f) => f.type === 'attention').map((f) => (f.item as AttentionItem).id),
@@ -625,16 +670,16 @@ export const Today: React.FC = () => {
   );
   const visibleLoops = openCommitments.filter((c) => !focusCommitmentIds.has(c.id));
   const lowPriorityItems = useMemo(
-    () => attention.filter((i) => !focusAttentionIds.has(i.id) && i.person !== undefined),
-    [attention, focusAttentionIds],
+    () => attention.filter((i) => !focusAttentionIds.has(i.id) && i.person !== undefined && !dismissedFocus.has(i.id)),
+    [attention, focusAttentionIds, dismissedFocus],
   );
 
   const focusOppIds = new Set(
     focusItems.filter((f) => f.type === 'opportunity').map((f) => (f.item as Opportunity).id),
   );
   const remainingOpps = useMemo(
-    () => opportunities.filter((o) => !focusOppIds.has(o.id)),
-    [opportunities, focusOppIds],
+    () => opportunities.filter((o) => !focusOppIds.has(o.id) && !dismissedFocus.has(o.id)),
+    [opportunities, focusOppIds, dismissedFocus],
   );
 
 
@@ -787,15 +832,11 @@ export const Today: React.FC = () => {
           <div className="space-y-3">
             {focusItems.map((f, idx) => (
               <FocusCard
-                key={f.type === 'attention' ? f.item.id : f.item.id}
+                key={f.item.id}
                 focus={f}
                 index={idx + 1}
                 onAction={act}
-                onDismiss={
-                  f.type === 'attention' && f.item.emailId
-                    ? () => dismissAttention((f.item as AttentionItem).emailId!)
-                    : undefined
-                }
+                onDismiss={() => dismissFocus(f)}
               />
             ))}
           </div>
