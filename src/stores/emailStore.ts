@@ -1444,6 +1444,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       }
       rescanCommitments();
 
+      // Bump the recipient's relationship stats (sent count + recency) so the
+      // Relationships view reflects the reply immediately — contacts are derived
+      // once at startup, so a new send wouldn't otherwise show up.
+      import('./crmStore')
+        .then(({ useCrmStore }) => useCrmStore.getState().recordSentEmail(to))
+        .catch(() => {});
+
       // Schedule a reminder if this is a reply (has inReplyTo)
       if (inReplyTo) {
         get().scheduleReplyReminder(sentEmail.id, inReplyTo, 3); // 3 days default

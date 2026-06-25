@@ -377,9 +377,9 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
     };
   }, []);
 
-  // Recent emails with this person (deduped by subject) — used for the thread
-  // list, the AI context notes, and the activity heatmap.
-  const recentThreads = useMemo(() => {
+  // Threads to AI-summarize for the context notes — includes your sent mail so
+  // the AI understands both sides of the conversation. (Not shown as a list.)
+  const contextThreads = useMemo(() => {
     const lower = contact.email_address.toLowerCase();
     const seen = new Set<string>();
     return [...emails, ...sentEmails]
@@ -393,6 +393,23 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
       })
       .slice(0, 6);
   }, [emails, sentEmails, contact.email_address]);
+
+  // The displayed "Recent" list shows only what they sent you — your own sent
+  // replies aren't listed (they live in the thread / feed AI context instead).
+  const recentThreads = useMemo(() => {
+    const lower = contact.email_address.toLowerCase();
+    const seen = new Set<string>();
+    return emails
+      .filter((e) => `${e.sender || ''}`.toLowerCase().includes(lower))
+      .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+      .filter((e) => {
+        const key = (e.subject || '').trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 6);
+  }, [emails, contact.email_address]);
 
   const personCommitments = useMemo(
     () =>
@@ -408,7 +425,8 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
     let cancelled = false;
     const personName = contact.name || contact.email_address.split('@')[0];
     // Grounded, sensible context notes (replaces the old regex bullets).
-    const messages = recentThreads.map((e) => ({
+    // Uses both sides of the conversation (incl. your sent mail) for the AI.
+    const messages = contextThreads.map((e) => ({
       subject: e.subject || '(no subject)',
       snippet: (e.body_text || e.snippet || '').replace(/\s+/g, ' ').slice(0, 240),
     }));
@@ -418,7 +436,7 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
     return () => {
       cancelled = true;
     };
-  }, [contact, recentThreads]);
+  }, [contact, contextThreads]);
 
   const activityDates = useMemo(() => {
     const lower = contact.email_address.toLowerCase();

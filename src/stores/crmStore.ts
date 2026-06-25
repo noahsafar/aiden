@@ -134,6 +134,8 @@ export interface CrmState {
 
   // Actions
   extractContacts: () => Promise<void>;
+  /** Increment a contact's sent count + recency after the user sends them an email. */
+  recordSentEmail: (recipient: string, name?: string) => void;
   fetchContacts: (limit?: number, offset?: number) => Promise<void>;
   fetchContact: (contactId: string) => Promise<void>;
   setSelectedContact: (contact: Contact | null) => void;
@@ -378,6 +380,61 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         isLoading: false
       });
     }
+  },
+
+  recordSentEmail: (recipient, name) => {
+    if (USE_MOCK_DATA) return;
+    const addr = extractEmailAddress(recipient);
+    if (!addr) return;
+    const lower = addr.toLowerCase();
+    const now = Date.now();
+
+    // Recompute a contact's relationship score from its counts/recency — same
+    // formula as extractContacts, so an incremented sent count stays consistent.
+    const scored = (c: Contact): Contact => {
+      const total = c.total_emails_sent + c.total_emails_received;
+      const recency = c.last_contacted ? Math.min(100, 100 / (1 + (now - c.last_contacted) / (1000 * 60 * 60 * 24 * 30))) : 0;
+      const frequency = total > 0 ? Math.min(100, Math.log10(total) * 40) : 0;
+      const sent = c.total_emails_sent;
+      const received = c.total_emails_received;
+      const mutuality = sent + received > 0 ? (sent > received ? received / sent : sent / received) * 100 : 0;
+      return {
+        ...c,
+        relationship_score: Math.min(100, recency * 0.4 + frequency * 0.3 + mutuality * 0.3),
+        days_since_contact: c.last_contacted ? Math.floor((now - c.last_contacted) / (1000 * 60 * 60 * 24)) : c.days_since_contact,
+      };
+    };
+
+    set((state) => {
+      let found = false;
+      let contacts = state.contacts.map((c) => {
+        if (c.email_address.toLowerCase() !== lower) return c;
+        found = true;
+        return scored({ ...c, total_emails_sent: c.total_emails_sent + 1, last_contacted: now });
+      });
+      if (!found) {
+        // First time we've ever contacted this address — create the contact.
+        contacts = [
+          ...contacts,
+          scored({
+            id: `crm_${lower.replace(/[^a-z0-9]/g, '_')}`,
+            email_address: addr,
+            name: name || extractName(recipient) || undefined,
+            domain: extractDomain(addr),
+            first_seen: now,
+            last_contacted: now,
+            total_emails_received: 0,
+            total_emails_sent: 1,
+            total_threads: 0,
+            relationship_score: 0,
+            category: 'Other',
+            is_vip: false,
+          }),
+        ];
+      }
+      contacts.sort((a, b) => b.relationship_score - a.relationship_score);
+      return { contacts };
+    });
   },
 
   fetchContacts: async (limit = 100, _offset = 0) => {
