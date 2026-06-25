@@ -112,11 +112,14 @@ USER_INFO_FILE = TOKEN_DIR / 'user_info.json'
 SENT_EMAILS_CACHE_FILE = TOKEN_DIR / 'sent_emails_cache.json'
 
 # ---------------------------------------------------------------------------
-# Slack integration (DMs + mentions). Credentials come from the environment,
-# exactly like the Google ones. Create a Slack app at api.slack.com/apps with
-# redirect URL http://localhost:8080/slack/callback and the user-token scopes
-# listed in SLACK_SCOPES, then export SLACK_CLIENT_ID / SLACK_CLIENT_SECRET.
+# Slack integration (DMs + mentions). Two ways to connect:
+#   (A) Simplest for your own account — paste your User OAuth Token (xoxp-...)
+#       as SLACK_USER_TOKEN. No OAuth flow / Connect button needed.
+#   (B) Full OAuth — set SLACK_CLIENT_ID / SLACK_CLIENT_SECRET and use the
+#       Connect button (redirect URL http://localhost:8080/slack/callback).
+# Either way the token needs the scopes in SLACK_SCOPES.
 # ---------------------------------------------------------------------------
+SLACK_USER_TOKEN = os.getenv('SLACK_USER_TOKEN')  # xoxp-... (direct, optional)
 SLACK_CLIENT_ID = os.getenv('SLACK_CLIENT_ID')
 SLACK_CLIENT_SECRET = os.getenv('SLACK_CLIENT_SECRET')
 SLACK_TOKEN_FILE = TOKEN_DIR / 'slack_token.json'
@@ -141,7 +144,13 @@ def _slack_save_token(data):
 
 
 def _slack_user_token():
-    """The user-scoped access token (oauth.v2.access returns it under authed_user)."""
+    """The user-scoped access token.
+
+    Prefers SLACK_USER_TOKEN (pasted directly), else the token persisted from the
+    OAuth flow (oauth.v2.access returns it under authed_user).
+    """
+    if SLACK_USER_TOKEN:
+        return SLACK_USER_TOKEN
     tok = _slack_load_token()
     if not tok:
         return None
@@ -1368,7 +1377,7 @@ class OAuthHandler(BaseHTTPRequestHandler):
         team = (tok.get('team') or {}).get('name')
         self.wfile.write(json.dumps({
             'connected': bool(_slack_user_token()),
-            'configured': bool(SLACK_CLIENT_ID and SLACK_CLIENT_SECRET),
+            'configured': bool(SLACK_USER_TOKEN or (SLACK_CLIENT_ID and SLACK_CLIENT_SECRET)),
             'team': team,
         }).encode())
 
