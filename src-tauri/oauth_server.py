@@ -125,6 +125,9 @@ SLACK_CLIENT_SECRET = os.getenv('SLACK_CLIENT_SECRET')
 SLACK_TOKEN_FILE = TOKEN_DIR / 'slack_token.json'
 SLACK_REDIRECT_URI = 'http://localhost:8080/slack/callback'
 SLACK_SCOPES = 'channels:history,groups:history,im:history,mpim:history,channels:read,users:read,chat:write'
+# Testing aid: by default Aiden skips your own messages (you don't act on what you
+# sent). Set SLACK_INCLUDE_OWN=1 to include them so you can self-test the pipeline.
+SLACK_INCLUDE_OWN = os.getenv('SLACK_INCLUDE_OWN', '').strip().lower() in ('1', 'true', 'yes')
 
 
 def _slack_load_token():
@@ -225,7 +228,7 @@ def fetch_slack_messages(token, channel_limit=30, history_limit=15):
             for m in hist:
                 if m.get('subtype') or not m.get('ts'):
                     continue
-                if m.get('user') == my_id:
+                if m.get('user') == my_id and not SLACK_INCLUDE_OWN:
                     continue
                 key = f"{cid}-{m['ts']}"
                 if key in seen:
@@ -263,8 +266,8 @@ def fetch_slack_messages(token, channel_limit=30, history_limit=15):
             for m in hist:
                 if m.get('subtype') or not m.get('ts'):
                     continue
-                if m.get('user') == my_id:
-                    continue
+                # NOTE: own messages are NOT skipped here — if you @-mention
+                # yourself it's a deliberate self-flag/reminder, so surface it.
                 if mention_tok not in (m.get('text') or ''):
                     continue
                 key = f"{cid}-{m['ts']}"

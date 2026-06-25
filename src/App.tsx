@@ -541,6 +541,10 @@ function App() {
       if (now - lastFetchTime < MIN_FETCH_INTERVAL) return;
       lastFetchTime = now;
       fetchEmails();
+      // Keep live channels (Slack) current alongside email.
+      import('@/stores/channelStore').then(({ useChannelStore }) => {
+        useChannelStore.getState().loadSlack();
+      });
     };
 
     const startPolling = () => {
