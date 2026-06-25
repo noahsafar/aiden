@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Hash, Users, MessageCircle, Layers, Github, Sparkles, Check, CornerUpLeft, Send, Loader2, ChevronRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -54,6 +54,27 @@ export const Inbox: React.FC = () => {
   const [channel, setChannel] = useState<ChannelId | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const doneRef = useRef<HTMLDivElement>(null);
+  const preExpandScroll = useRef(0);
+  const mounted = useRef(false);
+
+  const toggleDone = () => {
+    // Remember where we are before revealing the group, so closing can return here
+    // rather than leaving the scroll stranded in the gap the collapsed rows left.
+    if (!showDone) preExpandScroll.current = scrollRef.current?.scrollTop ?? 0;
+    setShowDone((s) => !s);
+  };
+
+  // Open → bring the Done group into view (it sits below the active stream, often off
+  // screen). Close → scroll back to the pre-expand spot so no empty space is left.
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    const el = scrollRef.current;
+    if (!el) return;
+    if (showDone) doneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    else el.scrollTo({ top: preExpandScroll.current, behavior: 'smooth' });
+  }, [showDone]);
 
   const all = useMemo<UnifiedMessage[]>(() => {
     const emailMsgs = emails
@@ -164,7 +185,7 @@ export const Inbox: React.FC = () => {
       </div>
 
       {/* Stream */}
-      <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
+      <div ref={scrollRef} className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
         {list.length === 0 ? (
           <div className="pt-10">
             <EmptyState
@@ -193,12 +214,12 @@ export const Inbox: React.FC = () => {
             {/* Everything you've already handled — collapsed by default so it never
                 crowds the active stream, but one click away when you need it. */}
             {done.length > 0 && (
-              <div className="pt-2">
+              <div ref={doneRef} className="pt-2">
                 {active.length === 0 && (
                   <p className="px-4 pb-1 text-[13px] text-muted">Nothing active here — everything below is done.</p>
                 )}
                 <button
-                  onClick={() => setShowDone((s) => !s)}
+                  onClick={toggleDone}
                   className="flex w-full items-center gap-1.5 rounded-lg px-4 py-2 text-[12px] font-semibold uppercase tracking-wide text-muted/70 transition-colors hover:text-foreground"
                 >
                   <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', showDone && 'rotate-90')} />
