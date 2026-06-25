@@ -56,6 +56,11 @@ interface ChannelState {
   markRead: (id: string) => void;
   /** Record an outgoing reply in a thread (mock send) and mark the thread read. */
   sendMessage: (args: { threadId: string; channel: ChannelId; text: string; replyToId?: string }) => void;
+  /** Slack connection state (live integration). */
+  slackConnected: boolean;
+  slackTeam?: string;
+  /** Pull live Slack status + messages and fold them into channelMessages. */
+  loadSlack: () => Promise<void>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -142,6 +147,27 @@ export const useChannelStore = create<ChannelState>((set) => ({
     set((state) => ({
       channels: state.channels.map((ch) => (ch.id === id ? { ...ch, connected: true } : ch)),
     })),
+
+  slackConnected: false,
+  slackTeam: undefined,
+
+  loadSlack: async () => {
+    const { getSlackStatus, fetchSlackMessages } = await import('@/api/slack');
+    const status = await getSlackStatus();
+    set((state) => ({
+      slackConnected: status.connected,
+      slackTeam: status.team,
+      channels: state.channels.map((c) =>
+        c.id === 'slack' ? { ...c, connected: status.connected, live: status.connected } : c,
+      ),
+    }));
+    if (!status.connected) return;
+    // Replace the mock Slack entries with live ones; leave other channels intact.
+    const live = await fetchSlackMessages();
+    set((state) => ({
+      channelMessages: [...state.channelMessages.filter((m) => m.channel !== 'slack'), ...live],
+    }));
+  },
 
   markRead: (id) =>
     set((state) => ({

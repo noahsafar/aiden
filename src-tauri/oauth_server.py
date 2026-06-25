@@ -111,6 +111,176 @@ CREDENTIALS_FILE = TOKEN_DIR / 'credentials.json'
 USER_INFO_FILE = TOKEN_DIR / 'user_info.json'
 SENT_EMAILS_CACHE_FILE = TOKEN_DIR / 'sent_emails_cache.json'
 
+# ---------------------------------------------------------------------------
+# Slack integration (DMs + mentions). Credentials come from the environment,
+# exactly like the Google ones. Create a Slack app at api.slack.com/apps with
+# redirect URL http://localhost:8080/slack/callback and the user-token scopes
+# listed in SLACK_SCOPES, then export SLACK_CLIENT_ID / SLACK_CLIENT_SECRET.
+# ---------------------------------------------------------------------------
+SLACK_CLIENT_ID = os.getenv('SLACK_CLIENT_ID')
+SLACK_CLIENT_SECRET = os.getenv('SLACK_CLIENT_SECRET')
+SLACK_TOKEN_FILE = TOKEN_DIR / 'slack_token.json'
+SLACK_REDIRECT_URI = 'http://localhost:8080/slack/callback'
+SLACK_SCOPES = 'channels:history,groups:history,im:history,mpim:history,channels:read,users:read,chat:write'
+
+
+def _slack_load_token():
+    try:
+        if SLACK_TOKEN_FILE.exists():
+            with open(SLACK_TOKEN_FILE) as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[slack] load token error: {e}")
+    return None
+
+
+def _slack_save_token(data):
+    TOKEN_DIR.mkdir(parents=True, exist_ok=True)
+    with open(SLACK_TOKEN_FILE, 'w') as f:
+        json.dump(data, f)
+
+
+def _slack_user_token():
+    """The user-scoped access token (oauth.v2.access returns it under authed_user)."""
+    tok = _slack_load_token()
+    if not tok:
+        return None
+    return (tok.get('authed_user') or {}).get('access_token') or tok.get('access_token')
+
+
+def _slack_ts_to_iso(ts):
+    try:
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
+    except Exception:
+        return None
+
+
+def fetch_slack_messages(token, channel_limit=30, history_limit=15):
+    """Fetch the user's DMs and @-mentions, normalized for the unified inbox.
+
+    Bounded on purpose (channel_limit / history_limit) to stay well under Slack's
+    rate limits on a personal workspace. Returns a list of dicts the frontend maps
+    to UnifiedMessage via slackToUnified().
+    """
+    import requests
+
+    def api(method, params=None):
+        r = requests.get(
+            f'https://slack.com/api/{method}',
+            headers={'Authorization': f'Bearer {token}'},
+            params=params or {},
+            timeout=15,
+        )
+        data = r.json()
+        if not data.get('ok'):
+            raise Exception(f"slack {method}: {data.get('error', 'unknown')}")
+        return data
+
+    # Who am I — to detect mentions and skip my own messages.
+    me = api('auth.test')
+    my_id = me.get('user_id')
+
+    # Resolve user id -> display name (one bulk call, cached locally).
+    users = {}
+    try:
+        cursor = None
+        for _ in range(5):  # cap pagination
+            page = api('users.list', {'limit': 200, **({'cursor': cursor} if cursor else {})})
+            for u in page.get('members', []):
+                prof = u.get('profile') or {}
+                users[u.get('id')] = prof.get('display_name') or prof.get('real_name') or u.get('name') or u.get('id')
+            cursor = (page.get('response_metadata') or {}).get('next_cursor')
+            if not cursor:
+                break
+    except Exception as e:
+        print(f"[slack] users.list error: {e}")
+
+    def name_of(uid):
+        return users.get(uid, uid or 'Unknown')
+
+    def humanize(text):
+        # Replace <@U123> mention tokens with @display-name.
+        import re
+        return re.sub(r'<@(\w+)>', lambda m: '@' + name_of(m.group(1)), text or '')
+
+    results = []
+    seen = set()
+
+    # 1. Direct messages (im) + group DMs (mpim).
+    try:
+        convos = api('conversations.list', {'types': 'im,mpim', 'limit': 50}).get('channels', [])
+        for c in convos[:channel_limit]:
+            cid = c.get('id')
+            hist = api('conversations.history', {'channel': cid, 'limit': history_limit}).get('messages', [])
+            for m in hist:
+                if m.get('subtype') or not m.get('ts'):
+                    continue
+                if m.get('user') == my_id:
+                    continue
+                key = f"{cid}-{m['ts']}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append({
+                    'id': key,
+                    'thread_id': cid,
+                    'author_id': m.get('user'),
+                    'author_name': name_of(m.get('user')),
+                    'title': 'Direct message',
+                    'text': humanize(m.get('text')),
+                    'ts': _slack_ts_to_iso(m['ts']),
+                    'is_dm': True,
+                    'is_mention': False,
+                })
+    except Exception as e:
+        print(f"[slack] DM fetch error: {e}")
+
+    # 2. @-mentions in channels the user belongs to.
+    try:
+        mention_tok = f'<@{my_id}>'
+        chans = api('conversations.list', {
+            'types': 'public_channel,private_channel',
+            'exclude_archived': True,
+            'limit': 200,
+        }).get('channels', [])
+        member_chans = [c for c in chans if c.get('is_member')][:channel_limit]
+        for c in member_chans:
+            cid = c.get('id')
+            try:
+                hist = api('conversations.history', {'channel': cid, 'limit': history_limit}).get('messages', [])
+            except Exception:
+                continue
+            for m in hist:
+                if m.get('subtype') or not m.get('ts'):
+                    continue
+                if m.get('user') == my_id:
+                    continue
+                if mention_tok not in (m.get('text') or ''):
+                    continue
+                key = f"{cid}-{m['ts']}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append({
+                    'id': key,
+                    'thread_id': cid,
+                    'author_id': m.get('user'),
+                    'author_name': name_of(m.get('user')),
+                    'title': '#' + (c.get('name') or 'channel'),
+                    'text': humanize(m.get('text')),
+                    'ts': _slack_ts_to_iso(m['ts']),
+                    'is_dm': False,
+                    'is_mention': True,
+                })
+    except Exception as e:
+        print(f"[slack] mention fetch error: {e}")
+
+    # Newest first.
+    results.sort(key=lambda x: x.get('ts') or '', reverse=True)
+    return results
+
+
 # AI API Keys
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
@@ -945,6 +1115,14 @@ class OAuthHandler(BaseHTTPRequestHandler):
         elif self.path.startswith('/book/'):
             # Public booking page
             self.handle_booking_page()
+        elif self.path.startswith('/slack/auth'):
+            self.handle_slack_auth()
+        elif self.path.startswith('/slack/callback'):
+            self.handle_slack_callback()
+        elif self.path.startswith('/slack/status'):
+            self.handle_slack_status()
+        elif self.path.startswith('/slack/messages'):
+            self.handle_slack_messages()
         else:
             self.send_error(404)
 
@@ -1128,6 +1306,86 @@ class OAuthHandler(BaseHTTPRequestHandler):
         except Exception as e:
             print(f"Error getting user info: {e}")
         return None
+
+    # ------------------------------------------------------------------
+    # Slack (DMs + mentions)
+    # ------------------------------------------------------------------
+    def handle_slack_auth(self):
+        """Return the Slack authorize URL for the frontend to open in a browser."""
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        if not SLACK_CLIENT_ID:
+            self.wfile.write(json.dumps({'error': 'SLACK_CLIENT_ID is not set on the server'}).encode())
+            return
+        from urllib.parse import urlencode
+        params = urlencode({
+            'client_id': SLACK_CLIENT_ID,
+            'user_scope': SLACK_SCOPES,
+            'redirect_uri': SLACK_REDIRECT_URI,
+            'state': uuid.uuid4().hex,
+        })
+        url = f'https://slack.com/oauth/v2/authorize?{params}'
+        self.wfile.write(json.dumps({'url': url}).encode())
+
+    def handle_slack_callback(self):
+        """Exchange the OAuth code for a token, persist it, show a close-me page."""
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        qs = parse_qs(urlparse(self.path).query)
+        code = (qs.get('code') or [None])[0]
+        page_ok = (
+            '<html><body style="font-family:-apple-system,sans-serif;text-align:center;padding-top:80px">'
+            '<h2>✅ Slack connected</h2><p>You can close this window and return to Aiden.</p></body></html>'
+        )
+        if not code:
+            self.wfile.write(b'<html><body><h2>Slack connection failed</h2><p>No authorization code.</p></body></html>')
+            return
+        try:
+            import requests
+            resp = requests.post('https://slack.com/api/oauth.v2.access', data={
+                'client_id': SLACK_CLIENT_ID,
+                'client_secret': SLACK_CLIENT_SECRET,
+                'code': code,
+                'redirect_uri': SLACK_REDIRECT_URI,
+            }, timeout=15)
+            data = resp.json()
+            if not data.get('ok'):
+                raise Exception(data.get('error', 'unknown'))
+            _slack_save_token(data)
+            self.wfile.write(page_ok.encode())
+        except Exception as e:
+            print(f"[slack] callback error: {e}")
+            self.wfile.write(
+                f'<html><body style="font-family:sans-serif;text-align:center;padding-top:80px">'
+                f'<h2>Slack connection failed</h2><p>{html.escape(str(e))}</p></body></html>'.encode()
+            )
+
+    def handle_slack_status(self):
+        """Report whether Slack is configured and connected."""
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        tok = _slack_load_token() or {}
+        team = (tok.get('team') or {}).get('name')
+        self.wfile.write(json.dumps({
+            'connected': bool(_slack_user_token()),
+            'configured': bool(SLACK_CLIENT_ID and SLACK_CLIENT_SECRET),
+            'team': team,
+        }).encode())
+
+    def handle_slack_messages(self):
+        """Return the user's DMs + mentions, normalized for the unified inbox."""
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        token = _slack_user_token()
+        if not token:
+            self.wfile.write(json.dumps({'success': False, 'error': 'not_connected', 'messages': []}).encode())
+            return
+        try:
+            messages = fetch_slack_messages(token)
+            self.wfile.write(json.dumps({'success': True, 'messages': messages}).encode())
+        except Exception as e:
+            print(f"[slack] messages error: {e}")
+            self.wfile.write(json.dumps({'success': False, 'error': str(e), 'messages': []}).encode())
 
     def handle_emails(self):
         """Handle fetching emails from Gmail"""

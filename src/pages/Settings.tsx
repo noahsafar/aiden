@@ -14,9 +14,14 @@ import {
   Monitor,
   X,
   Plus,
+  Hash,
+  Link2,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
+import { useChannelStore } from '@/stores/channelStore';
+import { connectSlack } from '@/api/slack';
 import {
   Surface,
   SurfaceHeader,
@@ -195,6 +200,74 @@ const inputCls =
   'w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2 text-[14px] text-foreground transition-colors placeholder:text-muted focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-400/40 dark:border-white/[0.1] dark:bg-white/[0.04]';
 
 /* ------------------------------------------------------------------ */
+/* Connections — connect external channels (Slack live; more to come)  */
+/* ------------------------------------------------------------------ */
+const ConnectionsCard: React.FC = () => {
+  const slackConnected = useChannelStore((s) => s.slackConnected);
+  const slackTeam = useChannelStore((s) => s.slackTeam);
+  const loadSlack = useChannelStore((s) => s.loadSlack);
+  const [connecting, setConnecting] = useState(false);
+
+  // Check current status on mount.
+  useEffect(() => {
+    loadSlack();
+  }, [loadSlack]);
+
+  const handleConnectSlack = async () => {
+    setConnecting(true);
+    const opened = await connectSlack();
+    if (!opened) {
+      setConnecting(false);
+      return;
+    }
+    // The OAuth happens in the browser; poll for the token to land.
+    let tries = 0;
+    const poll = setInterval(async () => {
+      tries += 1;
+      await loadSlack();
+      if (useChannelStore.getState().slackConnected || tries >= 20) {
+        clearInterval(poll);
+        setConnecting(false);
+      }
+    }, 1500);
+  };
+
+  return (
+    <Card icon={<Link2 className="h-4 w-4" />} title="Connections" description="Bring other channels into your unified inbox">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-500/10 dark:text-violet-400">
+          <Hash className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-medium text-foreground">Slack</p>
+          <p className="text-[12.5px] text-muted">
+            {slackConnected ? `Connected${slackTeam ? ` · ${slackTeam}` : ''} — DMs & mentions` : 'Bring your DMs and @-mentions into Aiden'}
+          </p>
+        </div>
+        {slackConnected ? (
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[12px] font-semibold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+              <Check className="h-3 w-3" />
+              Connected
+            </span>
+            <SoftButton variant="ghost" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => loadSlack()}>
+              Sync
+            </SoftButton>
+          </div>
+        ) : (
+          <SoftButton variant="primary" onClick={handleConnectSlack} disabled={connecting}>
+            {connecting ? 'Waiting…' : 'Connect'}
+          </SoftButton>
+        )}
+      </div>
+      <p className="mt-3 text-[12px] text-muted/70">
+        Teams is coming next. WhatsApp isn't supported for personal accounts.
+      </p>
+    </Card>
+  );
+};
+
+/* ------------------------------------------------------------------ */
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
 export function Settings() {
@@ -325,6 +398,9 @@ export function Settings() {
           </SoftButton>
         </div>
       </Card>
+
+      {/* Connections */}
+      <ConnectionsCard />
 
       {/* Appearance */}
       <Card icon={<Palette className="h-4 w-4" />} title="Appearance" description="How Aiden looks">

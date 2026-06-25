@@ -515,6 +515,10 @@ function App() {
         fetchEmails();
         // Auto-reminder checker for follow-ups.
         useEmailStore.getState().initializeReminderChecker();
+        // Pull live Slack (if connected) into the unified inbox.
+        import('@/stores/channelStore').then(({ useChannelStore }) => {
+          useChannelStore.getState().loadSlack();
+        });
       }
     };
 
