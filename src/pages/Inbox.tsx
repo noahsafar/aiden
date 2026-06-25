@@ -48,7 +48,11 @@ export const Inbox: React.FC = () => {
     const emailMsgs = emails
       .filter((e) => !['Deleted', 'Archived', 'Saved'].includes(e.status))
       .map((e) => emailToUnified(e));
-    return [...emailMsgs, ...channelMessages].sort(
+    // The Inbox lists what others sent you. Your own replies are recorded in the
+    // thread (and feed draft context + relationship history) but aren't listed as
+    // standalone rows — you review them in context, not as inbox items.
+    const incoming = channelMessages.filter((m) => !m.outgoing);
+    return [...emailMsgs, ...incoming].sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
   }, [emails, channelMessages]);
@@ -188,11 +192,10 @@ const MessageRow: React.FC<{
   const isEmail = m.channel === 'email';
   const meta = CHANNEL_META[m.channel];
   const ChannelIcon = meta.icon;
-  const aiSummary = isEmail && !m.outgoing ? (m.raw as any)?.summary : null;
+  const aiSummary = isEmail ? (m.raw as any)?.summary : null;
   const body = aiSummary || m.preview;
-  // A thread you've already handled (replied to inbound email, or your own sent message).
+  // An inbound email you've already replied to (handled, but still browseable in "All").
   const replied = isEmail && (m.raw as any)?.status === 'Replied';
-  const isSent = m.outgoing;
 
   return (
     <div
@@ -220,18 +223,18 @@ const MessageRow: React.FC<{
           <div className="flex items-center gap-2">
             {m.unread && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-violet-500" />}
             <span className={cn('truncate text-[14px] text-foreground', m.unread ? 'font-semibold' : 'font-medium')}>
-              {isSent ? `To ${m.authorName === 'You' ? meta.label : m.authorName}` : m.authorName}
+              {m.authorName}
             </span>
             {!isEmail && <span className="truncate text-[12px] text-muted/60">{m.title}</span>}
-            {!isSent && m.priority === 'high' && !replied && (
+            {m.priority === 'high' && !replied && (
               <span className="rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
                 Urgent
               </span>
             )}
-            {(replied || isSent) && (
+            {replied && (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
                 <CornerUpLeft className="h-2.5 w-2.5" />
-                {isSent ? 'Sent' : 'Replied'}
+                Replied
               </span>
             )}
             <span className="ml-auto flex-shrink-0 text-[11px] text-muted/50">{relativeTime(m.timestamp)}</span>
@@ -245,38 +248,34 @@ const MessageRow: React.FC<{
                 expanded ? 'max-h-56 overflow-y-auto whitespace-pre-wrap' : 'line-clamp-2',
               )}
             >
-              {isSent && <span className="text-muted/60">You: </span>}
               {body}
             </p>
           </div>
 
-          {/* actions — revealed on hover (space reserved, so no layout shift).
-              Sent messages have nothing to act on. */}
-          {!isSent && (
-            <div
-              className={cn(
-                'mt-2 flex items-center gap-2 transition-opacity',
-                expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-              )}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <SoftButton variant="soft" icon={<CornerUpLeft className="h-3.5 w-3.5" />} onClick={onReply}>
-                {replied ? 'Reply again' : 'Reply'}
-              </SoftButton>
-              {!replied && (
-                <button
-                  onClick={onDone}
-                  title="Mark handled"
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted/40 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
-                >
-                  <Check className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          )}
+          {/* actions — revealed on hover (space reserved, so no layout shift) */}
+          <div
+            className={cn(
+              'mt-2 flex items-center gap-2 transition-opacity',
+              expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <SoftButton variant="soft" icon={<CornerUpLeft className="h-3.5 w-3.5" />} onClick={onReply}>
+              {replied ? 'Reply again' : 'Reply'}
+            </SoftButton>
+            {!replied && (
+              <button
+                onClick={onDone}
+                title="Mark handled"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-muted/40 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+              >
+                <Check className="h-4 w-4" />
+              </button>
+            )}
+          </div>
 
           {/* Inline reply for chat-style channels (read + respond from here) */}
-          {expanded && !isEmail && !isSent && (
+          {expanded && !isEmail && (
             <div onClick={(e) => e.stopPropagation()}>
               <ChannelReply message={m} channelLabel={meta.label} onSent={onDone} />
             </div>
