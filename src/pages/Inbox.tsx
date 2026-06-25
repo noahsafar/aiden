@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mail, Hash, Users, MessageCircle, Layers, Github, Sparkles, Check, CornerUpLeft, Send, Loader2 } from 'lucide-react';
+import { Mail, Hash, Users, MessageCircle, Layers, Github, Sparkles, Check, CornerUpLeft, Send, Loader2, ChevronRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { SurfaceHeader, SoftButton, PersonAvatar, EmptyState, relativeTime } from '@/components/aiden/primitives';
 import { useEmailStore } from '@/stores/emailStore';
@@ -32,6 +32,16 @@ function isActionable(m: UnifiedMessage): boolean {
   return m.unread && m.priority !== 'low';
 }
 
+/* An email you've already acted on — replied to, or dismissed from Today's Focus.
+ * Still worth browsing ("did I reply to that?"), so in "All" these collapse into a
+ * de-emphasized "Done" group rather than cluttering the active stream. (Only emails:
+ * channel messages don't carry a handled state here.) */
+function isHandledEmail(m: UnifiedMessage): boolean {
+  if (m.channel !== 'email') return false;
+  const r = m.raw as any;
+  return r?.status === 'Replied' || r?.attention_dismissed === true;
+}
+
 export const Inbox: React.FC = () => {
   const navigate = useNavigate();
   const emails = useEmailStore((s) => s.emails);
@@ -43,6 +53,7 @@ export const Inbox: React.FC = () => {
   const [view, setView] = useState<'needs' | 'all'>('needs');
   const [channel, setChannel] = useState<ChannelId | 'all'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(false);
 
   const all = useMemo<UnifiedMessage[]>(() => {
     const emailMsgs = emails
@@ -73,6 +84,12 @@ export const Inbox: React.FC = () => {
     }
     return arr;
   }, [all, view, channel]);
+
+  // In "All", keep the active stream clean by corralling already-handled mail into a
+  // collapsible "Done" group. ("Needs you" never contains handled items, so `done`
+  // is empty there and the group simply doesn't render.)
+  const active = useMemo(() => list.filter((m) => !isHandledEmail(m)), [list]);
+  const done = useMemo(() => list.filter(isHandledEmail), [list]);
 
   const channelTabs: { id: ChannelId | 'all'; label: string }[] = [
     { id: 'all', label: 'All' },
@@ -162,7 +179,7 @@ export const Inbox: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-1">
-            {list.map((m) => (
+            {active.map((m) => (
               <MessageRow
                 key={`${m.channel}-${m.id}`}
                 message={m}
@@ -172,6 +189,40 @@ export const Inbox: React.FC = () => {
                 onDone={() => onDone(m)}
               />
             ))}
+
+            {/* Everything you've already handled — collapsed by default so it never
+                crowds the active stream, but one click away when you need it. */}
+            {done.length > 0 && (
+              <div className="pt-2">
+                {active.length === 0 && (
+                  <p className="px-4 pb-1 text-[13px] text-muted">Nothing active here — everything below is done.</p>
+                )}
+                <button
+                  onClick={() => setShowDone((s) => !s)}
+                  className="flex w-full items-center gap-1.5 rounded-lg px-4 py-2 text-[12px] font-semibold uppercase tracking-wide text-muted/70 transition-colors hover:text-foreground"
+                >
+                  <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', showDone && 'rotate-90')} />
+                  Done
+                  <span className="rounded-full bg-gray-100 px-1.5 text-[11px] font-semibold normal-case text-muted dark:bg-white/[0.08]">
+                    {done.length}
+                  </span>
+                </button>
+                {showDone && (
+                  <div className="mt-1 space-y-1 opacity-60 transition-opacity hover:opacity-100">
+                    {done.map((m) => (
+                      <MessageRow
+                        key={`${m.channel}-${m.id}`}
+                        message={m}
+                        expanded={expandedId === m.id}
+                        onOpen={() => onOpen(m)}
+                        onReply={() => onReply(m)}
+                        onDone={() => onDone(m)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
