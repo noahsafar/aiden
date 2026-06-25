@@ -148,6 +148,7 @@ function buildOppOutcome(title: string, name: string): string {
   if (/\b(funding|round|raised|series)\b/.test(t)) return `Congratulate ${first} on the raise`;
   if (/\b(intro|introduc|connect)\b/.test(t)) return `Facilitate the introduction`;
   if (/\b(reconnect|quiet|cool|partner|lean|momentum)\b/.test(t)) return `Capture opportunity with ${first}`;
+  if (/\b(opportunity|fellowship|scholarship|residency|cohort|accelerator|program|apply|application)\b/.test(t)) return `Act on ${first}'s opportunity`;
   return `Strengthen relationship with ${first}`;
 }
 
@@ -218,6 +219,10 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
       if (!DEADLINE_RE.test(text)) continue;
       // Social/logistical deadlines (party RSVPs, lunch polls) don't belong in Focus.
       if (SOCIAL_NOISE_RE.test(text)) continue;
+      // Newsletters/marketing blasts routinely cite an "application deadline" or "apply
+      // by" for programs you aren't personally enrolled in — that's not *your* deadline.
+      // (Content-only check: genuine transactional deadlines from no-reply@ are kept.)
+      if (BULK_MAIL_RE.test(text)) continue;
 
       const thread = e.thread_id || e.id;
       if (usedThreads.has(thread)) continue;
@@ -444,6 +449,25 @@ const SOCIAL_NOISE_RE = /\b(lunch|dinner|breakfast|pizza|burger|taco|salad|food|
 // Cold sales / outbound marketing — kept out of Focus when the sender isn't a known contact.
 const SALES_NOISE_RE = /\b(quick call|hop on a call|book a demo|schedule a demo|free trial|save \d+%|cut your|exclusive offer|limited time|special offer|act now|don't miss|unsubscribe|sales pitch|our solution|our platform can|increase your|boost your|grow your revenue|pricing options)\b/i;
 
+// Broadcast / bulk-mail fingerprint. Newsletters, marketing, and list mail almost
+// always carry one of these (CAN-SPAM footers, "view in browser" links, preference
+// centers); genuine person-to-person mail essentially never does. A reliable signal
+// that a message is a broadcast, not a personal note — regardless of which
+// opportunity keywords ("apply", "launch", "partner") happen to appear in the body.
+const BULK_MAIL_RE = /(\bunsubscrib\w*|view (?:this )?(?:e-?mail|message)?\s*in (?:your )?(?:web\s?)?browser|view it in your browser|view (?:this )?as a web\s?page|manage (?:your )?(?:e-?mail |notification )?(?:preferences|subscriptions?|settings)|update (?:your )?(?:e-?mail )?preferences|\be-?mail preferences\b|\bnotification settings\b|you(?:'re| are) receiving this|you received this (?:e-?mail|message|because)|\bopt[\s-]?out\b|no longer wish to receive|add (?:us|me) to your address book|forward to a friend|having trouble (?:viewing|reading))/i;
+
+/**
+ * Broadcast / bulk mail — newsletters, marketing blasts, mailing-list digests,
+ * automated announcements. Sent to many recipients, so it is never a *personal*
+ * relationship opportunity no matter what keywords it contains. Detected by an
+ * automated/list sender or the bulk-mail footer fingerprint above. (Category is
+ * handled separately at the call site, where the contact relationship is known.)
+ */
+function isBulkEmail(e: any): boolean {
+  if (isAutomatedSender(e.sender || '')) return true;
+  return BULK_MAIL_RE.test(`${e.subject || ''} ${e.body_text || e.snippet || ''}`);
+}
+
 const OPP_SIGNALS: Array<{
   re: RegExp;
   build: (
@@ -528,14 +552,18 @@ export function deriveOpportunities(input: BrainInput, excludeEmails: Set<string
   for (const e of sorted) {
     if (opps.length >= 5) break;
     const { name, email } = parseSender(e.sender || '');
-    // real people only — no robots, no self, not already in attention
-    if (isAutomatedSender(e.sender || '') || isSelf(email, userEmail)) continue;
+    // real people only — no robots, no self, no broadcast mail, not already in attention
+    if (isBulkEmail(e) || isSelf(email, userEmail)) continue;
     if (email && usedPeople.has(email.toLowerCase())) continue;
     if (email && seen.has(email.toLowerCase())) continue;
 
     const text = `${e.subject || ''} ${e.body_text || e.snippet || ''}`;
     if (SOCIAL_NOISE_RE.test(text)) continue;
     const contact = findContact(contacts, email);
+    // The classifier files newsletters / marketing / automated mail as "Low". Don't
+    // mine that bucket for opportunities unless it's a real, established relationship
+    // reaching out personally — a clean-energy newsletter is not "strengthen ties".
+    if (e.category === 'Low' && !(contact && contact.relationship_score >= 50)) continue;
 
     for (const sig of OPP_SIGNALS) {
       if (sig.re.test(text)) {

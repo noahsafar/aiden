@@ -52,12 +52,46 @@ const AUTOMATED_FRAGMENTS = [
   'alert@',
   'auto-confirm',
   'bounce',
+  // List / bulk / community blast addresses (institutional newsletters, etc.)
+  'communications@',
+  'comms@',
+  'community@',
+  'connect@',
+  'events@',
+  'announce',
+  'announcements@',
+  'digest@',
+  'bulletin@',
+  'subscribe@',
+  'list@',
+  'lists@',
+  'listserv',
+  'mailman',
+  'campaign',
+  'enews',
+  'e-news',
+  'mailing',
+  'notify@',
+  // Email-service-provider / bulk-sending infrastructure domains.
   'mailchimp',
   'sendgrid',
+  'ccsend', // Constant Contact
+  'constantcontact',
+  'mailgun',
+  'createsend', // Campaign Monitor
+  'sendinblue',
+  'mailerlite',
+  'klaviyo',
+  'hubspot',
+  'marketo',
+  'mktomail',
+  'pardot',
+  'substack',
+  'beehiiv',
 ];
 
 // Display-name signals for automated senders (when the address is generic).
-const AUTOMATED_NAMES = /\b(shipping|shipment|delivery|billing|invoice|notification|no.?reply|newsletter|team|support|receipts?|orders?|alerts?|the .* team)\b/i;
+const AUTOMATED_NAMES = /\b(shipping|shipment|delivery|billing|invoice|notifications?|no.?reply|do.?not.?reply|newsletter|digest|bulletin|mailing list|announcements?|updates?|team|support|receipts?|orders?|alerts?|the .* team)\b/i;
 
 export function isAutomatedSender(raw = ''): boolean {
   const { name, email } = parseSender(raw);
