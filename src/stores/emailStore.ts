@@ -2228,6 +2228,164 @@ Sarah`,
         action_items: undefined, // Will be AI-generated
         requires_reply: true,
       },
+
+      /* ----------------------------------------------------------------
+       * Ten scenarios spanning every way Aiden should triage a message.
+       * Each carries an explicit category + summary so the demo is
+       * deterministic, and an EXPECTATION note describing the intended
+       * handling (category · whether it lands on Today, and which section).
+       * ---------------------------------------------------------------- */
+
+      // EXPECTATION: Urgent · Today → "Needs your attention" (top of Focus, urgent_email)
+      // Key customer + active outage → highest severity, reply immediately.
+      {
+        id: 'test-2', gmail_id: 'test-2', thread_id: 'test-thread-2',
+        subject: 'URGENT: Acme dashboard is down for all our users',
+        sender: 'Elena Rossi <elena@acme.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 3).toISOString(),
+        body_text: `Hi — our entire team is locked out of the analytics dashboard since about 30 minutes ago. Every user gets a 500 error on login. This is blocking our morning reporting and the board update we have at noon.\n\nCan someone look into this right away and let me know an ETA? Happy to hop on a call immediately.\n\nElena`,
+        snippet: 'Our entire team is locked out of the analytics dashboard since about 30 minutes ago...',
+        is_read: false, is_starred: false, has_attachments: false,
+        status: 'Unhandled', category: 'Urgent', requires_reply: true,
+        summary: 'Acme (key customer) reports a full dashboard outage — all users get a 500 on login, blocking their noon board update. Elena wants an immediate ETA and is ready to jump on a call.',
+      },
+
+      // EXPECTATION: Important · Today → "Needs your attention" (deadline-bearing)
+      // Hard deadline ~3 days out. Surfaces even though it's automated / needs no reply.
+      {
+        id: 'test-3', gmail_id: 'test-3', thread_id: 'test-thread-3',
+        subject: 'Reminder: Summer Research Fellowship application closes Friday',
+        sender: 'Yale Fellowships <noreply@grants.yale.edu>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 60 * 2).toISOString(),
+        body_text: `This is a reminder that the application deadline for the Summer Research Fellowship is this Friday at 11:59 PM. Submit your proposal, CV, and reference letter through the portal before the deadline. Late submissions cannot be accepted.`,
+        snippet: 'The application deadline for the Summer Research Fellowship is this Friday at 11:59 PM...',
+        is_read: false, is_starred: false, has_attachments: false,
+        status: 'Unhandled', category: 'Important', requires_reply: false,
+        deadline: new Date(baseTime + 1000 * 60 * 60 * 24 * 3).toISOString(),
+        summary: 'The Summer Research Fellowship application closes this Friday (~3 days). Proposal, CV, and a reference letter must be submitted via the portal before the deadline; no late entries.',
+      },
+
+      // EXPECTATION: Important · Today → "Needs your attention" (needs reply, meeting)
+      // A scheduling decision from a close colleague — wants a time this week.
+      {
+        id: 'test-4', gmail_id: 'test-4', thread_id: 'test-thread-4',
+        subject: 'Can we sync on the VP Sales shortlist this week?',
+        sender: 'Marcus Lee <marcus@company.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 60 * 4).toISOString(),
+        body_text: `Hey — I've narrowed the VP Sales candidates down to three and I'd love your read before we move to final rounds. Do you have 30 minutes Thursday or Friday? I can work around your calendar.`,
+        snippet: "I've narrowed the VP Sales candidates down to three and I'd love your read...",
+        is_read: false, is_starred: false, has_attachments: false,
+        status: 'Unhandled', category: 'Important', requires_reply: true,
+        summary: 'Marcus has a VP Sales shortlist of three and wants your input before final rounds. He’s asking for 30 minutes Thursday or Friday — needs a time from you.',
+      },
+
+      // EXPECTATION: Important · Today → "Needs your attention" (needs reply)
+      // High-value investor re-engaging — reply promptly while interest is warm.
+      {
+        id: 'test-5', gmail_id: 'test-5', thread_id: 'test-thread-5',
+        subject: 'Re: our chat — would love to dig in further',
+        sender: 'Raj Patel <raj@northstar.vc>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 60 * 6).toISOString(),
+        body_text: `Great catching up yesterday. The traction you showed is compelling and I'd like to take this to my partners. Could you send over the data room link and a few customer references? Also keen to find a slot for a partner meeting in the next couple of weeks.`,
+        snippet: 'The traction you showed is compelling and I’d like to take this to my partners...',
+        is_read: false, is_starred: false, has_attachments: false,
+        status: 'Unhandled', category: 'Important', requires_reply: true,
+        summary: 'Raj (Northstar VC) wants to advance the conversation to his partners — requesting the data room link, customer references, and a partner meeting in the next couple of weeks.',
+      },
+
+      // EXPECTATION: Normal · Today → "Needs your attention" (needs reply, low severity)
+      // A simple colleague question — quick reply, not a fire.
+      {
+        id: 'test-6', gmail_id: 'test-6', thread_id: 'test-thread-6',
+        subject: 'Quick q on the Q2 pipeline numbers',
+        sender: 'Priya Nair <priya@company.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 60 * 9).toISOString(),
+        body_text: `Hey, are the Q2 pipeline figures in the deck net-new only, or do they include renewals? Want to make sure I frame slide 7 correctly before the investor call. Thanks!`,
+        snippet: 'Are the Q2 pipeline figures in the deck net-new only, or do they include renewals?',
+        is_read: false, is_starred: false, has_attachments: false,
+        status: 'Unhandled', category: 'Normal', requires_reply: true,
+        summary: 'Priya needs a quick clarification: are the Q2 pipeline numbers net-new only or do they include renewals? She wants to frame slide 7 correctly before the investor call.',
+      },
+
+      // EXPECTATION: Low · Today → NOT shown · newsletter content.
+      // Lives in Inbox "All" only — never "Needs you".
+      {
+        id: 'test-7', gmail_id: 'test-7', thread_id: 'test-thread-7',
+        subject: '📈 This week in growth: 7 tactics that actually work',
+        sender: "Lenny's Newsletter <hello@lennysnewsletter.com>",
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 60 * 12).toISOString(),
+        body_text: `This week: how three startups cracked activation, a teardown of a great onboarding flow, and the metrics that predict retention. Read the full issue on the web. To stop receiving these, unsubscribe at the bottom.`,
+        snippet: 'This week: how three startups cracked activation, a teardown of a great onboarding flow...',
+        is_read: false, is_starred: false, has_attachments: false,
+        status: 'Unhandled', category: 'Low', requires_reply: false,
+        summary: 'Weekly growth newsletter — startup activation case studies, an onboarding teardown, and retention metrics. Informational, no action needed.',
+      },
+
+      // EXPECTATION: Normal · Today → "Opportunities" (congratulate on the raise)
+      // Funding news from a contact → warm, no-ask note; not a Focus item.
+      {
+        id: 'test-8', gmail_id: 'test-8', thread_id: 'test-thread-8',
+        subject: "We just closed our Series A!",
+        sender: 'Tomás Rivera <tomas@brightloop.io>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 60 * 20).toISOString(),
+        body_text: `Wanted you to hear it from me first — we raised a $12M Series A led by Vertex! Couldn't have gotten here without the early advice you gave us. Hope you're doing well, would love to catch up soon.`,
+        snippet: 'We raised a $12M Series A led by Vertex! Couldn’t have gotten here without your early advice...',
+        is_read: false, is_starred: false, has_attachments: false,
+        status: 'Unhandled', category: 'Normal', requires_reply: false,
+        summary: "Tomás shares that BrightLoop just raised a $12M Series A and credits your early advice. Good news worth a warm, specific congratulations — no ask attached.",
+      },
+
+      // EXPECTATION: Low · Today → NOT shown · transactional receipt.
+      // Inbox "All" only.
+      {
+        id: 'test-9', gmail_id: 'test-9', thread_id: 'test-thread-9',
+        subject: 'Your order has shipped 📦',
+        sender: 'Amazon <auto-confirm@amazon.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 60 * 26).toISOString(),
+        body_text: `Good news! Your order #112-4455667 has shipped and is expected to arrive Thursday. Track your package using the link in your account. No action is needed.`,
+        snippet: 'Your order #112-4455667 has shipped and is expected to arrive Thursday...',
+        is_read: false, is_starred: false, has_attachments: false,
+        status: 'Unhandled', category: 'Low', requires_reply: false,
+        summary: 'Shipping confirmation for an order arriving Thursday. Purely transactional — no action needed.',
+      },
+
+      // EXPECTATION: Low · Today → NOT shown (cold-outbound filter keeps it out of Focus).
+      // Unknown sender, sales pitch → stays in Inbox, never "Needs you".
+      {
+        id: 'test-10', gmail_id: 'test-10', thread_id: 'test-thread-10',
+        subject: 'Quick question — boost your team’s pipeline 3x',
+        sender: 'Tyler Brooks <tyler@pipelineboost.io>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 60 * 30).toISOString(),
+        body_text: `Hi there, I’ll keep this short. Our platform can boost your revenue and grow your pipeline fast. Do you have 15 minutes to hop on a call this week for a quick demo? Happy to share an exclusive offer.`,
+        snippet: 'Our platform can boost your revenue and grow your pipeline fast. Do you have 15 minutes...',
+        is_read: false, is_starred: false, has_attachments: false,
+        status: 'Unhandled', category: 'Low', requires_reply: false,
+        summary: 'Cold sales outreach from an unknown sender pitching a demo of their pipeline tool. Low value — not from a known contact.',
+      },
+
+      // EXPECTATION: Normal · Today → NOT shown (social-noise filter keeps it out of Focus).
+      // Team lunch RSVP → Inbox "All" only.
+      {
+        id: 'test-11', gmail_id: 'test-11', thread_id: 'test-thread-11',
+        subject: 'Team lunch Friday — who’s in? 🍕',
+        sender: 'Sarah Chen <schen@company.com>',
+        recipients: 'me@company.com',
+        date: new Date(baseTime - 1000 * 60 * 60 * 34).toISOString(),
+        body_text: `Thinking we grab lunch as a team this Friday around 12:30 — maybe that new pizza place down the block? Reply with a 👍 if you can make it so I can book a table.`,
+        snippet: 'Thinking we grab lunch as a team this Friday around 12:30 — maybe that new pizza place...',
+        is_read: false, is_starred: false, has_attachments: false,
+        status: 'Unhandled', category: 'Normal', requires_reply: false,
+        summary: 'Sarah is organizing an optional team lunch this Friday at 12:30 and asking who can make it. Social/logistical — no real action needed.',
+      },
     ];
 
     // Set the sample emails in the store
