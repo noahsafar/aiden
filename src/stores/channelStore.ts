@@ -54,6 +54,8 @@ interface ChannelState {
   setActiveChannel: (c: ChannelId | 'all') => void;
   connectChannel: (id: ChannelId) => void;
   markRead: (id: string) => void;
+  /** Record an outgoing reply in a thread (mock send) and mark the thread read. */
+  sendMessage: (args: { threadId: string; channel: ChannelId; text: string; replyToId?: string }) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -145,6 +147,33 @@ export const useChannelStore = create<ChannelState>((set) => ({
     set((state) => ({
       channelMessages: state.channelMessages.map((m) => (m.id === id ? { ...m, unread: false } : m)),
     })),
+
+  sendMessage: ({ threadId, channel, text, replyToId }) =>
+    set((state) => {
+      // Title carries over from the thread (e.g. "#growth", "Direct message").
+      const prior = state.channelMessages.find((m) => m.threadId === threadId);
+      const outgoing: UnifiedMessage = {
+        id: `out-${channel}-${Date.now()}`,
+        channel,
+        threadId,
+        authorName: 'You',
+        title: prior?.title || '',
+        preview: text.slice(0, 200),
+        timestamp: new Date().toISOString(),
+        unread: false,
+        outgoing: true,
+        priority: 'low',
+      };
+      return {
+        channelMessages: [
+          ...state.channelMessages.map((m) =>
+            // Mark the message you replied to (and the whole thread) read/handled.
+            m.threadId === threadId || m.id === replyToId ? { ...m, unread: false } : m,
+          ),
+          outgoing,
+        ],
+      };
+    }),
 }));
 
 /* ------------------------------------------------------------------ */

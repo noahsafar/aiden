@@ -20,8 +20,12 @@ const CHANNEL_META: Record<ChannelId, { icon: LucideIcon; badge: string; label: 
 
 /* Does this message need a response from the user? */
 function isActionable(m: UnifiedMessage): boolean {
+  if (m.outgoing) return false; // your own sent messages never need a response
   if (m.channel === 'email') {
     const r = m.raw as any;
+    // Once you've replied/handled it, it's no longer in "Needs you" — even if it
+    // was Urgent/Important (matches how a replied channel message drops out).
+    if (r?.status === 'Replied' || r?.status === 'Archived') return false;
     return r?.requires_reply === true || r?.category === 'Urgent' || r?.category === 'Important';
   }
   // Any other channel: unread + not low-priority (DMs, mentions, assignments, reviews).
@@ -79,7 +83,7 @@ export const Inbox: React.FC = () => {
 
   const onOpen = (m: UnifiedMessage) => {
     if (m.channel === 'email') navigate(`/today/email/${m.id}`, { state: { returnPath: '/inbox' } });
-    else setExpandedId((id) => (id === m.id ? null : m.id));
+    else if (!m.outgoing) setExpandedId((id) => (id === m.id ? null : m.id));
   };
 
   const onReply = (m: UnifiedMessage) => {
@@ -184,8 +188,11 @@ const MessageRow: React.FC<{
   const isEmail = m.channel === 'email';
   const meta = CHANNEL_META[m.channel];
   const ChannelIcon = meta.icon;
-  const aiSummary = isEmail ? (m.raw as any)?.summary : null;
+  const aiSummary = isEmail && !m.outgoing ? (m.raw as any)?.summary : null;
   const body = aiSummary || m.preview;
+  // A thread you've already handled (replied to inbound email, or your own sent message).
+  const replied = isEmail && (m.raw as any)?.status === 'Replied';
+  const isSent = m.outgoing;
 
   return (
     <div
@@ -213,12 +220,18 @@ const MessageRow: React.FC<{
           <div className="flex items-center gap-2">
             {m.unread && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-violet-500" />}
             <span className={cn('truncate text-[14px] text-foreground', m.unread ? 'font-semibold' : 'font-medium')}>
-              {m.authorName}
+              {isSent ? `To ${m.authorName === 'You' ? meta.label : m.authorName}` : m.authorName}
             </span>
             {!isEmail && <span className="truncate text-[12px] text-muted/60">{m.title}</span>}
-            {m.priority === 'high' && (
+            {!isSent && m.priority === 'high' && !replied && (
               <span className="rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
                 Urgent
+              </span>
+            )}
+            {(replied || isSent) && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+                <CornerUpLeft className="h-2.5 w-2.5" />
+                {isSent ? 'Sent' : 'Replied'}
               </span>
             )}
             <span className="ml-auto flex-shrink-0 text-[11px] text-muted/50">{relativeTime(m.timestamp)}</span>
@@ -232,32 +245,38 @@ const MessageRow: React.FC<{
                 expanded ? 'max-h-56 overflow-y-auto whitespace-pre-wrap' : 'line-clamp-2',
               )}
             >
+              {isSent && <span className="text-muted/60">You: </span>}
               {body}
             </p>
           </div>
 
-          {/* actions — revealed on hover (space reserved, so no layout shift) */}
-          <div
-            className={cn(
-              'mt-2 flex items-center gap-2 transition-opacity',
-              expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-            )}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <SoftButton variant="soft" icon={<CornerUpLeft className="h-3.5 w-3.5" />} onClick={onReply}>
-              Reply
-            </SoftButton>
-            <button
-              onClick={onDone}
-              title="Mark handled"
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted/40 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+          {/* actions — revealed on hover (space reserved, so no layout shift).
+              Sent messages have nothing to act on. */}
+          {!isSent && (
+            <div
+              className={cn(
+                'mt-2 flex items-center gap-2 transition-opacity',
+                expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+              )}
+              onClick={(e) => e.stopPropagation()}
             >
-              <Check className="h-4 w-4" />
-            </button>
-          </div>
+              <SoftButton variant="soft" icon={<CornerUpLeft className="h-3.5 w-3.5" />} onClick={onReply}>
+                {replied ? 'Reply again' : 'Reply'}
+              </SoftButton>
+              {!replied && (
+                <button
+                  onClick={onDone}
+                  title="Mark handled"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted/40 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+                >
+                  <Check className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Inline reply for chat-style channels (read + respond from here) */}
-          {expanded && !isEmail && (
+          {expanded && !isEmail && !isSent && (
             <div onClick={(e) => e.stopPropagation()}>
               <ChannelReply message={m} channelLabel={meta.label} onSent={onDone} />
             </div>
@@ -277,8 +296,19 @@ const ChannelReply: React.FC<{ message: UnifiedMessage; channelLabel: string; on
   onSent,
 }) => {
   const channelMessages = useChannelStore((s) => s.channelMessages);
+  const sendMessage = useChannelStore((s) => s.sendMessage);
   const [text, setText] = useState('');
   const [drafting, setDrafting] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const handleSend = () => {
+    const body = text.trim();
+    if (!body) return;
+    sendMessage({ threadId: message.threadId, channel: message.channel, text: body, replyToId: message.id });
+    setSent(true);
+    // Brief confirmation, then collapse the row (now marked handled).
+    setTimeout(onSent, 900);
+  };
 
   const draft = async () => {
     setDrafting(true);
@@ -302,6 +332,15 @@ const ChannelReply: React.FC<{ message: UnifiedMessage; channelLabel: string; on
     }
   };
 
+  if (sent) {
+    return (
+      <div className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-200/70 bg-emerald-50/60 px-3 py-2.5 text-[13px] font-medium text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/[0.08] dark:text-emerald-300">
+        <Check className="h-3.5 w-3.5" />
+        Sent to {message.authorName}
+      </div>
+    );
+  }
+
   return (
     <div className="mt-3 rounded-xl border border-gray-200/70 bg-white p-2.5 dark:border-white/[0.08] dark:bg-white/[0.04]">
       <textarea
@@ -319,7 +358,7 @@ const ChannelReply: React.FC<{ message: UnifiedMessage; channelLabel: string; on
         >
           {drafting ? 'Drafting…' : 'Draft with Aiden'}
         </SoftButton>
-        <SoftButton variant="primary" icon={<Send className="h-3.5 w-3.5" />} onClick={() => text.trim() && onSent()}>
+        <SoftButton variant="primary" icon={<Send className="h-3.5 w-3.5" />} onClick={handleSend}>
           Send
         </SoftButton>
       </div>

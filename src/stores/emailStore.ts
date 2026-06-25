@@ -1417,6 +1417,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         sentEmails: [sentEmail, ...state.sentEmails],
         // Track that we sent a reply to this email
         sentReplyEmailIds: new Set(state.sentReplyEmailIds).add(inReplyTo || ''),
+        // Mark the original inbound email handled so it drops out of "Needs you"
+        // (consistent with how a replied channel message leaves the inbox).
+        emails: inReplyTo
+          ? state.emails.map((e) =>
+              e.id === inReplyTo ? { ...e, status: 'Replied' as const, requires_reply: false } : e,
+            )
+          : state.emails,
       }));
       persistEmailsToDisk();
 

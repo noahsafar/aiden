@@ -47,10 +47,10 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
   const inboxUnread = useMemo(() => {
     const emailNeeds = emails.filter(
       (e: any) =>
-        !['Deleted', 'Archived', 'Saved'].includes(e.status) &&
+        !['Deleted', 'Archived', 'Saved', 'Replied'].includes(e.status) &&
         (e.requires_reply === true || e.category === 'Urgent' || e.category === 'Important'),
     ).length;
-    const channelNeeds = channelMessages.filter((m) => m.unread && m.priority !== 'low').length;
+    const channelNeeds = channelMessages.filter((m) => !m.outgoing && m.unread && m.priority !== 'low').length;
     return emailNeeds + channelNeeds;
   }, [emails, channelMessages]);
 
