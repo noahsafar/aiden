@@ -50,8 +50,30 @@ function greeting(): string {
   return 'Good evening';
 }
 
+// LOCAL calendar date (YYYY-MM-DD). Must NOT use toISOString() — that's UTC, so
+// in the evening (in a timezone behind UTC) it rolls to tomorrow and we'd label
+// tomorrow's meetings as "today".
+function dateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  return dateStr(new Date());
+}
+
+// "Today" / "Tomorrow" / weekday — for labeling a meeting that isn't today.
+function relativeDayLabel(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
+  if (diff <= 0) return 'Today';
+  if (diff === 1) return 'Tomorrow';
+  if (diff < 7) return d.toLocaleDateString(undefined, { weekday: 'long' });
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 const FALLBACK_EVENTS: CalendarEvent[] = [
@@ -270,7 +292,9 @@ const MeetingBriefCard: React.FC<{
   sentEmails: any[];
   contacts: any[];
   commitments: Commitment[];
-}> = ({ event, emails, sentEmails, contacts, commitments }) => {
+  /** Day label (e.g. "Tomorrow") shown when the meeting isn't today. */
+  dayLabel?: string;
+}> = ({ event, emails, sentEmails, contacts, commitments, dayLabel }) => {
   const navigate = useNavigate();
   const matched = contacts.find((c: any) => {
     const name = (c.name || '').trim();
@@ -315,6 +339,9 @@ const MeetingBriefCard: React.FC<{
       {/* ── Header row ── */}
       <div className="flex items-center gap-4 px-5 py-4">
         <div className="w-16 flex-shrink-0 text-right">
+          {dayLabel && (
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted/50 leading-tight">{dayLabel}</p>
+          )}
           <p className="text-[15px] font-bold tabular-nums text-sky-600 dark:text-sky-400 leading-tight">
             {event.all_day ? 'All day' : event.time}
           </p>
@@ -518,10 +545,14 @@ export const Today: React.FC = () => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetchEvents(todayStr(), todayStr());
+        // Look ahead a week so that, if today is clear, we can surface the next
+        // upcoming meeting instead of pretending the calendar is empty.
+        const end = new Date();
+        end.setDate(end.getDate() + 7);
+        const res = await fetchEvents(todayStr(), dateStr(end));
         if (cancelled) return;
-        const todays = (res.events || []).filter((e) => e.date === todayStr());
-        setEvents(todays.length ? todays : FALLBACK_EVENTS);
+        const upcoming = (res.events || []).filter((e) => e.date >= todayStr());
+        setEvents(upcoming.length ? upcoming : FALLBACK_EVENTS);
       } catch {
         if (!cancelled) setEvents(FALLBACK_EVENTS);
       }
@@ -619,10 +650,12 @@ export const Today: React.FC = () => {
     const topPriority = top ? top.item.outcomeTitle : undefined;
     const overdueC = openCommitments.find((c) => isOverdue(c, now));
     const mostOverdue = overdueC ? overdueC.text : undefined;
-    // Only an UPCOMING meeting counts — never reference one that already happened.
+    // Only a TODAY meeting that's still upcoming — never one that already happened,
+    // and never tomorrow's (so the brief can't imply a future meeting is "today").
     const nowMs = now.getTime();
+    const tKey = todayStr();
     const upcoming = [...events]
-      .filter((e) => !e.all_day && e.start && new Date(e.start).getTime() >= nowMs)
+      .filter((e) => e.date === tKey && !e.all_day && e.start && new Date(e.start).getTime() >= nowMs)
       .sort((a, b) => (a.start || '').localeCompare(b.start || ''))[0];
     const nextMeeting = upcoming ? `${upcoming.summary} at ${upcoming.time}` : undefined;
     let cancelled = false;
@@ -630,7 +663,7 @@ export const Today: React.FC = () => {
     synthesizeDayBrief({
       attentionCount: attention.length,
       opportunityCount: opportunities.length,
-      meetingsToday: events.length,
+      meetingsToday: events.filter((e) => e.date === tKey).length,
       openCommitments: openCommitments.length,
       topPriority,
       mostOverdue,
@@ -653,15 +686,30 @@ export const Today: React.FC = () => {
     [emails.length, commitments.length, opportunities.length],
   );
 
-  // Chronological events + the soonest upcoming one (for the "Next up" banner).
+  // Chronological across the whole window (by date, then time).
   const sortedEvents = useMemo(
-    () => [...events].sort((a, b) => (a.start || a.time || '').localeCompare(b.start || b.time || '')),
+    () =>
+      [...events].sort((a, b) =>
+        (a.date + (a.start || a.time || '')).localeCompare(b.date + (b.start || b.time || '')),
+      ),
     [events],
   );
+  const today = todayStr();
+  const todaysEvents = useMemo(() => sortedEvents.filter((e) => e.date === today), [sortedEvents, today]);
+  const showingToday = todaysEvents.length > 0;
+  // If today is clear, surface the soonest upcoming day's meetings instead of
+  // claiming an empty calendar — but label them with their real day, not "today".
+  const meetingsToShow = useMemo(() => {
+    if (showingToday) return todaysEvents;
+    const next = sortedEvents.find((e) => e.date > today);
+    return next ? sortedEvents.filter((e) => e.date === next.date) : [];
+  }, [showingToday, todaysEvents, sortedEvents, today]);
+
+  // "Next up" banner — only for a genuinely upcoming, timed meeting TODAY.
   const nextUp = useMemo(() => {
+    if (!showingToday) return null;
     const nowMs = Date.now();
-    // Only a genuinely upcoming, timed meeting — never one that already started.
-    const ev = sortedEvents.find((e) => {
+    const ev = todaysEvents.find((e) => {
       const t = e.start ? new Date(e.start).getTime() : NaN;
       return !e.all_day && !isNaN(t) && t >= nowMs;
     });
@@ -670,7 +718,7 @@ export const Today: React.FC = () => {
     const mins = Math.round((t - nowMs) / 60000);
     const when = mins < 60 ? `in ${mins} min` : mins < 600 ? `in ${Math.round(mins / 60)}h` : (ev.time || '');
     return { ev, when };
-  }, [sortedEvents]);
+  }, [showingToday, todaysEvents]);
 
   const firstName = (user?.name || '').split(' ')[0] || 'there';
   const dateLabel = new Date().toLocaleDateString(undefined, {
@@ -756,20 +804,20 @@ export const Today: React.FC = () => {
 
       {/* ── 3. MEETINGS ── */}
       <section>
-        <SectionLabel dot="sky" icon={<CalendarDays className="h-3.5 w-3.5" />} count={events.length}>
-          Meetings today
+        <SectionLabel dot="sky" icon={<CalendarDays className="h-3.5 w-3.5" />} count={meetingsToShow.length}>
+          {showingToday ? 'Meetings today' : 'Coming up'}
         </SectionLabel>
-        {events.length === 0 ? (
+        {meetingsToShow.length === 0 ? (
           <Surface>
             <EmptyState
               icon={<CalendarDays className="h-5 w-5" />}
-              title="No meetings today"
-              description="A clear calendar — a good day for deep work or reconnecting with someone."
+              title="Nothing on the calendar"
+              description="A clear week ahead — a good time for deep work or reconnecting with someone."
             />
           </Surface>
         ) : (
           <div className="space-y-3">
-            {nextUp && (
+            {showingToday && nextUp && (
               <div className="flex items-center gap-2.5 rounded-xl bg-sky-50/70 px-4 py-2.5 dark:bg-sky-500/[0.08]">
                 <Clock className="h-4 w-4 flex-shrink-0 text-sky-500" />
                 <p className="text-[13px] text-foreground/80">
@@ -780,7 +828,12 @@ export const Today: React.FC = () => {
                 </p>
               </div>
             )}
-            {sortedEvents.map((ev) => (
+            {!showingToday && (
+              <p className="px-1 text-[13px] text-muted/70">
+                Nothing left today — here's what's next.
+              </p>
+            )}
+            {meetingsToShow.map((ev) => (
               <MeetingBriefCard
                 key={ev.id}
                 event={ev}
@@ -788,6 +841,7 @@ export const Today: React.FC = () => {
                 sentEmails={sentEmails}
                 contacts={contacts}
                 commitments={commitments}
+                dayLabel={showingToday ? undefined : relativeDayLabel(ev.date)}
               />
             ))}
           </div>
