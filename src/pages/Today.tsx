@@ -540,7 +540,7 @@ export const Today: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const emails = useEmailStore((s) => s.emails);
   const sentEmails = useEmailStore((s) => s.sentEmails);
-  const { contacts, hasExtractedContacts, extractContacts } = useCrmStore();
+  const { contacts, extractContacts } = useCrmStore();
   const { commitments, hasExtracted, extract, getOpen, markDone } = useCommitmentStore();
   const slack = useChannelStore((s) => s.channelMessages);
 
@@ -581,9 +581,13 @@ export const Today: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!hasExtractedContacts) extractContacts();
+    // Contacts derive from the mailbox; re-extract whenever it changes so an early run
+    // (before Gmail finished loading) doesn't latch an empty relationship list.
+    extractContacts();
+  }, [emails.length, sentEmails.length, extractContacts]);
+  useEffect(() => {
     if (!hasExtracted) extract();
-  }, [hasExtractedContacts, hasExtracted, extractContacts, extract]);
+  }, [hasExtracted, extract]);
 
   useEffect(() => {
     let cancelled = false;

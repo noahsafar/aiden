@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useEmailStore } from './emailStore';
+import { isAutomatedSender } from '@/lib/senders';
 
 // Use mock data for development
 const USE_MOCK_DATA = false;
@@ -29,15 +30,12 @@ function extractDomain(email: string): string | undefined {
   return undefined;
 }
 
-// Skip automated/noreply addresses
+// Relationships are REAL PEOPLE only. Skip automated / list / no-reply / marketing
+// senders (newsletters, order & receipt bots, ESPs, etc.) using the shared, broad
+// filter — otherwise the relationship graph fills up with the likes of
+// orders@fandango.com and newsletter@. (Was a tiny noreply-only list before.)
 function shouldSkipEmail(email: string): boolean {
-  const lower = email.toLowerCase();
-  return lower.includes('noreply') ||
-    lower.includes('no-reply') ||
-    lower.includes('mailer-daemon') ||
-    lower.includes('postmaster@') ||
-    lower.includes('notifications@') ||
-    lower.includes('donotreply');
+  return isAutomatedSender(email);
 }
 
 export interface Contact {
@@ -258,6 +256,10 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         /* settings unavailable (e.g. web/dev) — fall back to score-based VIP only */
       }
 
+      // Preserve already-resolved categories / manual VIP flags across re-extraction
+      // so re-running (as the mailbox loads) doesn't reset AI classifications.
+      const priorByEmail = new Map(get().contacts.map((c) => [c.email_address, c]));
+
       const contactsMap = new Map<string, Contact>();
 
       for (const email of allEmails) {
@@ -356,12 +358,16 @@ export const useCrmStore = create<CrmState>((set, get) => ({
           : 0;
 
         const relationship_score = Math.min(100, recencyScore * 0.4 + frequencyScore * 0.3 + mutualityScore * 0.3);
+        const prior = priorByEmail.get(contact.email_address);
         return {
           ...contact,
+          // Keep a previously-resolved category (the background classifier only ever
+          // touches "Other", so re-extraction must not blow away its work).
+          category: prior && prior.category !== 'Other' ? prior.category : contact.category,
           relationship_score,
           days_since_contact: daysSince,
-          // Auto-flag VIPs: anyone on the user's VIP-senders list, or a very strong relationship.
-          is_vip: vipSenders.has(contact.email_address.toLowerCase()) || relationship_score >= 85,
+          // Auto-flag VIPs: a manual/prior flag, the user's VIP-senders list, or a very strong relationship.
+          is_vip: !!prior?.is_vip || vipSenders.has(contact.email_address.toLowerCase()) || relationship_score >= 85,
         };
       });
 
