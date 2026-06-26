@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { fetchGmailEmails, convertGmailEmailToApp } from '@/api/gmail';
 import { useAuthStore } from '@/stores/authStore';
 import { serverURL } from '@/api/emails';
-import { analyzeEmail as analyzeEmailClaude, summarizeEmail as summarizeEmailClaude } from '@/api/claude';
+import { analyzeEmail as analyzeEmailClaude, summarizeEmail as summarizeEmailClaude, generateReply as generateReplyClaude, classifyEmail as classifyEmailApi } from '@/api/claude';
 
 // Check if running in Tauri
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
@@ -570,10 +570,41 @@ function backfillQuestionData(_emailIds: string[]): void {
   /* no-op: retained as a safe stub for existing call sites */
 }
 
-// Priority is assigned at fetch/sample time; safe no-op kept for call sites
-// (notably the awaited calls inside fetchEmails).
-function classifyEmailPriority(_emailId: string): Promise<void> {
-  return Promise.resolve();
+// Classify an email's priority via the real AI classifier (GenAI gateway → Tauri
+// fallback), persisting category + requires_reply. Fails silently if the backend is
+// unreachable (e.g. demo mode), leaving the email at its current category.
+async function classifyEmailPriority(emailId: string): Promise<void> {
+  const key = `${emailId}-classify`;
+  if (processingEmails.has(key)) return;
+  const email = useEmailStore.getState().emails.find((e) => e.id === emailId);
+  if (!email) return;
+  processingEmails.add(key);
+  try {
+    const res = await classifyEmailApi({
+      sender: email.sender,
+      subject: email.subject,
+      content: email.body_text || email.snippet || '',
+    });
+    const CATEGORY_MAP: Record<string, Email['category']> = {
+      urgent: 'Urgent', important: 'Important', normal: 'Normal', low: 'Low',
+    };
+    const category = CATEGORY_MAP[(res.category || '').toLowerCase()] ?? 'Normal';
+    const requires_reply =
+      typeof res.requires_reply === 'boolean' ? res.requires_reply : email.requires_reply;
+    useEmailStore.setState((state) => ({
+      emails: state.emails.map((e) =>
+        e.id === emailId ? { ...e, category, requires_reply } : e,
+      ),
+      selectedEmail: state.selectedEmail?.id === emailId
+        ? { ...state.selectedEmail, category, requires_reply }
+        : state.selectedEmail,
+    }));
+    persistEmailsToDisk();
+  } catch (e) {
+    console.warn(`[AI Processing] Classification failed for ${emailId}:`, e);
+  } finally {
+    processingEmails.delete(key);
+  }
 }
 
 // Persist emails to disk (fire-and-forget, non-blocking)
@@ -1251,51 +1282,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   },
 
   classifyEmail: async (emailId) => {
-    try {
-      const email = get().emails.find(e => e.id === emailId);
-      if (!email) return;
-
-      // Simple classification logic for now
-      // TODO: Implement AI classification via backend
-      const subject = email.subject.toLowerCase();
-      const body = email.body_text.toLowerCase();
-
-      let category: Email['category'] = 'Normal';
-      let requires_reply = false;
-
-      // Simple classification rules
-      if (subject.includes('urgent') || body.includes('urgent')) {
-        category = 'Urgent';
-        requires_reply = true;
-      } else if (subject.includes('important') || email.from.includes('boss') || email.from.includes('manager')) {
-        category = 'Important';
-        requires_reply = true;
-      } else if (subject.includes('newsletter') || subject.includes('promotion')) {
-        category = 'Low';
-      }
-
-      // Update local state
-      set((state) => ({
-        emails: state.emails.map(e =>
-          e.id === emailId
-            ? {
-                ...e,
-                category,
-                requires_reply,
-              }
-            : e
-        ),
-        selectedEmail: state.selectedEmail?.id === emailId
-          ? {
-              ...state.selectedEmail,
-              category,
-              requires_reply,
-            }
-          : state.selectedEmail,
-      }));
-    } catch (error) {
-      console.error('Failed to classify email:', error);
-    }
+    // Delegate to the real AI classifier (GenAI gateway → Tauri fallback), which
+    // persists category + requires_reply. Replaces the old brittle keyword heuristic
+    // (which also crashed on email.from — a field that doesn't exist on Email).
+    await classifyEmailPriority(emailId);
   },
 
   generateReply: async (emailId) => {
@@ -1305,12 +1295,27 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
       // Get user's name for sign-off
       const authStore = useAuthStore.getState();
-      const userName = authStore.user?.name || 'Your Name';
+      const userName = authStore.user?.name || undefined;
 
-      // Simple reply generation for now
-      // TODO: Implement AI reply generation via backend
-      const senderName = email.sender.split('<')[0].trim() || 'there';
-      const generatedReply = `Dear ${senderName},\n\nThank you for your email. I have received your message and will respond as soon as possible.\n\nBest regards,\n${userName}`;
+      // Real AI draft via GenAI gateway → Tauri fallback. If the backend is
+      // unreachable, fall back to a short acknowledgement so the flow still works.
+      let generatedReply: string;
+      try {
+        const res = await generateReplyClaude({
+          sender: email.sender,
+          subject: email.subject,
+          body_text: email.body_text || email.snippet || '',
+          user_answers: [],
+          formality_level: 'neutral',
+          user_name: userName,
+          sender_tone: email.sender_tone,
+        });
+        generatedReply = res.reply;
+      } catch (err) {
+        console.warn('[AI Processing] Reply generation failed, using fallback:', err);
+        const senderName = email.sender.split('<')[0].trim() || 'there';
+        generatedReply = `Hi ${senderName},\n\nThanks for your email — I’ve received it and will follow up shortly.\n\nBest,\n${userName || ''}`.trim();
+      }
 
       // Update local state
       set((state) => ({
@@ -1609,8 +1614,19 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           return false;
         });
         break;
+      case 'all':
+        // All mail: everything except trashed (archived included, like Gmail's All Mail)
+        filtered = emails.filter(e => e.status !== 'Deleted');
+        break;
+      case 'archived':
+        filtered = emails.filter(e => e.status === 'Archived');
+        break;
+      case 'deleted':
+        filtered = emails.filter(e => e.status === 'Deleted');
+        break;
       default:
-        filtered = emails;
+        // Unknown filter (e.g. 'triage'): show the active inbox — never leak Trash/Archive
+        filtered = emails.filter(e => e.status !== 'Deleted' && e.status !== 'Archived');
     }
 
     // Apply search query

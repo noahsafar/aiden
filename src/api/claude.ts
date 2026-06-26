@@ -204,6 +204,38 @@ export async function analyzeEmail(request: AnalyzeEmailRequest): Promise<Analyz
   }
 }
 
+// ==================== CLASSIFICATION ====================
+
+export interface ClassifyEmailRequest {
+  sender: string;
+  subject: string;
+  content: string;
+}
+
+export interface ClassifyEmailResponse {
+  category: string; // 'urgent' | 'important' | 'normal' | 'low' (+ future classes)
+  confidence: number;
+  requires_reply: boolean;
+  can_auto_archive: boolean;
+}
+
+/**
+ * Classify an email's priority — tries GenAI Gateway, falls back to Tauri invoke.
+ */
+export async function classifyEmail(request: ClassifyEmailRequest): Promise<ClassifyEmailResponse> {
+  try {
+    return await genaiPost<ClassifyEmailResponse>('/api/v1/classify-email', request);
+  } catch {
+    // Tauri command: classify_email(email_content, sender, subject)
+    const content = `From: ${request.sender}\nSubject: ${request.subject}\n\n${request.content}`;
+    return invoke<ClassifyEmailResponse>('classify_email', {
+      emailContent: content,
+      sender: request.sender,
+      subject: request.subject,
+    });
+  }
+}
+
 /**
  * Generate a reply — tries GenAI Gateway, falls back to Tauri invoke
  */
