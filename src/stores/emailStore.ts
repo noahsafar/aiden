@@ -2525,26 +2525,13 @@ Sarah`,
     });
   };
 
-  // LIVE MODE: real Gmail is the source of truth — sample emails are NOT
-  // auto-loaded. `window.loadSampleEmails()` is still defined above, so you can
-  // load the demo set manually from the console when you want to test offline.
-  // To return to demo mode, uncomment the auto-loader below.
-  // setTimeout(() => {
-  //   (window as any).loadSampleEmails();
-  // }, 100);
-
-  // Also make the sample emails available to the global window object for easier debugging
-  // and to ensure they populate the inbox properly
-  // DISABLED: Using real data now
-  // (window as any).ensureSampleEmailsInInbox = () => {
-  //   const currentEmails = useEmailStore.getState().emails;
-  //   if (currentEmails.length === 0) {
-  //     console.log('No emails found, loading sample emails...');
-  //     (window as any).loadSampleEmails();
-  //   } else {
-  //     console.log(`Already have ${currentEmails.length} emails in store`);
-  //   }
-  // };
+  // Email source is explicit and LIVE by default — real Gmail is the source of truth,
+  // gated behind OAuth (see App.tsx auth routing). Demo emails are opt-in via
+  // VITE_DEMO_EMAILS=true (loads the sample set for offline demos/screenshots);
+  // window.loadSampleEmails() also remains available for manual console testing.
+  if (import.meta.env.VITE_DEMO_EMAILS === 'true') {
+    setTimeout(() => { (window as any).loadSampleEmails(); }, 100);
+  }
 }
 
 // Initialize getStoreState function for use in helper functions

@@ -38,11 +38,13 @@ Work in build-verified batches; after each run `npm run build` (exit 0) + `npx t
   "Draft a check-in" (compose action already wired on the Email button).
 - **Turn on AI commitment extraction selectively** (commitmentStore.extract(true) for
   key/ambiguous threads) — improved prompt is ready; currently heuristic-by-default
-  to avoid firing AI on every load in demo mode.
+  to avoid firing AI on every load.
 - **Phishing/fake-urgency** brain-side severity cap (optional).
 
 ## Constraints
-- DEMO MODE is intentional (sample emails; real Gmail fetch disabled) — don't flip.
+- LIVE by default: real Gmail via OAuth (App.tsx gates routes on auth). Demo data is
+  opt-in — VITE_DEMO_EMAILS=true (sample inbox) and VITE_DEMO_CHANNELS=true (mock Slack/
+  Teams/etc.). No silent sample data; nothing fabricated is shown as real.
 - Root `oauth_server.py` is canonical (dev + bundle); keep byte-identical to src-tauri copy.
 - ~70 pre-existing type errors are environmental (dual Email type, gapi, NodeJS.Timeout) — don't chase.
 - Can't render the live Tauri app; verify via tsc + build + adversarial review subagents.
