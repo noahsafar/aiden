@@ -1092,13 +1092,43 @@ def parse_natural_time(time_str: str, reference_time, user_timezone):
 
     return result_date
 
+# Only the local app (Tauri webview, Vite dev server, OAuth pages) may make browser
+# requests to this localhost server. Any other website is treated as a cross-site
+# (CSRF / confused-deputy) attempt: it never gets CORS access, and its state-changing
+# POSTs are rejected outright — otherwise any page you visit could send mail as you.
+def is_origin_allowed(origin):
+    if not origin:
+        return False
+    o = origin.lower()
+    if o.startswith('tauri://'):
+        return True
+    for prefix in ('http://', 'https://'):
+        if o.startswith(prefix):
+            hostname = o[len(prefix):].split('/')[0].split(':')[0]
+            return hostname in ('localhost', '127.0.0.1', '::1', 'tauri.localhost')
+    return False
+
+
 class OAuthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        # Add CORS headers to all responses
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
+    def _send_cors_headers(self):
+        """Reflect the request Origin only if it's the local app; otherwise emit no CORS."""
+        origin = self.headers.get('Origin')
+        if origin and is_origin_allowed(origin):
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
+            self.send_header('Access-Control-Allow-Credentials', 'true')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
+    def _origin_allowed(self):
+        """A missing Origin = non-browser caller (curl/native), not a CSRF vector."""
+        origin = self.headers.get('Origin')
+        return is_origin_allowed(origin) if origin else True
+
+    def do_GET(self):
+        # CORS headers on all responses (origin-restricted to the local app)
+        self.send_response(200)
+        self._send_cors_headers()
 
         # A/B testing middleware: assign variations and log exposure
         ab_test_assign(self)
@@ -1139,11 +1169,18 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        # Add CORS headers to all responses
+        # Reject state-changing requests from any origin that isn't the local app
+        # (stops a visited website from sending mail / mutating data as the user).
+        if not self._origin_allowed():
+            self.send_response(403)
+            self._send_cors_headers()
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': 'Forbidden origin'}).encode())
+            return
+        # CORS headers on all responses (origin-restricted to the local app)
         self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self._send_cors_headers()
 
         # A/B testing middleware: assign variations and log exposure
         ab_test_assign(self)
@@ -1218,11 +1255,9 @@ class OAuthHandler(BaseHTTPRequestHandler):
             }).encode())
 
     def do_OPTIONS(self):
-        # Handle preflight requests
+        # Handle preflight requests (origin-restricted to the local app)
         self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self._send_cors_headers()
         self.end_headers()
 
     def handle_auth(self):
