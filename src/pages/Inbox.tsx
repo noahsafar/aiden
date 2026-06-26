@@ -5,6 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { SurfaceHeader, SoftButton, PersonAvatar, EmptyState, relativeTime } from '@/components/aiden/primitives';
 import { useEmailStore } from '@/stores/emailStore';
 import { useChannelStore, emailToUnified, UnifiedMessage, ChannelId } from '@/stores/channelStore';
+import { isAutomatedSender } from '@/lib/senders';
 import { answerFromContext } from '@/api/aiden';
 import { cn } from '@/lib/utils';
 
@@ -26,6 +27,9 @@ function isActionable(m: UnifiedMessage): boolean {
     // Once you've replied or dismissed/handled it, it's no longer in "Needs you" —
     // even if it was Urgent/Important (matches how a handled channel message drops out).
     if (r?.status === 'Replied' || r?.status === 'Archived' || r?.attention_dismissed) return false;
+    // Transactional/automated/bulk mail (receipts, tickets, no-reply) is never a
+    // "needs you" reply task — even if an early heuristic flagged requires_reply.
+    if (isAutomatedSender(r?.sender || '')) return false;
     return r?.requires_reply === true || r?.category === 'Urgent' || r?.category === 'Important';
   }
   // Any other channel: unread + not low-priority (DMs, mentions, assignments, reviews).
