@@ -3,6 +3,7 @@ import { fetchGmailEmails, convertGmailEmailToApp } from '@/api/gmail';
 import { useAuthStore } from '@/stores/authStore';
 import { serverURL } from '@/api/emails';
 import { analyzeEmail as analyzeEmailClaude, summarizeEmail as summarizeEmailClaude, generateReply as generateReplyClaude, classifyEmail as classifyEmailApi, getRecipientWritingStyle, analyzeAndSaveWritingStyle, type RecipientWritingStyle } from '@/api/claude';
+import { useFeedbackStore } from './feedbackStore';
 
 // Check if running in Tauri
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
@@ -1223,6 +1224,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       // TODO: Implement backend update via OAuth server if needed
       console.log(`Updating email ${emailId} status to ${status}`);
 
+      // Learn from "archive" as a deprioritization signal for this sender.
+      if (status === 'Archived') {
+        const sender = get().emails.find(e => e.id === emailId)?.sender
+          || get().sentEmails.find(e => e.id === emailId)?.sender;
+        useFeedbackStore.getState().record(sender, 'archive');
+      }
+
       // Update local state - both emails and sentEmails
       const deleted_at = status === 'Deleted' ? new Date().toISOString() : undefined;
       set((state) => ({
@@ -1273,6 +1281,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   },
 
   dismissAttention: (emailId) => {
+    // Learn from a dismiss as a deprioritization signal for this sender.
+    useFeedbackStore.getState().record(get().emails.find(e => e.id === emailId)?.sender, 'dismiss');
     set((state) => ({
       emails: state.emails.map(e => {
         if (e.id !== emailId) return e;
@@ -1484,6 +1494,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       // Schedule a reminder if this is a reply (has inReplyTo)
       if (inReplyTo) {
         get().scheduleReplyReminder(sentEmail.id, inReplyTo, 3); // 3 days default
+        // Learn that the user engages with this person (boosts their future priority).
+        useFeedbackStore.getState().record(to, 'reply');
       }
     } catch (error) {
       console.error('Failed to send email:', error);

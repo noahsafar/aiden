@@ -29,6 +29,7 @@ import { useCrmStore } from '@/stores/crmStore';
 import { useCommitmentStore } from '@/stores/commitmentStore';
 import { useChannelStore } from '@/stores/channelStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useFeedbackStore } from '@/stores/feedbackStore';
 import {
   deriveAttention,
   deriveOpportunities,
@@ -603,9 +604,15 @@ export const Today: React.FC = () => {
     return () => { cancelled = true; };
   }, []);
 
+  // Re-rank when the user's learned per-sender feedback changes (dismiss/archive/reply).
+  const feedbackSignals = useFeedbackStore((s) => s.signals);
+
   const attention = useMemo<AttentionItem[]>(
-    () => deriveAttention({ emails, sentEmails, contacts, commitments, slack, userEmail: user?.email }),
-    [emails, sentEmails, contacts, commitments, slack, user?.email],
+    () => deriveAttention({
+      emails, sentEmails, contacts, commitments, slack, userEmail: user?.email,
+      senderAdjust: (email) => useFeedbackStore.getState().priorFor(email),
+    }),
+    [emails, sentEmails, contacts, commitments, slack, user?.email, feedbackSignals],
   );
 
   const opportunities = useMemo<Opportunity[]>(

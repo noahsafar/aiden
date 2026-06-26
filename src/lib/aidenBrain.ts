@@ -76,6 +76,8 @@ interface BrainInput {
   commitments: Commitment[];
   slack: UnifiedMessage[];
   userEmail?: string;
+  /** Optional per-sender severity nudge from learned user actions (see feedbackStore). */
+  senderAdjust?: (email?: string) => number;
 }
 
 function truncate(str: string, limit: number): string {
@@ -430,6 +432,14 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
     });
   }
 
+  // Action-feedback: nudge severity by how the user has treated this sender before
+  // (repeatedly dismissed/archived → down; replied → up). Tunes, doesn't dominate.
+  if (input.senderAdjust) {
+    for (const it of items) {
+      const adj = input.senderAdjust(it.person?.email);
+      if (adj) it.severity = Math.max(0, it.severity + adj);
+    }
+  }
   return items.sort((a, b) => b.severity - a.severity).slice(0, 8);
 }
 
