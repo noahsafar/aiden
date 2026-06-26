@@ -6,9 +6,15 @@ from dataclasses import dataclass
 
 import httpx
 
-from app.config import LAKERA_GUARD_API_KEY, LAKERA_GUARD_ENABLED
+from app.config import LAKERA_GUARD_API_KEY, LAKERA_GUARD_ENABLED, LAKERA_FAIL_CLOSED
 
 logger = logging.getLogger(__name__)
+
+if not (LAKERA_GUARD_ENABLED and LAKERA_GUARD_API_KEY):
+    logger.warning(
+        "Lakera Guard is DISABLED or unconfigured — prompt-injection screening is OFF. "
+        "Set LAKERA_GUARD_API_KEY (and LAKERA_GUARD_ENABLED=true) to enable it."
+    )
 
 LAKERA_GUARD_URL = "https://api.lakera.ai/v2/guard"
 
@@ -42,8 +48,12 @@ async def screen_input(text: str) -> ScreenResult:
             )
 
         if resp.status_code != 200:
-            logger.warning("Lakera Guard returned status %d — allowing request through", resp.status_code)
-            return ScreenResult(flagged=False)
+            logger.warning(
+                "Lakera Guard returned status %d — %s",
+                resp.status_code,
+                "blocking (fail-closed)" if LAKERA_FAIL_CLOSED else "allowing through",
+            )
+            return ScreenResult(flagged=LAKERA_FAIL_CLOSED, reason="guard unavailable")
 
         data = resp.json()
         if data.get("flagged"):
@@ -56,11 +66,17 @@ async def screen_input(text: str) -> ScreenResult:
         return ScreenResult(flagged=False)
 
     except httpx.TimeoutException:
-        logger.warning("Lakera Guard timed out — allowing request through")
-        return ScreenResult(flagged=False)
+        logger.warning(
+            "Lakera Guard timed out — %s",
+            "blocking (fail-closed)" if LAKERA_FAIL_CLOSED else "allowing through",
+        )
+        return ScreenResult(flagged=LAKERA_FAIL_CLOSED, reason="guard timeout")
     except Exception:
-        logger.exception("Lakera Guard error — allowing request through")
-        return ScreenResult(flagged=False)
+        logger.exception(
+            "Lakera Guard error — %s",
+            "blocking (fail-closed)" if LAKERA_FAIL_CLOSED else "allowing through",
+        )
+        return ScreenResult(flagged=LAKERA_FAIL_CLOSED, reason="guard error")
 
 
 def sanitize_prompt_input(text: str) -> str:

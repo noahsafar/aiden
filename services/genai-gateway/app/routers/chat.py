@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.models.requests import ChatRequest, CompletionRequest
 from app.models.responses import ChatResponse
+from app.config import MAX_COMPLETION_TOKENS
 from app.services.claude_client import call_claude
 from app.services.prompt_templates import CHAT_SYSTEM, chat_prompt
 
@@ -26,7 +27,8 @@ async def completion(req: CompletionRequest):
     Used by the email-calendar service to proxy its existing LLM calls."""
     try:
         response = await call_claude(
-            req.prompt, system=req.system, max_tokens=req.max_tokens,
+            req.prompt, system=req.system,
+            max_tokens=min(req.max_tokens or MAX_COMPLETION_TOKENS, MAX_COMPLETION_TOKENS),
             temperature=req.temperature,
         )
         return ChatResponse(response=response)

@@ -9,9 +9,13 @@ import { GENAI_SERVICE_URL } from './config';
  * Returns the JSON response from the GenAI service.
  */
 async function genaiPost<T>(path: string, body: unknown): Promise<T> {
+  const apiKey = import.meta.env.VITE_GENAI_API_KEY;
   const resp = await fetch(`${GENAI_SERVICE_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+    },
     body: JSON.stringify(body),
   });
   if (!resp.ok) {
