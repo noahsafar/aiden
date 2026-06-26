@@ -112,9 +112,9 @@ export const Inbox: React.FC = () => {
   const active = useMemo(() => list.filter((m) => !isHandledEmail(m)), [list]);
   const done = useMemo(() => list.filter(isHandledEmail), [list]);
 
-  const channelTabs: { id: ChannelId | 'all'; label: string }[] = [
+  const channelTabs: { id: ChannelId | 'all'; label: string; soon?: boolean }[] = [
     { id: 'all', label: 'All' },
-    ...channels.map((c) => ({ id: c.id, label: c.label })),
+    ...channels.map((c) => ({ id: c.id, label: c.label, soon: !c.connected })),
   ];
 
   const onDone = (m: UnifiedMessage) => {
@@ -178,6 +178,11 @@ export const Inbox: React.FC = () => {
               >
                 {Icon && <Icon className="h-3 w-3" />}
                 {c.label}
+                {c.soon && (
+                  <span className="rounded-full bg-gray-200/70 px-1 text-[9px] font-semibold uppercase tracking-wide text-muted/70 dark:bg-white/[0.08]">
+                    soon
+                  </span>
+                )}
               </button>
             );
           })}

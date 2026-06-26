@@ -129,16 +129,23 @@ const MOCK_MESSAGES: UnifiedMessage[] = [
   },
 ];
 
+// Demo mode (opt-in): VITE_DEMO_CHANNELS=true repopulates the mock multi-channel
+// world for screenshots/demos. OFF by default so the product never presents
+// fabricated messages as if they were real.
+const USE_DEMO_CHANNELS = import.meta.env.VITE_DEMO_CHANNELS === 'true';
+
 export const useChannelStore = create<ChannelState>((set) => ({
   channels: [
     { id: 'email', label: 'Email', connected: true, live: true, accent: 'text-sky-500' },
-    { id: 'slack', label: 'Slack', connected: true, live: false, accent: 'text-violet-500' },
-    { id: 'teams', label: 'Teams', connected: true, live: false, accent: 'text-indigo-500' },
-    { id: 'whatsapp', label: 'WhatsApp', connected: true, live: false, accent: 'text-emerald-500' },
-    { id: 'linear', label: 'Linear', connected: true, live: false, accent: 'text-indigo-400' },
-    { id: 'github', label: 'GitHub', connected: true, live: false, accent: 'text-gray-600 dark:text-gray-300' },
+    // Slack is a real integration but starts disconnected — loadSlack() flips it on
+    // once the user actually connects. The rest aren't built yet ("coming soon").
+    { id: 'slack', label: 'Slack', connected: false, live: false, accent: 'text-violet-500' },
+    { id: 'teams', label: 'Teams', connected: USE_DEMO_CHANNELS, live: false, accent: 'text-indigo-500' },
+    { id: 'whatsapp', label: 'WhatsApp', connected: USE_DEMO_CHANNELS, live: false, accent: 'text-emerald-500' },
+    { id: 'linear', label: 'Linear', connected: USE_DEMO_CHANNELS, live: false, accent: 'text-indigo-400' },
+    { id: 'github', label: 'GitHub', connected: USE_DEMO_CHANNELS, live: false, accent: 'text-gray-600 dark:text-gray-300' },
   ],
-  channelMessages: MOCK_MESSAGES,
+  channelMessages: USE_DEMO_CHANNELS ? MOCK_MESSAGES : [],
   activeChannel: 'all',
 
   setActiveChannel: (c) => set({ activeChannel: c }),
