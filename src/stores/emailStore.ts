@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { fetchGmailEmails, convertGmailEmailToApp } from '@/api/gmail';
 import { useAuthStore } from '@/stores/authStore';
 import { serverURL } from '@/api/emails';
-import { analyzeEmail as analyzeEmailClaude, summarizeEmail as summarizeEmailClaude, generateReply as generateReplyClaude, classifyEmail as classifyEmailApi } from '@/api/claude';
+import { analyzeEmail as analyzeEmailClaude, summarizeEmail as summarizeEmailClaude, generateReply as generateReplyClaude, classifyEmail as classifyEmailApi, getRecipientWritingStyle, analyzeAndSaveWritingStyle, type RecipientWritingStyle } from '@/api/claude';
 
 // Check if running in Tauri
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
@@ -1297,6 +1297,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const authStore = useAuthStore.getState();
       const userName = authStore.user?.name || undefined;
 
+      // Match the user's learned voice with this recipient, if we've learned one.
+      const recipientAddr = (email.sender.match(/<([^>]+)>/)?.[1] || email.sender).trim();
+      let learnedStyle: RecipientWritingStyle | null = null;
+      try { learnedStyle = await getRecipientWritingStyle(recipientAddr); } catch { /* no style learned yet */ }
+
       // Real AI draft via GenAI gateway → Tauri fallback. If the backend is
       // unreachable, fall back to a short acknowledgement so the flow still works.
       let generatedReply: string;
@@ -1309,6 +1314,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           formality_level: 'neutral',
           user_name: userName,
           sender_tone: email.sender_tone,
+          learned_writing_style: learnedStyle ?? undefined,
         });
         generatedReply = res.reply;
       } catch (err) {
@@ -1455,6 +1461,22 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       import('./crmStore')
         .then(({ useCrmStore }) => useCrmStore.getState().recordSentEmail(to))
         .catch(() => {});
+
+      // Learn the user's writing voice with this recipient from their sent history,
+      // so future drafts match how they actually write. Centralizes the style loop
+      // (previously only attempted — unreliably — from the email view) so every send
+      // contributes. Fire-and-forget; needs ≥2 samples to be meaningful.
+      {
+        const recipientEmail = (to.match(/<([^>]+)>/)?.[1] || to).trim().toLowerCase();
+        const bodies = get().sentEmails
+          .filter((e) => (e.recipients || '').toLowerCase().includes(recipientEmail))
+          .map((e) => e.body_text)
+          .filter((b): b is string => !!b && b.trim().length > 0)
+          .slice(0, 20);
+        if (bodies.length >= 2) {
+          analyzeAndSaveWritingStyle(recipientEmail, bodies).catch(() => {});
+        }
+      }
 
       // Schedule a reminder if this is a reply (has inReplyTo)
       if (inReplyTo) {
