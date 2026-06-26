@@ -32,6 +32,7 @@ import { useCrmStore, Contact } from '@/stores/crmStore';
 import { useEmailStore } from '@/stores/emailStore';
 import { useCommitmentStore } from '@/stores/commitmentStore';
 import { relationshipContext } from '@/api/aiden';
+import { useContactMemoryStore } from '@/stores/contactMemoryStore';
 import { NetworkGraph } from '@/components/crm/NetworkGraph';
 import { CreateEventModal } from '@/components/calendar/CreateEventModal';
 import { cn } from '@/lib/utils';
@@ -424,6 +425,9 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
   useEffect(() => {
     let cancelled = false;
     const personName = contact.name || contact.email_address.split('@')[0];
+    // Show any remembered notes immediately (persisted across sessions), then refresh.
+    const remembered = useContactMemoryStore.getState().getNotes(contact.email_address);
+    if (remembered.length) setCtxBullets(remembered);
     // Grounded, sensible context notes (replaces the old regex bullets).
     // Uses both sides of the conversation (incl. your sent mail) for the AI.
     const messages = contextThreads.map((e) => ({
@@ -431,7 +435,10 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
       snippet: (e.body_text || e.snippet || '').replace(/\s+/g, ' ').slice(0, 240),
     }));
     relationshipContext(personName, messages).then((b) => {
-      if (!cancelled) setCtxBullets(b);
+      if (cancelled || !b.length) return;
+      setCtxBullets(b);
+      // Remember these notes so next time we show them instantly and feed drafts.
+      useContactMemoryStore.getState().setNotes(contact.email_address, b);
     });
     return () => {
       cancelled = true;

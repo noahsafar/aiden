@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { serverURL } from '@/api/emails';
 import { analyzeEmail as analyzeEmailClaude, summarizeEmail as summarizeEmailClaude, generateReply as generateReplyClaude, classifyEmail as classifyEmailApi, getRecipientWritingStyle, analyzeAndSaveWritingStyle, type RecipientWritingStyle } from '@/api/claude';
 import { useFeedbackStore } from './feedbackStore';
+import { useContactMemoryStore } from './contactMemoryStore';
 
 // Check if running in Tauri
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
@@ -1312,6 +1313,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
       // Match the user's learned voice with this recipient, if we've learned one.
       const recipientAddr = (email.sender.match(/<([^>]+)>/)?.[1] || email.sender).trim();
+      const memoryNotes = useContactMemoryStore.getState().getNotes(recipientAddr);
       let learnedStyle: RecipientWritingStyle | null = null;
       try { learnedStyle = await getRecipientWritingStyle(recipientAddr); } catch { /* no style learned yet */ }
 
@@ -1328,6 +1330,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           user_name: userName,
           sender_tone: email.sender_tone,
           learned_writing_style: learnedStyle ?? undefined,
+          additional_context: memoryNotes.length ? `Context on the recipient: ${memoryNotes.join('; ')}.` : undefined,
         });
         generatedReply = res.reply;
       } catch (err) {
