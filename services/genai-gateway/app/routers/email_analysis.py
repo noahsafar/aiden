@@ -11,7 +11,7 @@ from app.models.responses import (
     AttachmentRequestItem,
     LifeDataItem,
 )
-from app.services.claude_client import call_claude
+from app.services.claude_client import call_claude, call_claude_json
 from app.services.json_parser import extract_json
 from app.services.prompt_templates import (
     ANALYZE_EMAIL_SYSTEM,
@@ -56,17 +56,35 @@ async def analyze_email(req: AnalyzeEmailRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+CLASSIFY_TOOL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "category": {
+            "type": "string",
+            "enum": ["urgent", "important", "normal", "newsletter", "promotional", "transactional", "social"],
+        },
+        "confidence": {"type": "number"},
+        "requires_reply": {"type": "boolean"},
+        "can_auto_archive": {"type": "boolean"},
+    },
+    "required": ["category", "confidence", "requires_reply", "can_auto_archive"],
+}
+
+
 @router.post("/classify-email", response_model=ClassifyEmailResponse)
 async def classify_email(req: ClassifyEmailRequest):
     try:
         prompt = classify_email_prompt(req.sender, req.subject, req.content)
-        raw = await call_claude(prompt)
-        parsed = extract_json(raw)
+        # Forced-JSON via tool-use (falls back to text+extract_json internally).
+        parsed = await call_claude_json(
+            prompt, tool_name="classify_email", tool_schema=CLASSIFY_TOOL_SCHEMA
+        )
+        # .get() with defaults — never KeyError on a missing field.
         return ClassifyEmailResponse(
-            category=parsed["category"],
-            confidence=parsed["confidence"],
-            requires_reply=parsed["requires_reply"],
-            can_auto_archive=parsed["can_auto_archive"],
+            category=parsed.get("category", "normal"),
+            confidence=float(parsed.get("confidence", 0.5)),
+            requires_reply=bool(parsed.get("requires_reply", False)),
+            can_auto_archive=bool(parsed.get("can_auto_archive", False)),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

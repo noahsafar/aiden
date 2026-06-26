@@ -91,38 +91,39 @@ Set requires_reply to TRUE ONLY for:
 def classify_email_prompt(sender: str, subject: str, content: str) -> str:
     from datetime import date
     today = date.today().isoformat()
-    return f"""Classify this email's priority. Be CONSERVATIVE — most emails are "normal". Only escalate when truly warranted.
+    return f"""Classify this email. Be CONSERVATIVE about urgency — most real person-to-person mail is "normal"; most bulk mail falls into a specific non-priority class below.
 
 Today's date: {today}
 From: {sender}
 Subject: {subject}
 Content: {content}
 
-Respond in JSON format:
-{{
-  "category": "urgent|important|normal|low",
-  "confidence": 0.95,
-  "requires_reply": true,
-  "can_auto_archive": false
-}}
+Pick EXACTLY ONE category:
+- "urgent" — needs the user's personal action within ~24-48h (real deadline, blocker, time-sensitive ask from a real person).
+- "important" — needs the user's personal action or decision, but not immediately.
+- "normal" — regular person-to-person mail that may or may not need a reply. Default for real humans when unsure.
+- "newsletter" — bulk editorial/marketing list mail (digests, announcements; usually has "view in browser"/"unsubscribe" footers).
+- "promotional" — sales/marketing pushing an offer, discount, or product.
+- "transactional" — automated receipts, order/shipping updates, confirmations, security codes, calendar notifications.
+- "social" — social-network/community notifications, event RSVPs, likes/mentions.
 
-STRICT classification rules:
+Respond in JSON:
+{{"category": "...", "confidence": 0.0-1.0, "requires_reply": true|false, "can_auto_archive": true|false}}
 
-"urgent" — ONLY use when ALL of these are true:
-  - Immediate time pressure (within 24-48 hours)
-  - Requires the user's personal action
-  - From a real person or organization that matters
+Rules:
+- requires_reply = TRUE only if a REAL person is directly asking the user to respond. ALWAYS false for newsletter/promotional/transactional/social.
+- can_auto_archive = TRUE for newsletter/promotional/transactional/social that need no action.
+- Prefer "normal" for real humans, or the right bulk class for machines, unless you're clearly confident it's urgent/important. If confidence in a priority class is < 0.5, fall back to "normal".
 
-"important" — Requires the user's personal action or decision, but not immediately.
-
-"normal" — Default category. Regular emails that may or may not need action.
-
-"low" — Clearly does not need attention (newsletters, marketing, automated notifications).
-
-requires_reply rules:
-  - TRUE only if the sender is a real person directly asking the user to respond
-  - FALSE for newsletters, automated emails, notifications, receipts, etc.
-  - When in doubt, set FALSE"""
+Examples:
+From: Yale Clean Energy Forum <news@e.yale.edu> | Subject: April digest + apply to our accelerator
+=> {{"category": "newsletter", "confidence": 0.95, "requires_reply": false, "can_auto_archive": true}}
+From: Sarah Chen <sarah@acme.com> | Subject: can you review the deck before our 9am?
+=> {{"category": "urgent", "confidence": 0.85, "requires_reply": true, "can_auto_archive": false}}
+From: Amazon <ship-confirm@amazon.com> | Subject: Your package was delivered
+=> {{"category": "transactional", "confidence": 0.97, "requires_reply": false, "can_auto_archive": true}}
+From: Mike <mike@partner.com> | Subject: thoughts on the proposal whenever you get a sec
+=> {{"category": "normal", "confidence": 0.7, "requires_reply": true, "can_auto_archive": false}}"""
 
 
 # ── Summarize email ────────────────────────────────────────────

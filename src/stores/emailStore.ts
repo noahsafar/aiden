@@ -587,6 +587,9 @@ async function classifyEmailPriority(emailId: string): Promise<void> {
     });
     const CATEGORY_MAP: Record<string, Email['category']> = {
       urgent: 'Urgent', important: 'Important', normal: 'Normal', low: 'Low',
+      // Richer server-side taxonomy collapses to the 4 client buckets: all bulk/
+      // automated classes are low-priority (and feed aidenBrain's "Low" newsletter filter).
+      newsletter: 'Low', promotional: 'Low', transactional: 'Low', social: 'Low',
     };
     const category = CATEGORY_MAP[(res.category || '').toLowerCase()] ?? 'Normal';
     const requires_reply =
