@@ -1,9 +1,10 @@
 // Direct Gmail API integration for Aiden
 // This version uses Gmail API directly from the frontend
 
-// Your OAuth 2.0 client configuration from Google Cloud Console
-const GOOGLE_CLIENT_ID = '371357217343-ihm24nevjs05qijuebtrc7vdv33cpuuj.apps.googleusercontent.com';
-const GOOGLE_API_KEY = 'AIzaSyC0Y5nk1qa9n-nn-3TujYu5a_nXwO8Ir4c'; // You'll need to add this
+// OAuth 2.0 client config — sourced from env (VITE_*), never hardcoded.
+// Set these in .env (gitignored); see .env.example.
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || '';
 const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
 
 export interface GmailEmail {

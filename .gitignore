@@ -69,4 +69,8 @@ __pycache__/
 # OAuth credentials
 gmail_credentials.json
 credentials.json
-*.pickleoauth_server.log
+*.pickle
+token.pickle
+
+# Runtime logs (may contain email content / tokens — never commit)
+oauth_server.log
