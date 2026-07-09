@@ -14,7 +14,7 @@ export const EmailViewPage: React.FC = () => {
   const autoReply = (location.state as any)?.autoReply || false;
   const [showResponseOptions, setShowResponseOptions] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
-  const scrollTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const scrollTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Get email ID from URL
   const emailId = location.pathname.split('/today/email/')[1];
@@ -114,10 +114,12 @@ export const EmailViewPage: React.FC = () => {
     };
   };
 
-  const senderInfo = email.sender ? extractName(email.sender) : { name: email.from?.name, email: email.from?.email };
+  const senderInfo = email.sender
+    ? extractName(email.sender)
+    : { name: undefined as string | undefined, email: undefined as string | undefined };
   const recipientsList = email.recipients
     ? email.recipients.split(',').map(r => extractName(r.trim()))
-    : email.to || [];
+    : [];
 
   const handleEmailAction = (emailId: string, action: string) => {
     // Map common actions to email status updates in the store.
@@ -274,22 +276,22 @@ export const EmailViewPage: React.FC = () => {
               </div>
               <div className="flex items-center space-x-4 text-sm text-muted">
                 <span>From: {senderInfo.name} &lt;{senderInfo.email}&gt;</span>
-                <span>{new Date(email.date || email.timestamp || '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                <span>{new Date(email.date || '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
             </div>
 
             <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground prose-a:text-blue-600 dark:prose-a:text-blue-400">
-              {email.bodyHtml || email.body_html ? (
-                <EmailHtmlContent html={email.bodyHtml || email.body_html || ''} />
+              {email.body_html ? (
+                <EmailHtmlContent html={email.body_html || ''} />
               ) : (
                 <div className="whitespace-pre-wrap text-foreground">
-                  {email.body_text || email.content || email.snippet || '(No content)'}
+                  {email.body_text || email.snippet || '(No content)'}
                 </div>
               )}
             </div>
 
             {/* Attachments */}
-            {email.hasAttachments && email.attachments && email.attachments.length > 0 && (
+            {email.has_attachments && email.attachments && email.attachments.length > 0 && (
               <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
                 <div className="flex items-center gap-2 mb-4">
                   <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -308,7 +310,7 @@ export const EmailViewPage: React.FC = () => {
                         messageId={email.id}
                         emailSubject={email.subject}
                         emailSender={`${senderInfo.name} <${senderInfo.email}>`.trim()}
-                        emailBody={email.body_text || email.content || email.snippet}
+                        emailBody={email.body_text || email.snippet}
                         emailSummary={email.summary}
                       />
                     );

@@ -1,5 +1,5 @@
 import React from 'react';
-import { UserIcon, SparklesIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
+import { User as UserIcon, Sparkles as SparklesIcon, Mic as MicrophoneIcon } from 'lucide-react';
 
 interface SimpleMessage {
   role: 'user' | 'assistant';

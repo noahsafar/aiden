@@ -1,13 +1,13 @@
 import React from 'react';
 import { useEmailStore } from '@/stores/emailStore';
-import { Clock } from 'lucide-react';
 import {
-  InboxIcon,
-  PaperAirplaneIcon,
-  BookmarkIcon,
-  ArchiveBoxIcon,
-  TrashIcon,
-} from '@heroicons/react/24/outline';
+  Clock,
+  Inbox as InboxIcon,
+  Send as PaperAirplaneIcon,
+  Bookmark as BookmarkIcon,
+  Archive as ArchiveBoxIcon,
+  Trash2 as TrashIcon,
+} from 'lucide-react';
 
 interface SidebarProps {
   className?: string;

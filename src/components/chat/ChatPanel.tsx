@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { XMarkIcon } from '@heroicons/react/24/outline';
+import { X as XMarkIcon } from 'lucide-react';
 import { useChatContext } from '@/contexts/ChatContext';
 import { ChatMessage as ChatMessageComponent } from './ChatMessage';
 import { ChatInput } from './ChatInput';

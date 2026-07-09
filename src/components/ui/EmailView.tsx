@@ -117,8 +117,8 @@ export function EmailHtmlContent({ html }: { html: string }) {
         'usemap', 'ismap', 'longdesc',
         // Link attributes
         'charset', 'hreflang', 'media', 'sizes', 'rev',
-        // Data attributes
-        /^data-.*$/
+        // Data attributes (DOMPurify accepts RegExp entries at runtime; its types don't)
+        /^data-.*$/ as unknown as string
       ],
       ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
       ALLOW_UNKNOWN_PROTOCOLS: false,
@@ -563,8 +563,8 @@ export const EmailView: React.FC<EmailViewProps> = ({
   // Unsend state
   const [isSending, setIsSending] = React.useState(false);
   const [sendCountdown, setSendCountdown] = React.useState(5);
-  const sendTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
-  const countdownIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const sendTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Additional context/keyword for reply generation
   const [additionalContext, setAdditionalContext] = React.useState('');
@@ -676,7 +676,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
 
   // Get AI reply from store
   // For sent emails, the reply is the body of the sent email
-  const aiReply = isSentEmail ? (sentEmail?.body || sentEmail?.ai_generated_reply || null) : (fullEmail?.ai_generated_reply || null);
+  const aiReply = isSentEmail ? (sentEmail?.body_text || sentEmail?.ai_generated_reply || null) : (fullEmail?.ai_generated_reply || null);
 
   // Use local AI reply ONLY if it's from the current email, otherwise use store
   const displayAiReply = (currentEmailId === email?.id ? localAiReply : null) || aiReply;
@@ -1931,7 +1931,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
                   <div className="flex items-center gap-2">
                     <Paperclip className="w-4 h-4 text-gray-600 dark:text-gray-400 flex-shrink-0" />
                     <p className="text-xs text-gray-700 dark:text-gray-300">
-                      <span className="font-medium">Attachments:</span> {(hasSent || isSentEmail) ? (fullEmail?.attachments || []).map(a => a.filename || a.name).join(', ') : selectedAttachments.map(a => a.name).join(', ')}
+                      <span className="font-medium">Attachments:</span> {(hasSent || isSentEmail) ? (fullEmail?.attachments || []).map(a => a.filename).join(', ') : selectedAttachments.map(a => a.name).join(', ')}
                     </p>
                   </div>
                 </div>

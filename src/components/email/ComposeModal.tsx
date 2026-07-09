@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { XMarkIcon, PaperAirplaneIcon, PaperClipIcon } from '@heroicons/react/24/outline';
+import { X as XMarkIcon, Send as PaperAirplaneIcon, Paperclip as PaperClipIcon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useEmailStore } from '@/stores/emailStore';
 

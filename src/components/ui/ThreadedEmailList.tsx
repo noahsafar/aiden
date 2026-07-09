@@ -167,8 +167,8 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
       // Sort by category priority: Urgent > Important > Normal > Low
       const categoryOrder = { 'Urgent': 0, 'Important': 1, 'Normal': 2, 'Low': 3 };
       return threads.sort((a, b) => {
-        const aCategory = a.mostRecent.aiCategory || a.mostRecent.category || 'Normal';
-        const bCategory = b.mostRecent.aiCategory || b.mostRecent.category || 'Normal';
+        const aCategory = a.mostRecent.category || 'Normal';
+        const bCategory = b.mostRecent.category || 'Normal';
         const aOrder = categoryOrder[aCategory as keyof typeof categoryOrder] ?? 2;
         const bOrder = categoryOrder[bCategory as keyof typeof categoryOrder] ?? 2;
         if (aOrder !== bOrder) {
@@ -712,20 +712,19 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
                   {/* Thread content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className={`text-xs font-medium truncate ${
-                        mostRecent.from?.name || mostRecent.sender
-                      }`}>
+                      {/* (previously interpolated the sender into className — a bug) */}
+                      <span className="text-xs font-medium truncate">
                         {threadEmails.length > 1 && (
                           <span className="text-gray-500 dark:text-gray-400 mr-1">
                             {threadEmails.length === 2
-                              ? `${threadEmails[0].from?.name || threadEmails[0].sender?.split('<')[0]?.trim() || 'Someone'} and you`
-                              : `${threadEmails[0].from?.name || threadEmails[0].sender?.split('<')[0]?.trim() || 'Someone'} (${threadCount})`}
+                              ? `${threadEmails[0].sender?.split('<')[0]?.trim() || 'Someone'} and you`
+                              : `${threadEmails[0].sender?.split('<')[0]?.trim() || 'Someone'} (${threadCount})`}
                           </span>
                         )}
-                        {(mostRecent.from?.name || mostRecent.sender)}
+                        {mostRecent.sender?.split('<')[0]?.trim() || mostRecent.sender}
                       </span>
                       <ActionBadge emailId={mostRecent.id} />
-                      {mostRecent.status === 'Saved' && !mostRecent.labels?.some((l: any) => l.name === 'Sent') && !mostRecent.waiting_on_reply_since && !mostRecent.recipients && (
+                      {mostRecent.status === 'Saved' && !mostRecent.waiting_on_reply_since && !mostRecent.recipients && (
                         <Bookmark className="w-3 h-3 text-purple-500" />
                       )}
                       {mostRecent.is_starred && (

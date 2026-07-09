@@ -194,7 +194,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
               const { useAuthStore } = await import('./authStore');
               const authStore = useAuthStore.getState();
               if (authStore.token?.access_token) {
-                const gmailData = await fetchGmailEmails(authStore.token.access_token, query, 50, true);
+                // Signature is (accessToken, maxResults, query) — this call had the
+                // query in the maxResults slot, so searches silently misfired.
+                const gmailData = await fetchGmailEmails(authStore.token.access_token, 50, query);
                 if (gmailData.success && gmailData.emails.length > 0) {
                   // Convert and update the email store with fresh results
                   const converted = gmailData.emails.map((email: any) => ({

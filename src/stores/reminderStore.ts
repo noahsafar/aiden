@@ -16,7 +16,7 @@ interface ReminderState {
   stopPeriodicCheck: () => void;
 }
 
-let checkTimer: NodeJS.Timeout | null = null;
+let checkTimer: ReturnType<typeof setInterval> | null = null;
 
 export const useReminderStore = create<ReminderState>((set, get) => ({
   // Initial state

@@ -15,7 +15,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@heroicons/react": "^2.2.0",
     "@tanstack/react-query": "^4.24.4",
     "@tauri-apps/api": "~2.9.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
@@ -39,18 +38,18 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.6",
-    "jsdom": "^25.0.1",
-    "vitest": "^2.1.9",
     "@types/react": "^18.0.28",
     "@types/react-dom": "^18.0.11",
     "@vitejs/plugin-react": "^4.0.0",
     "autoprefixer": "^10.4.14",
     "internal-ip": "^7.0.0",
+    "jsdom": "^25.0.1",
     "postcss": "^8.4.21",
     "postcss-js": "^4.1.0",
     "tailwindcss": "^3.2.7",
     "typescript": "^4.9.3",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
   },
   "overrides": {
     "@types/d3-dispatch": "3.0.6"

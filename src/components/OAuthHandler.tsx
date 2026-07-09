@@ -71,7 +71,7 @@ export const OAuthHandler: React.FC<OAuthHandlerProps> = ({ children }) => {
         setState({ isLoading: true });
 
         // Exchange authorization code for tokens
-        const token = await invoke<AuthToken>('exchange_code_for_token', { code });
+        const token = (await invoke('exchange_code_for_token', { code })) as AuthToken;
 
         if (!token) {
           throw new Error('Failed to exchange authorization code for token');

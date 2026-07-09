@@ -149,7 +149,8 @@ export const LifeIntel: React.FC = () => {
       // Select the source email and switch to inbox
       import('@/stores/emailStore').then(({ useEmailStore }) => {
         useEmailStore.getState().setCurrentFilter('inbox');
-        useEmailStore.getState().setSelectedEmail(emailId);
+        const email = useEmailStore.getState().emails.find((e) => e.id === emailId) || null;
+        useEmailStore.setState({ selectedEmail: email });
       });
     }
     navigate('/dashboard');

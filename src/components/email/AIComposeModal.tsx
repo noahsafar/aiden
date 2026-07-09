@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  XMarkIcon,
-  PaperAirplaneIcon,
-  SparklesIcon,
-  UserIcon,
-  ClockIcon,
-} from '@heroicons/react/24/outline';
+  X as XMarkIcon,
+  Send as PaperAirplaneIcon,
+  Sparkles as SparklesIcon,
+  User as UserIcon,
+  Clock as ClockIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useEmailStore } from '@/stores/emailStore';
 import { useAuthStore } from '@/stores/authStore';

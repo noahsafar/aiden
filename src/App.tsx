@@ -532,7 +532,7 @@ function App() {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    let interval: NodeJS.Timeout | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
     let lastFetchTime = 0;
     const MIN_FETCH_INTERVAL = 30000; // Don't fetch more often than every 30s
 
@@ -612,12 +612,12 @@ function App() {
 
           // Listen for notification clicks
           const unlisten = await listen('notification-clicked', () => {
-            getCurrentWindow().setFocus(true);
+            getCurrentWindow().setFocus();
             getCurrentWindow().unminimize();
           });
 
           return () => {
-            unlisten.then(fn => fn());
+            unlisten();
           };
         } catch (e) {
           console.error('Failed to set up notification listener:', e);

@@ -7,6 +7,10 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 const GOOGLE_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || '';
 const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
 
+// The Google API client is loaded via a <script> tag at runtime; no @types/gapi
+// in this project, so declare the global loosely.
+declare const gapi: any;
+
 export interface GmailEmail {
   id: string;
   threadId: string;
@@ -32,7 +36,7 @@ export interface EmailResponse {
 }
 
 // Initialize Gmail API client
-export async function initGmailAPI(): Promise<gapi.client.gmail> {
+export async function initGmailAPI(): Promise<any> {
   return new Promise((resolve, reject) => {
     gapi.load('client', async () => {
       try {
@@ -233,7 +237,7 @@ export async function sendGmailEmail(
         // If not in localStorage, try getting from Rust backend
         try {
           const { invoke } = await import('@/lib/tauri-api');
-          accessToken = await invoke<string>('get_stored_token');
+          accessToken = (await invoke('get_stored_token')) as string;
           if (!accessToken) {
             throw new Error('Not authenticated. Please sign in to send emails.');
           }
