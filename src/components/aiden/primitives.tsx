@@ -255,6 +255,35 @@ export const EmptyState: React.FC<{
 );
 
 /* ------------------------------------------------------------------ */
+/* Skeleton — shimmer placeholders so loading feels instant, not stuck */
+/* ------------------------------------------------------------------ */
+
+export const Skeleton: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={cn('animate-pulse rounded-md bg-gray-200/70 dark:bg-white/[0.08]', className)} aria-hidden="true" />
+);
+
+/** A few stacked card skeletons that echo a list while its data loads. */
+export const SkeletonRows: React.FC<{ rows?: number; className?: string }> = ({ rows = 3, className = '' }) => (
+  <div className={cn('space-y-3', className)} role="status" aria-label="Loading">
+    {Array.from({ length: rows }).map((_, i) => (
+      <div
+        key={i}
+        className="rounded-2xl border border-gray-200/70 bg-white p-5 dark:border-white/[0.07] dark:bg-white/[0.04]"
+      >
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-10 w-10 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-3.5 w-1/3" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+        </div>
+      </div>
+    ))}
+    <span className="sr-only">Loading…</span>
+  </div>
+);
+
+/* ------------------------------------------------------------------ */
 /* SurfaceHeader — large page header used by each surface             */
 /* ------------------------------------------------------------------ */
 

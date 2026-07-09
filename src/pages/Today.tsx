@@ -42,6 +42,7 @@ import {
 } from '@/lib/aidenBrain';
 import { synthesizeDayBrief } from '@/api/aiden';
 import { fetchEvents, CalendarEvent } from '@/api/calendar';
+import { IS_DEMO_MODE } from '@/lib/demoMode';
 import { Commitment, dueLabel, isOverdue } from '@/lib/commitments';
 
 function greeting(): string {
@@ -596,9 +597,11 @@ export const Today: React.FC = () => {
         const res = await fetchEvents(todayStr(), dateStr(end));
         if (cancelled) return;
         const upcoming = (res.events || []).filter((e) => e.date >= todayStr());
-        setEvents(upcoming.length ? upcoming : FALLBACK_EVENTS);
+        // Demo mode shows sample meetings; a real empty calendar shows the
+        // honest "Nothing on the calendar" state rather than invented meetings.
+        setEvents(upcoming.length ? upcoming : IS_DEMO_MODE ? FALLBACK_EVENTS : []);
       } catch {
-        if (!cancelled) setEvents(FALLBACK_EVENTS);
+        if (!cancelled) setEvents(IS_DEMO_MODE ? FALLBACK_EVENTS : []);
       }
     })();
     return () => { cancelled = true; };

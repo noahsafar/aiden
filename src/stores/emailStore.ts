@@ -216,7 +216,7 @@ interface QueuedNotification {
 }
 
 const notificationQueue: QueuedNotification[] = [];
-let batchTimeout: NodeJS.Timeout | null = null;
+let batchTimeout: ReturnType<typeof setTimeout> | null = null;
 let currentBatchIntervalMs = 15 * 60 * 1000; // Will be loaded from settings
 
 // Load batch interval from settings and update it
@@ -344,6 +344,8 @@ export interface EmailState {
   hasFetchedFromGmail: boolean;   // Whether we've done at least one Gmail API fetch
   generatingReplies: Set<string>; // Track which emails are currently having replies generated
   generatingSummaries: Set<string>; // Track which emails are currently having summaries generated
+  /** Live AI-processing progress (summaries + classification) for a global indicator. */
+  aiProcessing: { active: number; queued: number };
   sentReplyEmailIds: Set<string>; // Track which emails we've sent replies to
   appStartTime: number; // Track when the app started to know which emails are "new"
 
@@ -363,7 +365,7 @@ export interface EmailState {
 
   // Auto-reminder state
   pendingReminders: Set<string>;        // Email IDs needing reminder check
-  reminderCheckInterval: NodeJS.Timeout | null;  // Interval for reminder checks
+  reminderCheckInterval: ReturnType<typeof setInterval> | null;  // Interval for reminder checks
 
   // Actions
   loadFromDisk: () => Promise<void>;
@@ -471,29 +473,38 @@ function setLastSyncTime(ts: number): void {
 
 // Track which emails are being processed (for both summary and reply)
 let processingEmails = new Set<string>();
-// Process only one email at a time for better control
-const MAX_CONCURRENT_AI_OPERATIONS = 1;
+// Process a few emails concurrently. Capped low so a first-run backfill of ~200
+// emails moves quickly without hammering the AI backend — it previously ran
+// strictly one-at-a-time, which made the initial sync feel stuck for minutes.
+const MAX_CONCURRENT_AI_OPERATIONS = 3;
 let activeAIOperations = 0;
 let aiOperationQueue: Array<() => void> = [];
+
+// Publish queue depth so the shell can show a calm "Analyzing N messages…" hint.
+function updateAiProgress() {
+  useEmailStore.setState({
+    aiProcessing: { active: activeAIOperations, queued: aiOperationQueue.length },
+  });
+}
 
 // Queue an AI operation to limit concurrency
 function queueAIOperation(operation: () => Promise<void>) {
   aiOperationQueue.push(operation);
+  updateAiProgress();
   processAIQueueHelper();
 }
 
-// Process the AI operation queue
-async function processAIQueueHelper() {
-  if (activeAIOperations >= MAX_CONCURRENT_AI_OPERATIONS || aiOperationQueue.length === 0) {
-    return;
-  }
-
-  const operation = aiOperationQueue.shift();
-  if (operation) {
+// Process the AI operation queue, filling every open concurrency slot.
+function processAIQueueHelper() {
+  while (activeAIOperations < MAX_CONCURRENT_AI_OPERATIONS && aiOperationQueue.length > 0) {
+    const operation = aiOperationQueue.shift();
+    if (!operation) break;
     activeAIOperations++;
-    // Don't await - let it run in the background
-    operation().finally(() => {
+    updateAiProgress();
+    // Don't await — let it run in the background; refill slots as each finishes.
+    Promise.resolve(operation()).finally(() => {
       activeAIOperations--;
+      updateAiProgress();
       processAIQueueHelper();
     });
   }
@@ -605,8 +616,13 @@ async function classifyEmailPriority(emailId: string): Promise<void> {
         : state.selectedEmail,
     }));
     persistEmailsToDisk();
+    // A successful classification is the clearest signal the AI pipeline is up.
+    import('@/stores/systemStatusStore').then(({ systemStatus }) => systemStatus.ok('ai'));
   } catch (e) {
     console.warn(`[AI Processing] Classification failed for ${emailId}:`, e);
+    import('@/stores/systemStatusStore').then(({ systemStatus }) =>
+      systemStatus.fail('ai', 'AI processing unavailable — organizing without summaries'),
+    );
   } finally {
     processingEmails.delete(key);
   }
@@ -663,6 +679,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   hasFetchedFromGmail: false,
   generatingReplies: new Set<string>(),
   generatingSummaries: new Set<string>(),
+  aiProcessing: { active: 0, queued: 0 },
   sentReplyEmailIds: new Set<string>(),
   appStartTime: Date.now(), // Track when the app started to know which emails are "new"
 
@@ -850,6 +867,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // Mark as initialized and fetched; advance the persisted sync anchor.
         set({ hasInitialized: true, hasFetchedFromGmail: true });
         setLastSyncTime(fetchStartedAt);
+        // Python server delivered — the backbone is healthy (clears any stale "down").
+        import('@/stores/systemStatusStore').then(({ systemStatus }) => systemStatus.ok('server'));
 
         // Classify any emails that haven't been classified yet (separate from summary pipeline)
         const unclassifiedEmails = emails.filter(e => e.category === 'Normal');
@@ -990,6 +1009,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         }
 
         console.warn('Falling back to frontend Gmail API...');
+        // Mail still flows via the Gmail API, but calendar/Slack/AI proxying
+        // ride on the Python server — say so instead of failing silently.
+        import('@/stores/systemStatusStore').then(({ systemStatus }) =>
+          systemStatus.fail('server', 'Email server unreachable — using direct Gmail fallback'),
+        );
 
         // Fetch emails directly from Gmail API (same 14d-first / incremental logic)
         const fallbackQuery = lastSync
@@ -1002,8 +1026,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           throw new Error(emailResponse.error || 'Failed to fetch emails');
         }
 
-        // Convert Gmail emails to app format and merge with existing
-        const newEmails = emailResponse.emails.map(convertGmailEmailToApp);
+        // Convert Gmail emails to app format and merge with existing. Typed as
+        // Email[] so the merge below can reference optional AI fields.
+        const newEmails: Email[] = emailResponse.emails.map(convertGmailEmailToApp);
         const existingEmails = get().emails;
         const existingById = new Map(existingEmails.map(e => [e.id, e]));
 
@@ -1104,6 +1129,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       }
     } catch (error) {
       console.error('Failed to fetch emails:', error);
+      // Surface it — the UI keeps running on cached mail, but the user should
+      // know they're looking at cache, not live data.
+      import('@/stores/systemStatusStore').then(({ systemStatus }) =>
+        systemStatus.fail('server', 'Email server unreachable — showing cached mail'),
+      );
       set({
         error: error instanceof Error ? error.message : 'Failed to fetch emails',
         isLoading: false

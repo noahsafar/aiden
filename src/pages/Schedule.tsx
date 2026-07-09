@@ -7,8 +7,10 @@ import {
   SectionLabel,
   SoftButton,
   EmptyState,
+  SkeletonRows,
 } from '@/components/aiden/primitives';
 import { fetchEvents, CalendarEvent } from '@/api/calendar';
+import { IS_DEMO_MODE } from '@/lib/demoMode';
 import { CreateEventModal } from '@/components/calendar/CreateEventModal';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
@@ -63,10 +65,12 @@ export const Schedule: React.FC = () => {
     fetchEvents(dateStr(start), dateStr(end), timezone)
       .then((res) => {
         if (cancelled) return;
-        setEvents(res.events?.length ? res.events : FALLBACK);
+        // Only fall back to sample events in demo mode. A genuinely empty
+        // calendar should surface the real "Nothing scheduled" empty state.
+        setEvents(res.events?.length ? res.events : IS_DEMO_MODE ? FALLBACK : []);
       })
       .catch(() => {
-        if (!cancelled) setEvents(FALLBACK);
+        if (!cancelled) setEvents(IS_DEMO_MODE ? FALLBACK : []);
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {
@@ -105,9 +109,7 @@ export const Schedule: React.FC = () => {
       />
 
       {loading ? (
-        <Surface tone="subtle" className="px-6 py-10 text-center text-sm text-muted">
-          Loading your schedule…
-        </Surface>
+        <SkeletonRows rows={4} />
       ) : grouped.length === 0 ? (
         <EmptyState icon={<CalendarDays className="h-5 w-5" />} title="Nothing scheduled" description="Your next two weeks are clear." >
           <SoftButton variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowCreate(true)}>

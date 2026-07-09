@@ -36,7 +36,8 @@ export const Toast: React.FC<ToastProps> = ({ toast, onDismiss }) => {
 
   return (
     <div
-      className="relative bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-md"
+      role="status"
+      className="relative bg-surface text-foreground border border-border px-4 py-3 rounded-lg shadow-elevated-lg flex items-center gap-3 min-w-[300px] max-w-md"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
@@ -47,21 +48,22 @@ export const Toast: React.FC<ToastProps> = ({ toast, onDismiss }) => {
             toast.undo?.();
             onDismiss(toast.id);
           }}
-          className="text-sm font-semibold text-blue-400 hover:text-blue-300 dark:text-blue-600 dark:hover:text-blue-500"
+          className="text-sm font-semibold text-primary-600 hover:text-primary-500 dark:text-primary-400"
         >
           Undo
         </button>
       )}
       <button
         onClick={() => onDismiss(toast.id)}
-        className="text-gray-400 hover:text-gray-300 dark:text-gray-600 dark:hover:text-gray-500"
+        aria-label="Dismiss notification"
+        className="rounded text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50"
       >
         ×
       </button>
       {/* Progress bar */}
-      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-700 dark:bg-gray-300 rounded-b-lg overflow-hidden">
+      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-black/10 dark:bg-white/15 rounded-b-lg overflow-hidden">
         <div
-          className="h-full bg-blue-500 dark:bg-blue-600 transition-all duration-100 ease-linear"
+          className="h-full bg-primary-500 transition-all duration-100 ease-linear"
           style={{ width: `${progressPercent}%` }}
         />
       </div>
@@ -76,7 +78,7 @@ interface ToastContainerProps {
 
 export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onDismiss }) => {
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2" aria-live="polite" aria-atomic="false">
       {toasts.map((toast) => (
         <Toast key={toast.id} toast={toast} onDismiss={onDismiss} />
       ))}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
-import { X, Loader2, Check, ExternalLink } from 'lucide-react';
+import { Loader2, Check, ExternalLink } from 'lucide-react';
 import { createEvent, CreateEventParams } from '@/api/calendar';
+import { Modal } from '@/components/aiden/Modal';
 
 interface CreateEventModalProps {
   isOpen: boolean;
@@ -109,28 +109,8 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
     }
   };
 
-  if (!isOpen) return null;
-
-  // Portal to <body> so the fixed backdrop is viewport-relative — otherwise an
-  // ancestor stacking/containing-block context (the page tree) offsets it and a
-  // strip at the very top of the page never gets covered by the blur.
-  return createPortal(
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={handleClose}>
-      <div
-        className="bg-surface rounded-2xl shadow-elevated-lg border border-gray-200/70 dark:border-white/[0.08] w-full max-w-lg mx-4 max-h-[90vh] flex flex-col animate-scale-in"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200/70 dark:border-white/[0.08]">
-          <h2 className="text-lg font-semibold text-foreground">New Event</h2>
-          <button
-            onClick={handleClose}
-            className="p-1.5 rounded-lg text-muted hover:bg-gray-100 dark:hover:bg-white/[0.06] transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
+  return (
+    <Modal isOpen={isOpen} onClose={handleClose} title="New Event">
         {/* Success state */}
         {successLink !== null && !error ? (
           <div className="p-8 text-center">
@@ -291,8 +271,6 @@ export function CreateEventModal({ isOpen, onClose, onEventCreated, timezone, in
             </div>
           </form>
         )}
-      </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }

@@ -275,6 +275,20 @@ export function Settings() {
   const { setTheme, setThemeWithoutSave } = useThemeStore();
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+
+  // Morning brief is self-contained in localStorage (see useMorningBrief), so it
+  // doesn't need to round-trip through the Rust settings struct.
+  const [briefEnabled, setBriefEnabled] = useState(() => localStorage.getItem('aiden_brief_enabled') !== 'false');
+  const [briefTime, setBriefTime] = useState(() => localStorage.getItem('aiden_brief_time') || '08:00');
+  const toggleBrief = () => {
+    const v = !briefEnabled;
+    setBriefEnabled(v);
+    localStorage.setItem('aiden_brief_enabled', String(v));
+  };
+  const changeBriefTime = (t: string) => {
+    setBriefTime(t);
+    localStorage.setItem('aiden_brief_time', t);
+  };
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -432,6 +446,21 @@ export function Settings() {
       <Card icon={<Bell className="h-4 w-4" />} title="Notifications" description="When and how Aiden reaches you">
         <Row title="Enable notifications" description="Get notified about new messages">
           <Toggle checked={settings.enable_notifications} onChange={() => update('enable_notifications', !settings.enable_notifications)} />
+        </Row>
+
+        <Row title="Morning brief" description="A once-a-day summary of what needs you" divided>
+          <div className="flex items-center gap-3">
+            {briefEnabled && (
+              <input
+                type="time"
+                value={briefTime}
+                onChange={(e) => changeBriefTime(e.target.value)}
+                aria-label="Morning brief time"
+                className="rounded-lg border border-border bg-surface px-2 py-1 text-[13px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50"
+              />
+            )}
+            <Toggle checked={briefEnabled} onChange={toggleBrief} />
+          </div>
         </Row>
 
         {settings.enable_notifications && (

@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { hydrateDurableState } from '@/lib/persistentStore';
 import './index.css';
 
 // Auto-hiding scrollbars: show the thumb only while actively scrolling, then
@@ -61,12 +62,40 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </ErrorBoundary>
-  </React.StrictMode>
-);
+function renderApp() {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </ErrorBoundary>
+    </React.StrictMode>
+  );
+}
+
+// Restore durable user state (commitments, feedback, contact memory, CRM edits)
+// from disk into the localStorage cache BEFORE first render, so a cleared
+// webview recovers silently. Time-boxed: a hung disk call must never block
+// startup, and in a plain browser this resolves instantly as a no-op.
+async function boot() {
+  try {
+    await Promise.race([
+      hydrateDurableState(),
+      new Promise((resolve) => setTimeout(resolve, 1500)),
+    ]);
+    // Persisted zustand stores hydrated from localStorage at import time —
+    // re-read them now that disk state has landed in the cache.
+    const [{ useFeedbackStore }, { useContactMemoryStore }] = await Promise.all([
+      import('@/stores/feedbackStore'),
+      import('@/stores/contactMemoryStore'),
+    ]);
+    await useFeedbackStore.persist.rehydrate();
+    await useContactMemoryStore.persist.rehydrate();
+  } catch {
+    /* persistence is best-effort — never block the app on it */
+  }
+  renderApp();
+}
+
+boot();

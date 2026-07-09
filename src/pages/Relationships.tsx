@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ArrowUpDown,
   Check,
+  TrendingDown,
 } from 'lucide-react';
 import {
   SurfaceHeader,
@@ -99,7 +100,12 @@ export const Relationships: React.FC = () => {
     }
   }, [location.state, contacts]);
 
-  const isCooling = (c: Contact) => c.relationship_score >= 60 && (c.days_since_contact ?? 0) > 30;
+  // Prefer the cadence-aware trajectory (quiet relative to THIS person's rhythm);
+  // fall back to the old flat rule for contacts not yet re-derived with a trajectory.
+  const isCooling = (c: Contact) =>
+    c.trajectory
+      ? c.trajectory.trend === 'cooling' || c.trajectory.trend === 'overdue'
+      : c.relationship_score >= 60 && (c.days_since_contact ?? 0) > 30;
   const attentionCount = useMemo(() => contacts.filter(isCooling).length, [contacts]);
 
   const filtered = useMemo(() => {
@@ -514,6 +520,24 @@ const PersonDetail: React.FC<{ contact: Contact; bare?: boolean }> = ({ contact,
           ) : null}
         </div>
       </div>
+
+      {/* Trajectory — measured against THIS relationship's own rhythm, not a flat rule */}
+      {contact.trajectory &&
+        (contact.trajectory.trend === 'overdue' || contact.trajectory.trend === 'cooling') &&
+        contact.trajectory.cadenceDays !== undefined && (
+          <div className="mt-3 flex items-start gap-2.5 rounded-xl bg-amber-50/70 px-4 py-3 dark:bg-amber-500/[0.08]">
+            <TrendingDown className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+            <p className="text-[13px] leading-snug text-foreground/80">
+              <span className="font-semibold text-amber-600 dark:text-amber-400">
+                {contact.trajectory.trend === 'overdue' ? 'Overdue to reconnect' : 'Cooling off'}
+              </span>
+              <span className="text-muted">
+                {' '}— you usually connect about every {contact.trajectory.cadenceDays}d, but it&apos;s been{' '}
+                {contact.trajectory.daysSince}d.
+              </span>
+            </p>
+          </div>
+        )}
 
       {/* Important context — grounded AI notes from recent emails */}
       {ctxBullets.length > 0 && (
