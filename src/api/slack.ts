@@ -66,6 +66,26 @@ export async function fetchSlackMessages(): Promise<UnifiedMessage[]> {
   }
 }
 
+/**
+ * Send a reply to a Slack DM / channel. `threadId` is the channel id carried on
+ * the unified message; `threadTs` optionally threads it under a specific message.
+ * Returns false (rather than throwing) if Slack isn't connected or the call fails.
+ */
+export async function sendSlackMessage(threadId: string, text: string, threadTs?: string): Promise<boolean> {
+  try {
+    const base = await serverURL();
+    const r = await fetch(`${base}/slack/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel: threadId, text, thread_ts: threadTs }),
+    });
+    const d = await r.json();
+    return !!d.success;
+  } catch {
+    return false;
+  }
+}
+
 export function slackToUnified(m: SlackRawMessage): UnifiedMessage {
   return {
     id: m.id,

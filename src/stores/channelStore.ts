@@ -181,7 +181,14 @@ export const useChannelStore = create<ChannelState>((set) => ({
       channelMessages: state.channelMessages.map((m) => (m.id === id ? { ...m, unread: false } : m)),
     })),
 
-  sendMessage: ({ threadId, channel, text, replyToId }) =>
+  sendMessage: ({ threadId, channel, text, replyToId }) => {
+    // Real send for connected channels; the optimistic update below runs
+    // regardless so the UI feels instant. Slack's channel id IS our threadId.
+    if (channel === 'slack') {
+      import('@/api/slack')
+        .then(({ sendSlackMessage }) => sendSlackMessage(threadId, text))
+        .catch(() => {});
+    }
     set((state) => {
       // Title carries over from the thread (e.g. "#growth", "Direct message").
       const prior = state.channelMessages.find((m) => m.threadId === threadId);
@@ -206,7 +213,8 @@ export const useChannelStore = create<ChannelState>((set) => ({
           outgoing,
         ],
       };
-    }),
+    });
+  },
 }));
 
 /* ------------------------------------------------------------------ */

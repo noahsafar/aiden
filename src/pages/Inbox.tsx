@@ -367,7 +367,8 @@ const MessageRow: React.FC<{
 };
 
 /* ------------------------------------------------------------------ */
-/* Inline reply with AI draft (mock send until real integrations land) */
+/* Inline reply with AI draft. Slack sends for real (chat.postMessage); other  */
+/* not-yet-connected channels update optimistically until their send lands.    */
 /* ------------------------------------------------------------------ */
 const ChannelReply: React.FC<{ message: UnifiedMessage; channelLabel: string; onSent: () => void }> = ({
   message,

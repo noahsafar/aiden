@@ -1218,6 +1218,8 @@ class OAuthHandler(BaseHTTPRequestHandler):
             self.handle_mark_unread()
         elif self.path.startswith('/mark-read'):
             self.handle_mark_read()
+        elif self.path.startswith('/slack/send'):
+            self.handle_slack_send()
         elif self.path.startswith('/chat'):
             self.handle_chat()
         else:
@@ -1433,6 +1435,52 @@ class OAuthHandler(BaseHTTPRequestHandler):
         except Exception as e:
             print(f"[slack] messages error: {e}")
             self.wfile.write(json.dumps({'success': False, 'error': str(e), 'messages': []}).encode())
+
+    def handle_slack_send(self):
+        """Send a Slack reply via chat.postMessage.
+
+        Body: {channel, text, thread_ts?}. The unified message's `thread_id` IS
+        the Slack channel id, so a reply needs no extra lookup. Requires the
+        `chat:write` scope (already in SLACK_SCOPES).
+        """
+        try:
+            self.send_header('Content-type', 'application/json')
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body) if body else {}
+            token = _slack_user_token()
+            if not token:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'not_connected'}).encode())
+                return
+            channel = (data.get('channel') or '').strip()
+            text = (data.get('text') or '').strip()
+            if not channel or not text:
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': 'channel and text required'}).encode())
+                return
+            import requests
+            payload = {'channel': channel, 'text': text}
+            if data.get('thread_ts'):
+                payload['thread_ts'] = data['thread_ts']
+            r = requests.post(
+                'https://slack.com/api/chat.postMessage',
+                headers={'Authorization': f'Bearer {token}',
+                         'Content-type': 'application/json; charset=utf-8'},
+                json=payload,
+                timeout=15,
+            )
+            resp = r.json()
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'success': bool(resp.get('ok')),
+                'ts': resp.get('ts'),
+                'error': resp.get('error'),
+            }).encode())
+        except Exception as e:
+            print(f"[slack] send error: {e}")
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode())
 
     def handle_emails(self):
         """Handle fetching emails from Gmail"""
