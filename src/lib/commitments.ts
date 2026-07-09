@@ -42,13 +42,33 @@ export interface Commitment {
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+/**
+ * Is this a *plausible* due date relative to when a message was written?
+ * Guards against hallucinated / misparsed deadlines turning into false "overdue"
+ * alerts: a date well before the message existed, or one absurdly far in the
+ * future, is almost always a parsing artifact rather than a real, trackable
+ * deadline. Trust in an assistant evaporates the first time it cries wolf.
+ */
+export function isPlausibleDueDate(iso: string | undefined, reference: Date = new Date()): boolean {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return false;
+  const ref = reference.getTime();
+  const DAY = 86400000;
+  if (t < ref - DAY) return false; // before the message existed (with a day of slack)
+  if (t > ref + 540 * DAY) return false; // > ~18 months out — not a real email deadline
+  return true;
+}
+
 /** Resolve a natural-language deadline to an ISO date (best effort). */
 export function resolveDueDate(text: string, from: Date = new Date()): { iso?: string; label?: string } {
   const t = text.toLowerCase();
   const base = new Date(from);
   base.setHours(17, 0, 0, 0); // default deadlines to 5pm
 
-  const set = (d: Date, label: string) => ({ iso: d.toISOString(), label });
+  // Only ever hand back a plausible date — never a stale or far-future misparse.
+  const set = (d: Date, label: string): { iso?: string; label?: string } =>
+    isPlausibleDueDate(d.toISOString(), from) ? { iso: d.toISOString(), label } : {};
 
   if (/\btonight\b/.test(t)) {
     const d = new Date(base);
@@ -72,25 +92,9 @@ export function resolveDueDate(text: string, from: Date = new Date()): { iso?: s
     d.setDate(d.getDate() + 7);
     return set(d, 'next week');
   }
-  // "by Friday", "on Monday", "this Thursday"
-  const dayMatch = t.match(/\b(?:by|on|this|next|before)?\s*(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
-  if (dayMatch) {
-    const target = DAYS.indexOf(dayMatch[1]);
-    const d = new Date(base);
-    let add = (target - d.getDay() + 7) % 7;
-    if (add === 0) add = 7; // upcoming, not today
-    if (/next/.test(dayMatch[0])) add += 7;
-    d.setDate(d.getDate() + add);
-    return set(d, dayMatch[1].charAt(0).toUpperCase() + dayMatch[1].slice(1));
-  }
-  // "in 3 days"
-  const inDays = t.match(/\bin (\d+) days?\b/);
-  if (inDays) {
-    const d = new Date(base);
-    d.setDate(d.getDate() + parseInt(inDays[1], 10));
-    return set(d, `in ${inDays[1]} days`);
-  }
-  // explicit-ish dates: "by the 15th", "March 3"
+  // Explicit calendar dates ("July 2", "March 3") are the most reliable signal,
+  // so resolve them BEFORE weekday names — e.g. "this Thursday, July 2nd" should
+  // anchor on July 2, not a weekday token that might appear elsewhere in the text.
   const monthMatch = t.match(
     /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})\b/,
   );
@@ -101,6 +105,27 @@ export function resolveDueDate(text: string, from: Date = new Date()): { iso?: s
       if (parsed.getTime() < from.getTime() - 86400000) parsed.setFullYear(parsed.getFullYear() + 1);
       return set(parsed, monthMatch[0]);
     }
+  }
+  // "by Friday", "on Monday", "this Thursday" — require a deadline cue (by/on/this/
+  // next/before) before the weekday. A bare weekday is usually a greeting or sign-off
+  // ("Happy Monday", "Have a great Monday"), NOT a deadline; matching it produced
+  // wildly wrong due dates (e.g. the greeting weekday instead of the real deadline).
+  const dayMatch = t.match(/\b(by|on|this|next|before)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+  if (dayMatch) {
+    const target = DAYS.indexOf(dayMatch[2]);
+    const d = new Date(base);
+    let add = (target - d.getDay() + 7) % 7;
+    if (add === 0) add = 7; // upcoming, not today
+    if (/next/.test(dayMatch[0])) add += 7;
+    d.setDate(d.getDate() + add);
+    return set(d, dayMatch[2].charAt(0).toUpperCase() + dayMatch[2].slice(1));
+  }
+  // "in 3 days"
+  const inDays = t.match(/\bin (\d+) days?\b/);
+  if (inDays) {
+    const d = new Date(base);
+    d.setDate(d.getDate() + parseInt(inDays[1], 10));
+    return set(d, `in ${inDays[1]} days`);
   }
   return {};
 }
@@ -266,4 +291,46 @@ export function dueLabel(c: Commitment, now: Date = new Date()): string {
   if (days === 1) return 'Due tomorrow';
   if (days < 7) return `Due ${d.toLocaleDateString(undefined, { weekday: 'long' })}`;
   return `Due ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Closing the "waiting on them" loop automatically                    */
+/* ------------------------------------------------------------------ */
+
+export interface InboundMessage {
+  threadId?: string;
+  /** ISO timestamp the message arrived. */
+  date?: string;
+  body?: string;
+  hasAttachments?: boolean;
+}
+
+// "Here's the deck", "please find attached", "as requested", "sending it over"…
+const FULFILLMENT_RE =
+  /\b(attached|please find|here'?s|here is|here you go|as requested|as promised|as discussed|sending (you|it|over)|i'?ve (sent|attached|shared)|sent (it )?over|sharing the|find (it )?(attached|below)|all set|completed)\b/i;
+
+/**
+ * Close the loop on the "waiting on them" side: when a later message in the same
+ * thread delivers what was owed (an attachment, or a clear delivery phrase), the
+ * matching `they_owe` commitment is auto-marked done. Deterministic and
+ * idempotent — recomputed on each extraction, so it self-corrects as mail
+ * changes. Callers should apply explicit user overrides AFTER this, so a manual
+ * reopen always wins over the heuristic.
+ */
+export function resolveFulfilledCommitments(
+  commitments: Commitment[],
+  inbound: InboundMessage[],
+): Commitment[] {
+  if (!inbound.length) return commitments;
+  return commitments.map((c) => {
+    if (c.status !== 'open' || c.direction !== 'they_owe' || !c.threadId) return c;
+    const created = new Date(c.createdAt).getTime();
+    const delivered = inbound.some((m) => {
+      if (m.threadId !== c.threadId) return false;
+      const t = m.date ? new Date(m.date).getTime() : NaN;
+      if (Number.isNaN(t) || t <= created + 60000) return false; // must arrive AFTER the ask
+      return !!m.hasAttachments || (!!m.body && FULFILLMENT_RE.test(m.body));
+    });
+    return delivered ? { ...c, status: 'done' as const } : c;
+  });
 }

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { durableStorage } from '@/lib/persistentStore';
 
 /**
  * Per-contact memory.
@@ -44,6 +45,6 @@ export const useContactMemoryStore = create<ContactMemoryState>()(
       },
       getNotes: (email) => get().notes[norm(email)]?.bullets ?? [],
     }),
-    { name: 'aiden-contact-memory' },
+    { name: 'aiden-contact-memory', storage: createJSONStorage(() => durableStorage) },
   ),
 );

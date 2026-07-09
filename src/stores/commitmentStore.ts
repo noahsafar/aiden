@@ -3,11 +3,13 @@ import {
   Commitment,
   CommitmentStatus,
   extractCommitmentsHeuristic,
+  resolveFulfilledCommitments,
   isOverdue,
   isDueToday,
 } from '@/lib/commitments';
 import { extractCommitments as extractCommitmentsAI } from '@/api/aiden';
 import { isAutomatedSender, isSelf } from '@/lib/senders';
+import { setDurable } from '@/lib/persistentStore';
 
 /**
  * Commitment tracking store.
@@ -33,11 +35,8 @@ function loadOverrides(): Record<string, CommitmentOverride> {
 }
 
 function saveOverrides(o: Record<string, CommitmentOverride>) {
-  try {
-    localStorage.setItem(OVERRIDES_KEY, JSON.stringify(o));
-  } catch {
-    /* ignore quota errors */
-  }
+  // Durable: localStorage cache + disk mirror (survives a cleared webview).
+  setDurable(OVERRIDES_KEY, JSON.stringify(o));
 }
 
 function parseSender(raw: string): { name: string; email?: string } {
@@ -163,7 +162,18 @@ export const useCommitmentStore = create<CommitmentState>((set, get) => ({
         if (!existing || c.confidence > existing.confidence) byId.set(c.id, c);
       }
 
-      const withOverrides = applyOverrides([...byId.values()]);
+      // Close "waiting on them" loops they've since fulfilled (a later reply in
+      // the thread with an attachment or a "here's X" delivery phrase), THEN let
+      // explicit user overrides win so a manual reopen always sticks.
+      const inbound = (emailStore.emails || []).map((e: any) => ({
+        threadId: e.thread_id || e.id,
+        date: e.date,
+        body: e.body_text || e.snippet || '',
+        hasAttachments: !!e.has_attachments,
+      }));
+      const withOverrides = applyOverrides(
+        resolveFulfilledCommitments([...byId.values()], inbound),
+      );
       set({
         commitments: withOverrides,
         isExtracting: false,

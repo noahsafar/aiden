@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { durableStorage } from '@/lib/persistentStore';
 
 /**
  * Action-feedback signal.
@@ -54,6 +55,6 @@ export const useFeedbackStore = create<FeedbackState>()(
         return Math.max(-25, Math.min(15, adjust));
       },
     }),
-    { name: 'aiden-feedback' },
+    { name: 'aiden-feedback', storage: createJSONStorage(() => durableStorage) },
   ),
 );

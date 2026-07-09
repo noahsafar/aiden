@@ -1,44 +1,60 @@
 import { create } from 'zustand';
 import { useEmailStore } from './emailStore';
+import {
+  extractEmailAddress,
+  extractName,
+  extractDomain,
+  parseRecipients,
+  shouldSkipContact,
+  betterName,
+  computeTrajectory,
+  type Trajectory,
+} from '@/lib/contacts';
+import { setDurable } from '@/lib/persistentStore';
+
+/* ------------------------------------------------------------------ */
+/* User-owned contact edits (VIP / notes / category)                    */
+/*                                                                      */
+/* Contacts are re-DERIVED from mail on every session, so user edits    */
+/* must live outside the derivation or they evaporate on restart.       */
+/* Keyed by email address; applied as the last step of extraction so    */
+/* they beat both the heuristics and the AI classifier.                 */
+/* ------------------------------------------------------------------ */
+
+const CRM_OVERRIDES_KEY = 'aiden.crm.overrides';
+
+interface ContactOverride {
+  category?: Contact['category'];
+  notes?: string;
+  is_vip?: boolean;
+}
+
+function loadCrmOverrides(): Record<string, ContactOverride> {
+  try {
+    return JSON.parse(localStorage.getItem(CRM_OVERRIDES_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveCrmOverride(email: string | undefined, patch: ContactOverride): void {
+  if (!email) return;
+  const key = email.toLowerCase();
+  const all = loadCrmOverrides();
+  all[key] = { ...all[key], ...patch };
+  setDurable(CRM_OVERRIDES_KEY, JSON.stringify(all));
+}
+
+function applyCrmOverrides(contacts: Contact[]): Contact[] {
+  const overrides = loadCrmOverrides();
+  return contacts.map((c) => {
+    const o = overrides[c.email_address.toLowerCase()];
+    return o ? { ...c, ...o } : c;
+  });
+}
 
 // Use mock data for development
 const USE_MOCK_DATA = false;
-
-// Helper: extract email address from "Name <email@example.com>" or plain email
-function extractEmailAddress(sender: string): string {
-  const match = sender.match(/<([^>]+)>/);
-  if (match) return match[1].toLowerCase().trim();
-  if (sender.includes('@')) return sender.trim().toLowerCase();
-  return sender.toLowerCase();
-}
-
-// Helper: extract name from "Name <email@example.com>"
-function extractName(sender: string): string | undefined {
-  const match = sender.match(/^(.+?)\s*</);
-  if (match) {
-    const name = match[1].trim().replace(/^["']|["']$/g, '');
-    if (name) return name;
-  }
-  return undefined;
-}
-
-// Helper: extract domain from email address
-function extractDomain(email: string): string | undefined {
-  const atIndex = email.indexOf('@');
-  if (atIndex >= 0) return email.substring(atIndex + 1);
-  return undefined;
-}
-
-// Skip automated/noreply addresses
-function shouldSkipEmail(email: string): boolean {
-  const lower = email.toLowerCase();
-  return lower.includes('noreply') ||
-    lower.includes('no-reply') ||
-    lower.includes('mailer-daemon') ||
-    lower.includes('postmaster@') ||
-    lower.includes('notifications@') ||
-    lower.includes('donotreply');
-}
 
 export interface Contact {
   id: string;
@@ -57,6 +73,8 @@ export interface Contact {
   last_response_time?: number;
   notes?: string;
   days_since_contact?: number;
+  /** Where this relationship is heading relative to its own cadence. */
+  trajectory?: Trajectory;
 }
 
 export interface EmailInteraction {
@@ -112,7 +130,7 @@ export interface NetworkData {
   links: NetworkLink[];
 }
 
-interface HeatmapData {
+export interface HeatmapData {
   contactId: string;
   contactName: string;
   emailAddress: string;
@@ -244,6 +262,21 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       const allEmails = [...emailStore.emails, ...emailStore.sentEmails];
       const now = Date.now();
 
+      // Mail loads asynchronously (disk cache → Gmail fetch → polling). If we
+      // derive against an empty mailbox we must NOT latch `hasExtractedContacts`,
+      // or the surface stays stuck on an empty graph forever. Leave the flag as-is
+      // (surfaces show "Building…") and wait for the email subscription to re-run
+      // this once mail actually arrives.
+      if (allEmails.length === 0) {
+        set({ isLoading: false });
+        return;
+      }
+
+      // Preserve AI-classified categories and notes across re-derivation so that
+      // re-running extraction (on new mail) neither flickers nor re-classifies
+      // contacts we've already resolved — classification only touches "Other".
+      const prior = new Map(get().contacts.map((c) => [c.email_address, c]));
+
       // Get user's own email to skip self
       const { useAuthStore } = await import('./authStore');
       const userEmail = useAuthStore.getState().user?.email?.toLowerCase() || '';
@@ -266,13 +299,13 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         const emailDate = new Date(email.date).getTime();
 
         // Process sender (incoming emails)
-        if (senderAddr && senderAddr !== userEmail && !shouldSkipEmail(senderAddr)) {
+        if (senderAddr && senderAddr !== userEmail && !shouldSkipContact(senderAddr, senderName)) {
           const existing = contactsMap.get(senderAddr);
           if (existing) {
             existing.total_emails_received += 1;
             existing.last_contacted = Math.max(existing.last_contacted || 0, emailDate);
             if (emailDate < existing.first_seen) existing.first_seen = emailDate;
-            if (senderName && !existing.name) existing.name = senderName;
+            existing.name = betterName(existing.name, senderName);
           } else {
             contactsMap.set(senderAddr, {
               id: `crm_${senderAddr.replace(/[^a-z0-9]/g, '_')}`,
@@ -293,25 +326,21 @@ export const useCrmStore = create<CrmState>((set, get) => ({
 
         // Process recipients (outgoing emails)
         if (email.recipients) {
-          // recipients can be a JSON array string or comma-separated
-          let recipientList: string[] = [];
-          try {
-            recipientList = JSON.parse(email.recipients);
-          } catch {
-            recipientList = email.recipients.split(',').map(r => r.trim()).filter(Boolean);
-          }
+          // Robustly split the To/Cc value (JSON array or raw header) — handles
+          // "Last, First <email>" without spawning a phantom "Last" recipient.
+          const recipientList = parseRecipients(email.recipients);
 
           for (const recipient of recipientList) {
             const recipientAddr = extractEmailAddress(recipient);
             const recipientName = extractName(recipient);
 
-            if (recipientAddr && recipientAddr !== userEmail && !shouldSkipEmail(recipientAddr)) {
+            if (recipientAddr && recipientAddr !== userEmail && !shouldSkipContact(recipientAddr, recipientName)) {
               const existing = contactsMap.get(recipientAddr);
               if (existing) {
                 existing.total_emails_sent += 1;
                 existing.last_contacted = Math.max(existing.last_contacted || 0, emailDate);
                 if (emailDate < existing.first_seen) existing.first_seen = emailDate;
-                if (recipientName && !existing.name) existing.name = recipientName;
+                existing.name = betterName(existing.name, recipientName);
               } else {
                 contactsMap.set(recipientAddr, {
                   id: `crm_${recipientAddr.replace(/[^a-z0-9]/g, '_')}`,
@@ -356,20 +385,35 @@ export const useCrmStore = create<CrmState>((set, get) => ({
           : 0;
 
         const relationship_score = Math.min(100, recencyScore * 0.4 + frequencyScore * 0.3 + mutualityScore * 0.3);
+        const priorContact = prior.get(contact.email_address);
         return {
           ...contact,
           relationship_score,
           days_since_contact: daysSince,
+          trajectory: computeTrajectory(
+            {
+              firstSeen: contact.first_seen,
+              lastContacted: contact.last_contacted,
+              totalEmails,
+            },
+            now,
+          ),
+          // Carry forward AI classification + notes from the prior derivation.
+          category: priorContact?.category ?? contact.category,
+          notes: priorContact?.notes ?? contact.notes,
           // Auto-flag VIPs: anyone on the user's VIP-senders list, or a very strong relationship.
           is_vip: vipSenders.has(contact.email_address.toLowerCase()) || relationship_score >= 85,
         };
       });
 
+      // User edits (VIP / notes / category) beat derivation and AI classification.
+      const withOverrides = applyCrmOverrides(contacts);
+
       // Sort by relationship score
-      contacts.sort((a, b) => b.relationship_score - a.relationship_score);
+      withOverrides.sort((a, b) => b.relationship_score - a.relationship_score);
 
       // Set contacts immediately so UI renders, then classify in background
-      set({ contacts, hasExtractedContacts: true, isLoading: false });
+      set({ contacts: withOverrides, hasExtractedContacts: true, isLoading: false });
 
       // AI-classify contacts in background (non-blocking)
       classifyContactsInBackground(contacts, allEmails);
@@ -456,6 +500,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   },
 
   updateContactVIP: async (contactId: string, isVIP: boolean) => {
+    saveCrmOverride(get().contacts.find((c) => c.id === contactId)?.email_address, { is_vip: isVIP });
     set((state) => ({
       contacts: state.contacts.map(c =>
         c.id === contactId ? { ...c, is_vip: isVIP } : c
@@ -467,6 +512,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   },
 
   updateContactNotes: async (contactId: string, notes: string) => {
+    saveCrmOverride(get().contacts.find((c) => c.id === contactId)?.email_address, { notes });
     set((state) => ({
       contacts: state.contacts.map(c =>
         c.id === contactId ? { ...c, notes } : c
@@ -478,6 +524,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
   },
 
   updateContactCategory: async (contactId: string, category: Contact['category']) => {
+    saveCrmOverride(get().contacts.find((c) => c.id === contactId)?.email_address, { category });
     set((state) => ({
       contacts: state.contacts.map(c =>
         c.id === contactId ? { ...c, category } : c
@@ -696,6 +743,29 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     set({ networkData: { ...networkData, links: filteredLinks } });
   },
 }));
+
+// Relationships are a live projection of the mailbox, not a one-shot snapshot.
+// Whenever the set of emails changes — initial disk load, the first Gmail fetch,
+// or polling picking up new mail — re-derive the contact graph. This is what
+// makes the graph appear for a surface that mounted before mail finished loading
+// (extractContacts on mount sees an empty store and bails without latching), and
+// keeps it current as new people email in. Re-derivation preserves existing
+// categories/notes, so it neither flickers nor re-runs AI classification.
+if (!USE_MOCK_DATA) {
+  let lastEmailCount = -1;
+  let deriveTimer: ReturnType<typeof setTimeout> | null = null;
+  useEmailStore.subscribe((state) => {
+    const count = state.emails.length + state.sentEmails.length;
+    if (count === lastEmailCount || count === 0) return;
+    lastEmailCount = count;
+    // Debounce: a fetch/merge can fire several store updates in quick succession.
+    if (deriveTimer) clearTimeout(deriveTimer);
+    deriveTimer = setTimeout(() => {
+      deriveTimer = null;
+      useCrmStore.getState().extractContacts();
+    }, 300);
+  });
+}
 
 // Mock data for development
 const mockContacts: Contact[] = [

@@ -7,7 +7,7 @@
  * (what to do) — the difference between an inbox and a chief of staff.
  */
 
-import { Commitment, isOverdue, dueLabel, resolveDueDate } from '@/lib/commitments';
+import { Commitment, isOverdue, dueLabel, resolveDueDate, isPlausibleDueDate } from '@/lib/commitments';
 import { relativeTime } from '@/components/aiden/primitives';
 import { parseSender, isAutomatedSender, isSelf } from '@/lib/senders';
 import type { Contact } from '@/stores/crmStore';
@@ -234,7 +234,12 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
       // Resolve a CONCRETE future date — prefer the AI-extracted field, then the
       // shared resolver (handles "by Friday", "tomorrow", "EOD", ISO dates, etc.).
       // If no real date can be placed, do NOT fabricate urgency.
-      let dueIso: string | undefined = (e.deadline as string) || undefined;
+      // Trust the AI-extracted date only if it's plausible; otherwise a garbage
+      // value would (via NaN below) suppress a real deadline the resolver could
+      // still find in the body. So validate first, then fall back to the resolver.
+      let dueIso: string | undefined = isPlausibleDueDate(e.deadline as string | undefined, now)
+        ? (e.deadline as string)
+        : undefined;
       if (!dueIso) dueIso = resolveDueDate(text, now).iso;
       if (!dueIso) continue;
       const dueDate = new Date(dueIso);
