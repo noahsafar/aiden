@@ -142,20 +142,46 @@ pub struct ConversationContext {
     pub total_conversation_count: i32,
 }
 
-// Helper function to get API key from settings or environment
-pub(crate) async fn get_api_key() -> Result<String, String> {
-    // Try loading from .env file in project directory FIRST (before env var check)
-    let project_dir = std::path::PathBuf::from("/Users/noahsafar/Projects/aiden");
-    let env_file = project_dir.join(".env");
+// Read a string field out of the app settings JSON (~/.config/aiden/notification_settings.json).
+pub(crate) fn read_app_setting(field: &str) -> Option<String> {
+    let settings_file = dirs::config_dir()?.join("aiden").join("notification_settings.json");
+    let content = std::fs::read_to_string(settings_file).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    json[field]
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
 
-    // Fallback: manually parse the .env file (most reliable)
-    if env_file.exists() {
+// Helper function to get the API key. Resolution order (no machine-specific paths):
+//   1. ANTHROPIC_API_KEY environment variable (dev shells, CI)
+//   2. App settings file — the normal path for an installed app (set via Settings UI)
+//   3. A .env in the working directory or its parent (dev convenience: `tauri dev`
+//      runs in src-tauri/, so the parent is the project root)
+pub(crate) async fn get_api_key() -> Result<String, String> {
+    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+        if !key.is_empty() {
+            return Ok(key);
+        }
+    }
+
+    if let Some(key) = read_app_setting("anthropic_api_key") {
+        return Ok(key);
+    }
+
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join(".env"));
+        if let Some(parent) = cwd.parent() {
+            candidates.push(parent.join(".env"));
+        }
+    }
+    for env_file in candidates {
         if let Ok(content) = std::fs::read_to_string(&env_file) {
             for line in content.lines() {
                 if let Some(key) = line.strip_prefix("ANTHROPIC_API_KEY=") {
-                    let key = key.trim().to_string();
-                    if !key.is_empty() && !key.starts_with('"') {
-                        println!("Found API key in .env file, length: {}", key.len());
+                    let key = key.trim().trim_matches('"').to_string();
+                    if !key.is_empty() {
                         return Ok(key);
                     }
                 }
@@ -163,36 +189,26 @@ pub(crate) async fn get_api_key() -> Result<String, String> {
         }
     }
 
-    // Try environment variable (for dev - may be set by IDE or cargo-letps)
-    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
-        if !key.is_empty() {
-            println!("Found API key in environment, length: {}", key.len());
-            return Ok(key);
-        }
-    }
+    Err("No Anthropic API key configured. Add it in Settings, or set the ANTHROPIC_API_KEY environment variable.".to_string())
+}
 
-    // Try reading from settings file
-    let app_dir = dirs::config_dir()
-        .ok_or("Could not find config directory")?
-        .join("aiden");
+// Model + endpoint are configurable so a deprecated model id or a provider change
+// doesn't require shipping a new binary. Env var beats settings beats default.
+pub(crate) fn resolve_ai_model() -> String {
+    std::env::var("AIDEN_AI_MODEL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| read_app_setting("ai_model"))
+        .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string())
+}
 
-    let settings_file = app_dir.join("notification_settings.json");
-
-    if settings_file.exists() {
-        let content = std::fs::read_to_string(&settings_file)
-            .map_err(|e| format!("Failed to read settings: {}", e))?;
-
-        if let Ok(settings_json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(api_key) = settings_json["anthropic_api_key"].as_str() {
-                if !api_key.is_empty() {
-                    println!("Found API key in settings file, length: {}", api_key.len());
-                    return Ok(api_key.to_string());
-                }
-            }
-        }
-    }
-
-    Err("ANTHROPIC_API_KEY not found in environment, settings, or .env file".to_string())
+pub(crate) fn resolve_ai_base() -> String {
+    let base = std::env::var("AIDEN_AI_BASE_URL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| read_app_setting("ai_base_url"))
+        .unwrap_or_else(|| "https://api.z.ai/api/anthropic".to_string());
+    base.trim_end_matches('/').to_string()
 }
 
 // Helper function to call Claude API
@@ -206,7 +222,7 @@ pub(crate) async fn call_claude_api_with_system(prompt: String, system: Option<S
 
     let client = reqwest::Client::new();
     let request = ClaudeRequest {
-        model: "claude-sonnet-4-20250514".to_string(),  // z.ai supports Claude models
+        model: resolve_ai_model(),
         max_tokens: 4000,
         messages: vec![
             ClaudeMessage {
@@ -217,9 +233,9 @@ pub(crate) async fn call_claude_api_with_system(prompt: String, system: Option<S
         system,
     };
 
-    // Use z.ai endpoint (Anthropic-compatible API)
+    // Anthropic-compatible endpoint (configurable; defaults to z.ai)
     let response = client
-        .post("https://api.z.ai/api/anthropic/v1/messages")
+        .post(format!("{}/v1/messages", resolve_ai_base()))
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
@@ -270,7 +286,7 @@ async fn call_claude_vision_api(prompt: String, base64_image: String, media_type
     ];
 
     let request = ClaudeRequest {
-        model: "claude-sonnet-4-20250514".to_string(),
+        model: resolve_ai_model(),
         max_tokens: 4000,
         messages: vec![
             ClaudeMessage {
@@ -281,9 +297,9 @@ async fn call_claude_vision_api(prompt: String, base64_image: String, media_type
         system,
     };
 
-    // Use z.ai endpoint (Anthropic-compatible API)
+    // Anthropic-compatible endpoint (configurable; defaults to z.ai)
     let response = client
-        .post("https://api.z.ai/api/anthropic/v1/messages")
+        .post(format!("{}/v1/messages", resolve_ai_base()))
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
@@ -1497,10 +1513,12 @@ Respond with valid JSON only - an array of objects with "email_address" and "cat
 ]
 
 Rules:
-- .edu domains are likely Colleague unless clearly a newsletter
-- Automated/newsletter senders are Other
-- If unsure, use Other
-- Only use the exact category names listed above"#,
+- .edu addresses are usually Colleague (classmate, professor, staff) unless the name or subjects clearly show a newsletter or automated sender.
+- Brands, companies, stores, airlines, banks, publications, and any newsletter / mailing-list / automated / no-reply sender are NEVER Friend or Family. Use Vendor for a company you buy from or subscribe to, and Other for newsletters, mailing lists, and automated mail.
+- Use Family ONLY when the contact is clearly a family member (e.g. shares a surname and personal subjects). A brand or newsletter name like "NYT Cooking" is NOT Family — it is Other.
+- Use Friend ONLY for a real individual person with a personal, non-work relationship.
+- When uncertain, use Other. Prefer Other over guessing a personal category.
+- Only use the exact category names listed above."#,
         contacts_text
     );
 

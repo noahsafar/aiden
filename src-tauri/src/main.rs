@@ -107,6 +107,8 @@ fn main() {
             // File system commands
             fs::write_file,
             fs::read_file,
+            fs::save_app_data,
+            fs::load_app_data,
             fs::get_downloads_path,
             fs::get_platform,
             fs::open_file,

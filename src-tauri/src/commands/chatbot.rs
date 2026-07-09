@@ -146,7 +146,7 @@ pub async fn process_chat_message(request: ChatRequest) -> Result<ChatResponse, 
     });
 
     let claude_request = ClaudeRequest {
-        model: "claude-sonnet-4-20250514".to_string(),
+        model: crate::commands::ai::resolve_ai_model(),
         max_tokens: 4000,
         messages: claude_messages,
         system: Some(system_prompt),
@@ -157,7 +157,7 @@ pub async fn process_chat_message(request: ChatRequest) -> Result<ChatResponse, 
     let client = reqwest::Client::new();
 
     let response = client
-        .post("https://api.z.ai/api/anthropic/v1/messages")
+        .post(format!("{}/v1/messages", crate::commands::ai::resolve_ai_base()))
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")

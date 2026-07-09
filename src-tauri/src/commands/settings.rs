@@ -149,13 +149,23 @@ pub async fn start_oauth_server() -> Result<bool, String> {
         .unwrap_or_else(|_| "aiden".into());
     let exe_dir = exe_path.parent().unwrap_or(&exe_path);
 
-    // Possible locations for oauth_server.py
-    let mut possible_paths: Vec<String> = vec![
-        // Dev mode: project root
-        "/Users/noahsafar/Projects/aiden/oauth_server.py".to_string(),
-        // Dev mode: src-tauri directory
-        "/Users/noahsafar/Projects/aiden/src-tauri/oauth_server.py".to_string(),
-    ];
+    // Possible locations for oauth_server.py — derived from the environment, never
+    // a machine-specific absolute path (that only ever worked on one laptop).
+    let mut possible_paths: Vec<String> = Vec::new();
+
+    // Dev mode: working directory and its parent (`tauri dev` runs in src-tauri/,
+    // so the parent is the project root where the canonical oauth_server.py lives).
+    if let Ok(cwd) = env::current_dir() {
+        let mut dirs_to_try = vec![cwd.clone()];
+        if let Some(parent) = cwd.parent() {
+            dirs_to_try.push(parent.to_path_buf());
+        }
+        for dir in dirs_to_try {
+            if let Some(s) = dir.join("oauth_server.py").to_str() {
+                possible_paths.push(s.to_string());
+            }
+        }
+    }
 
     // macOS app bundle: look in Resources directory
     // In macOS app bundles: exe is at .app/Contents/MacOS/, resources at .app/Contents/Resources/

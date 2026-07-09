@@ -313,3 +313,50 @@ pub fn get_file_info(path: String) -> Result<FileMatch, String> {
         folder_name,
     })
 }
+
+/* ---------------------------------------------------------------------- */
+/* Generic app-data persistence (config-dir JSON)                          */
+/*                                                                         */
+/* User-owned state (commitment overrides, feedback signals, contact       */
+/* memory, CRM notes) must survive a cleared webview — localStorage is a   */
+/* cache, not a database. One JSON file per key under                      */
+/* ~/.config/aiden/app_data/.                                              */
+/* ---------------------------------------------------------------------- */
+
+fn app_data_path(key: &str) -> Result<PathBuf, String> {
+    // Keys become filenames — restrict to a safe charset (no path traversal).
+    if key.is_empty()
+        || !key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(format!("Invalid app data key: {}", key));
+    }
+    let dir = dirs::config_dir()
+        .ok_or("Could not find config directory")?
+        .join("aiden")
+        .join("app_data");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create app data dir: {}", e))?;
+    Ok(dir.join(format!("{}.json", key)))
+}
+
+#[command]
+pub fn save_app_data(key: String, json: String) -> Result<(), String> {
+    let path = app_data_path(&key)?;
+    // Write-then-rename so a crash mid-write can't corrupt existing data.
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json.as_bytes()).map_err(|e| format!("Failed to write app data: {}", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("Failed to commit app data: {}", e))?;
+    Ok(())
+}
+
+#[command]
+pub fn load_app_data(key: String) -> Result<Option<String>, String> {
+    let path = app_data_path(&key)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    std::fs::read_to_string(&path)
+        .map(Some)
+        .map_err(|e| format!("Failed to read app data: {}", e))
+}
