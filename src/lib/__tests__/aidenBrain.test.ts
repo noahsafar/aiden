@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveOpportunities } from '@/lib/aidenBrain';
+import { deriveOpportunities, deriveAttention } from '@/lib/aidenBrain';
 
 const base = {
   sentEmails: [],
@@ -61,5 +61,35 @@ describe('deriveOpportunities — bulk mail is never a relationship opportunity'
     const opps = deriveOpportunities({ ...base, emails });
     expect(opps.length).toBeGreaterThanOrEqual(1);
     expect(opps[0].person?.email).toBe('sarah@acme.com');
+  });
+});
+
+describe('deriveAttention — automated/transactional mail stays out of Focus', () => {
+  it('does not surface a Fandango ticket email as a reply task', () => {
+    const emails = [
+      email({
+        sender: 'Fandango <orders@fandango.com>',
+        subject: 'Your tickets for Dune: Part Two',
+        body_text: 'Your purchase is confirmed. Enjoy the movie!\nUnsubscribe',
+        category: 'Normal',
+        requires_reply: true,
+      }),
+    ];
+    const items = deriveAttention({ ...base, emails });
+    expect(items.some((i) => /fandango/i.test(`${i.title} ${i.outcomeTitle}`))).toBe(false);
+  });
+
+  it('still surfaces a real person who needs a reply', () => {
+    const emails = [
+      email({
+        sender: 'Sarah Chen <sarah@acme.com>',
+        subject: 'quick question on the contract',
+        body_text: 'Can you confirm the start date?',
+        category: 'Important',
+        requires_reply: true,
+      }),
+    ];
+    const items = deriveAttention({ ...base, emails });
+    expect(items.some((i) => i.person?.email === 'sarah@acme.com')).toBe(true);
   });
 });

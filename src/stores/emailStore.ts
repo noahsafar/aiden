@@ -5,6 +5,7 @@ import { serverURL } from '@/api/emails';
 import { analyzeEmail as analyzeEmailClaude, summarizeEmail as summarizeEmailClaude, generateReply as generateReplyClaude, classifyEmail as classifyEmailApi, getRecipientWritingStyle, analyzeAndSaveWritingStyle, type RecipientWritingStyle } from '@/api/claude';
 import { useFeedbackStore } from './feedbackStore';
 import { useContactMemoryStore } from './contactMemoryStore';
+import { isAutomatedSender } from '@/lib/senders';
 
 // Check if running in Tauri
 const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
@@ -817,7 +818,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           attachments: email.attachments || [],
           status: 'Unhandled' as const,
           category: 'Normal' as const,
-          requires_reply: !email.isRead && !email.from?.toLowerCase().includes('me'),
+          // Default unread → needs reply, but never auto-flag automated/transactional
+          // senders (receipts, tickets, no-reply). The AI classifier refines this.
+          requires_reply: !email.isRead && !email.from?.toLowerCase().includes('me') && !isAutomatedSender(email.from || email.sender || ''),
           summary: email.summary || undefined,
         }));
 

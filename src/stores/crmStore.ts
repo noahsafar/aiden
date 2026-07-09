@@ -291,6 +291,10 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         /* settings unavailable (e.g. web/dev) — fall back to score-based VIP only */
       }
 
+      // Preserve already-resolved categories / manual VIP flags across re-extraction
+      // so re-running (as the mailbox loads) doesn't reset AI classifications.
+      const priorByEmail = new Map(get().contacts.map((c) => [c.email_address, c]));
+
       const contactsMap = new Map<string, Contact>();
 
       for (const email of allEmails) {
@@ -398,8 +402,11 @@ export const useCrmStore = create<CrmState>((set, get) => ({
             },
             now,
           ),
-          // Carry forward AI classification + notes from the prior derivation.
-          category: priorContact?.category ?? contact.category,
+          // Keep a previously-resolved category — the background classifier only ever
+          // touches "Other", so re-extraction must not blow away its work (nor let a
+          // stale "Other" overwrite a category the classifier already assigned).
+          category:
+            priorContact && priorContact.category !== 'Other' ? priorContact.category : contact.category,
           notes: priorContact?.notes ?? contact.notes,
           // Auto-flag VIPs: anyone on the user's VIP-senders list, or a very strong relationship.
           is_vip: vipSenders.has(contact.email_address.toLowerCase()) || relationship_score >= 85,

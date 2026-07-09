@@ -341,6 +341,11 @@ export function deriveAttention(input: BrainInput): AttentionItem[] {
     if (usedThreads.has(thread)) continue;
     if (isSelf(email, userEmail)) continue;
     const automated = isAutomatedSender(e.sender || '');
+    // Transactional/automated/bulk mail (receipts, tickets like Fandango, newsletters,
+    // no-reply blasts) is never a personal "reply" task — keep it out of Focus unless
+    // it's a real relationship. Genuinely time-bound automated items (application
+    // deadlines, etc.) still surface via the deadline scan above.
+    if ((automated || BULK_MAIL_RE.test(bodyText)) && !(contact && contact.relationship_score >= 50)) continue;
 
     let situation: string;
     let whyItMatters: string;
