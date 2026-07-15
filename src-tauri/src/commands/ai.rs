@@ -365,7 +365,9 @@ pub struct AttachmentRequest {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LifeDataItem {
-    pub data_type: String,        // "subscription" | "bill" | "travel" | "package" | "deadline"
+    #[serde(default, alias = "type")]
+    pub data_type: String,        // "subscription" | "bill" | "travel" | ... (model sometimes emits "type")
+    #[serde(default)]
     pub title: String,
     pub amount: Option<f64>,
     pub currency: Option<String>,
@@ -447,7 +449,10 @@ Respond in this exact JSON format:
   ],
   "deadline": null,
   "sender_tone": "neutral",
-  "life_data": []
+  "life_data": [
+    {{"data_type": "subscription", "title": "Annual Membership", "amount": 50, "currency": "USD", "frequency": "yearly", "details": "Renews Friday at midnight"}},
+    {{"data_type": "travel", "title": "Mom visiting", "date": "2026-08-12", "end_date": "2026-08-19", "details": "Delta flight DL 482"}}
+  ]
 }}
 
 Guidelines:
@@ -491,7 +496,7 @@ Guidelines:
   Do NOT extract deadlines that have already passed, unless the email explicitly provides a new/extended deadline.
   Ignore "respond within X business days" or similar boilerplate in email signatures/footers.
 
-- Life data: Extract structured life intelligence items from the email. Each item has a data_type and relevant fields:
+- Life data: Extract structured life-intelligence items. Each item MUST include a "data_type" field (use exactly "data_type", not "type") and a short "title", then any relevant fields. Also capture personal milestones (a move, a job/career change, a graduation, family news) using data_type "move" / "career" / "family" with date + details. Types include:
   * "subscription" — recurring services (Netflix, Spotify, gym memberships, SaaS). Include amount, currency, frequency, renewal date.
   * "bill" — one-time or recurring bills/invoices (utilities, rent, insurance). Include amount, currency, date (due date), frequency.
   * "travel" — flights, hotel bookings, trip confirmations. Include carrier (airline/hotel), date (departure), end_date (return), confirmation_number (record locator, booking ref, e-ticket number e.g. "XYZ789"), details.

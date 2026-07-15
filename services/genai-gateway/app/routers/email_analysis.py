@@ -37,7 +37,13 @@ async def analyze_email(req: AnalyzeEmailRequest):
             meeting = MeetingRequest(**mr)
 
         attachment_requests = [AttachmentRequestItem(**a) for a in parsed.get("attachment_requests", [])]
-        life_data = [LifeDataItem(**ld) for ld in parsed.get("life_data", [])]
+        life_data = []
+        for ld in parsed.get("life_data", []):
+            try:
+                life_data.append(LifeDataItem(**ld))
+            except Exception:
+                # One malformed life-intel item must never drop the whole analysis.
+                continue
 
         return AnalyzeEmailResponse(
             questions=questions,

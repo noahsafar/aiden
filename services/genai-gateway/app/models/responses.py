@@ -1,6 +1,6 @@
 """Pydantic response models — mirroring the Rust structs in ai.rs."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, AliasChoices
 
 
 class Question(BaseModel):
@@ -16,8 +16,11 @@ class AttachmentRequestItem(BaseModel):
 
 
 class LifeDataItem(BaseModel):
-    data_type: str
-    title: str
+    # The model often emits "type" instead of the canonical "data_type"; accept
+    # both, default the required fields, and ignore extras so a single malformed
+    # life-intel item can never crash the whole email analysis.
+    data_type: str = Field(default="other", validation_alias=AliasChoices("data_type", "type"))
+    title: str = ""
     amount: float | None = None
     currency: str | None = None
     date: str | None = None
@@ -26,6 +29,8 @@ class LifeDataItem(BaseModel):
     details: str | None = None
     tracking_number: str | None = None
     carrier: str | None = None
+
+    model_config = {"populate_by_name": True, "extra": "ignore"}
 
 
 class MeetingRequest(BaseModel):

@@ -50,7 +50,10 @@ Respond in this exact JSON format:
   ],
   "deadline": null,
   "sender_tone": "neutral",
-  "life_data": []
+  "life_data": [
+    {{"data_type": "subscription", "title": "Annual Membership", "amount": 50, "currency": "USD", "frequency": "yearly", "details": "Renews Friday at midnight"}},
+    {{"data_type": "travel", "title": "Mom visiting", "date": "2026-08-12", "end_date": "2026-08-19", "details": "Delta flight DL 482"}}
+  ]
 }}
 
 Guidelines:
@@ -71,7 +74,7 @@ Guidelines:
 - Deadline: Extract a deadline ONLY if the user personally must complete an action BY that date. Use ISO format (YYYY-MM-DD). null if none.
   Do NOT extract deadlines that have already passed, unless the email explicitly provides a new/extended deadline.
   Ignore "respond within X business days" or similar boilerplate in email signatures/footers.
-- Life data: Extract structured life intelligence items (subscription, bill, travel, package, deadline).
+- Life data: Extract structured life-intelligence items. Each item MUST include a "data_type" field (one of: subscription, bill, travel, package, order, appointment, deadline, financial, insurance, family, move, career) and a short "title"; add relevant optional fields (amount, currency, date, end_date, frequency, details, tracking_number, carrier) only if present in the email. Return [] if none apply.
 
 IMPORTANT - Set requires_reply to FALSE for:
 - Newsletters, marketing emails, notifications, or automated emails
