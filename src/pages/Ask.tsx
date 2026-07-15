@@ -301,9 +301,13 @@ export const Ask: React.FC = () => {
     );
     // Other attendees only (drop the user + distribution lists that would match
     // every internal thread, e.g. all-hands/team lists), lower-cased.
+    // Exclude only BROAD distribution lists (all-hands / everyone / staff /
+    // company) — team- or group-scoped lists are legitimate attendees for team
+    // meetings and are bounded by the per-attendee cap below, so a team standup
+    // still gets its own context instead of an empty brief.
     const isListAddress = (a: string) => {
       const local = a.split('@')[0];
-      return /(^|[-_.])(all|everyone|team|staff|group|company)([-_.]|$)/.test(local);
+      return /(^|[-_.])(all|everyone|staff|company)([-_.]|$)/.test(local);
     };
     const otherAttendees = (ev.attendees || [])
       .map((a) => a.toLowerCase().trim())
@@ -343,12 +347,18 @@ export const Ask: React.FC = () => {
       perAttendeeCount.set(a, n + 1);
       return true;
     });
-    // Subject-keyword matches are used ONLY when no attendee matched at all — a
-    // single topic noun (e.g. "design", "security") is too generic to mix safely
-    // into a meeting that already has real attendees.
+    // Subject-keyword fallback ONLY when there were no attendees — and even then
+    // require an email to match >= 2 distinct keywords, so a single generic noun
+    // ("safety", "patel") can't pull in an unrelated thread (a car-safety recall,
+    // a different Patel). Capped low since these are low-confidence.
     const picks =
-      otherAttendees.length === 0 && keywords.length > 0
-        ? allEmails.filter((e) => keywords.some((k) => (e.subject || '').toLowerCase().includes(k)))
+      otherAttendees.length === 0 && keywords.length >= 2
+        ? allEmails
+            .filter((e) => {
+              const sub = (e.subject || '').toLowerCase();
+              return keywords.filter((k) => sub.includes(k)).length >= 2;
+            })
+            .slice(0, 3)
         : attendeePicks;
     const relatedEmails = picks
       .slice(0, 6)
