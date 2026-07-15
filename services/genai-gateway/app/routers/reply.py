@@ -1,5 +1,7 @@
 """Generate + edit reply endpoints."""
 
+import re
+
 from fastapi import APIRouter, HTTPException
 
 from app.models.requests import GenerateReplyRequest, EditReplyRequest
@@ -13,6 +15,13 @@ from app.services.prompt_templates import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["reply"])
+
+
+def _normalize_reply_subject(subject: str | None, original: str) -> str:
+    """Collapse stacked Re:/Fwd:/Aw: prefixes into a single 'Re: ' prefix."""
+    s = (subject or "").strip() or (original or "").strip()
+    s = re.sub(r"^\s*(?:(?:re|fwd|fw|aw|wg):\s*)+", "", s, flags=re.IGNORECASE).strip()
+    return f"Re: {s}" if s else "Re:"
 
 
 @router.post("/generate-reply", response_model=GenerateReplyResponse)
@@ -44,7 +53,7 @@ async def generate_reply(req: GenerateReplyRequest):
 
         return GenerateReplyResponse(
             reply=parsed.get("reply", raw),
-            subject=parsed.get("subject", f"Re: {req.subject}"),
+            subject=_normalize_reply_subject(parsed.get("subject"), req.subject),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

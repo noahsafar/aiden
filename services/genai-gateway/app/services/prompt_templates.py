@@ -238,14 +238,16 @@ REQUIREMENTS:
 - Formality: {formality_level}
 - Keep it concise (2-4 sentences typically)
 - Be professional but natural
-- Include "Re: " in the subject line
+- STRUCTURE with real line breaks: a greeting line, a blank line, the body (2-4 sentences), a blank line, then a sign-off — use "{user_name}" as your name in the sign-off when provided. Skip greeting/sign-off ONLY if LEARNED WRITING STYLE specifies otherwise (e.g. a very casual thread).
+- For a frustrated/angry sender, lead with a calm personal greeting, then acknowledge and apologize before the substance.
+- Subject: a single "Re: " prefix — do NOT add "Re:" if the subject already starts with "Re:" (never produce "Re: Re:").
 - Reference the conversation history naturally if relevant
 - Return ONLY a JSON object with "reply" and "subject" fields
 
 Response format:
 {{
   "reply": "Your email reply here...",
-  "subject": "Re: {subject}"
+  "subject": "<reply subject with a single Re: prefix>"
 }}"""
 
 
