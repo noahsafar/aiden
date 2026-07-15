@@ -59,6 +59,7 @@ Respond in this exact JSON format:
 Guidelines:
 - Questions: Extract actual questions or decisions needed from the email
 - Type: "choice" for questions with clear options (like "yes/no"), "text" for open-ended
+- If requires_reply is true, include at least one question (e.g. a yes/no confirmation or "preferred time?"). An empty questions array on a reply-needed email is almost always wrong.
 - Formality: 0=very casual, 50=neutral, 100=very formal
 - Meeting/Event: Set is_meeting=true if there's a meeting OR an event the user could attend.
   * event_type: "meeting" if someone wants to schedule a 1-on-1 or group meeting. "event" if it's a talk, seminar, workshop, webinar, lecture, presentation, panel, networking event, office hours, or any scheduled event the user is invited to attend.
@@ -67,14 +68,16 @@ Guidelines:
   * subject: The event/meeting name.
   * location: Extract venue/room/link if mentioned, null otherwise.
   IMPORTANT: Events are NOT deadlines.
+  Set is_meeting=false for CANCELLED events (even if a new time is proposed — that's a negotiation, not a meeting), travel/flight check-ins, holidays, and meetings only referenced in passing ("as we discussed at the meeting"). Only set is_meeting=true if there is a CONFIRMED upcoming time the user should attend.
 - Missing attachment: Warn if they mention "attached file" but no attachments exist
 - Document types: List mentioned file types (resume, PDF, etc.)
 - Attachment requests: Extract files/documents they're asking for.
 - Sender tone: Detect the emotional tone. Use one word like "friendly", "neutral", "frustrated", "angry", etc.
-- Deadline: Extract a deadline ONLY if the user personally must complete an action BY that date. Use ISO format (YYYY-MM-DD). null if none.
+- Deadline: Extract a deadline ONLY if the USER personally must complete an action BY that date or suffer a real-world consequence (missed filing, late penalty, lost deliverable). Use ISO format (YYYY-MM-DD). null if none.
+  NOT a deadline (return null): a marketing/sale end-date, early-bird or discount expiry, conference registration cutoff, a cancellation window on an already-confirmed booking, an autopay/scheduled-payment date, or a phishing/scam ultimatum ("verify in 24h", "account suspended", "final notice").
   Do NOT extract deadlines that have already passed, unless the email explicitly provides a new/extended deadline.
   Ignore "respond within X business days" or similar boilerplate in email signatures/footers.
-- Life data: Extract structured life-intelligence items. Each item MUST include a "data_type" field (one of: subscription, bill, travel, package, order, appointment, deadline, financial, insurance, family, move, career) and a short "title"; add relevant optional fields (amount, currency, date, end_date, frequency, details, tracking_number, carrier) only if present in the email. Return [] if none apply.
+- Life data: Extract structured life-intelligence items. Each item MUST include a "data_type" field (one of: subscription, bill, travel, package, order, appointment, deadline, financial, insurance, family, move, career) and a short "title"; add relevant optional fields (amount, currency, date, end_date, frequency, details, tracking_number, carrier) only if present in the email. Only extract items the USER is personally committed to or receiving — a real bill/subscription/policy/trip/package/appointment IN THEIR NAME. Do NOT extract: events you're merely invited to (use meeting_request instead), marketing mentions of a product, casual references to a concept, third-party birthdays, or "deadline" as a synonym for a deploy/ship time. For major personal events (engagement, wedding, birth, divorce) use data_type "family"; a major move involving family -> emit both "move" and "family". When unsure, return [].
 
 IMPORTANT - Set requires_reply to FALSE for:
 - Newsletters, marketing emails, notifications, or automated emails
@@ -102,8 +105,8 @@ Subject: {subject}
 Content: {content}
 
 Pick EXACTLY ONE category:
-- "urgent" — needs the user's personal action within ~24-48h (real deadline, blocker, time-sensitive ask from a real person).
-- "important" — needs the user's personal action or decision, but not immediately.
+- "urgent" — needs the user's personal action within ~24-48h (real deadline, blocker, time-sensitive ask from a real person). A hard external deadline with real consequences (legal default, missed filing / loss of work authorization, late penalty) is "urgent" even if the date is weeks away.
+- "important" — needs the user's personal action or decision, but not immediately. A social RSVP is "important" at most, never "urgent".
 - "normal" — regular person-to-person mail that may or may not need a reply. Default for real humans when unsure.
 - "newsletter" — bulk editorial/marketing list mail (digests, announcements; usually has "view in browser"/"unsubscribe" footers).
 - "promotional" — sales/marketing pushing an offer, discount, or product.
