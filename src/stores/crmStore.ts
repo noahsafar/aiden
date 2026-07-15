@@ -413,6 +413,18 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         };
       });
 
+      // Diagnostic: mail is loaded but we derived zero contacts -> the address
+      // parser is likely mismatched with the real sender/recipients shape. Surface
+      // a sample so the cause shows in the console instead of a silent empty graph.
+      if (contacts.length === 0 && allEmails.length > 0) {
+        const sample = allEmails[0];
+        console.warn(
+          '[crmStore] extractContacts produced 0 contacts from', allEmails.length,
+          'emails — sample sender:', JSON.stringify(sample.sender),
+          'recipients:', JSON.stringify(sample.recipients),
+        );
+      }
+
       // User edits (VIP / notes / category) beat derivation and AI classification.
       const withOverrides = applyCrmOverrides(contacts);
 

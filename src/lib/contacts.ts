@@ -14,7 +14,7 @@
  * Callers can then skip it instead of minting a phantom contact keyed on a name.
  */
 export function extractEmailAddress(raw: string): string {
-  if (!raw) return '';
+  if (typeof raw !== 'string' || !raw) return '';
   const angle = raw.match(/<([^>]+)>/);
   const scope = angle ? angle[1] : raw;
   const m = scope.match(/[^\s<>,;"']+@[^\s<>,;"']+\.[^\s<>,;"']+/);
@@ -24,7 +24,7 @@ export function extractEmailAddress(raw: string): string {
 /** Display name from "Name <email>", if one is present and isn't itself an address.
  *  Normalizes "Last, First" → "First Last" so the same person reads consistently. */
 export function extractName(raw: string): string | undefined {
-  if (!raw) return undefined;
+  if (typeof raw !== 'string' || !raw) return undefined;
   const match = raw.match(/^(.+?)\s*</);
   let name = match ? match[1].trim() : raw.includes('@') ? '' : raw.trim();
   name = name.replace(/^["']|["']$/g, '').trim();
@@ -71,7 +71,7 @@ export function extractDomain(email: string): string | undefined {
  * the caller to run through extractEmailAddress / extractName.
  */
 export function parseRecipients(raw: string): string[] {
-  if (!raw) return [];
+  if (typeof raw !== 'string' || !raw) return [];
   const trimmed = raw.trim();
   if (trimmed.startsWith('[')) {
     try {
