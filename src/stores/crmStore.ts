@@ -770,7 +770,7 @@ if (!USE_MOCK_DATA) {
     deriveTimer = setTimeout(() => {
       deriveTimer = null;
       useCrmStore.getState().extractContacts();
-    }, 300);
+    }, 2000);
   });
 }
 

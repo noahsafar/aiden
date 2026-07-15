@@ -488,8 +488,13 @@ function updateAiProgress() {
   });
 }
 
+// Cap the queue so a slow/unavailable AI backend can't accumulate unbounded
+// work (each entry holds email data in its closure). Only hit during a large
+// first-run backfill; steady-state never fills it.
+const MAX_AI_QUEUE = 60;
 // Queue an AI operation to limit concurrency
 function queueAIOperation(operation: () => Promise<void>) {
+  if (aiOperationQueue.length >= MAX_AI_QUEUE) return;
   aiOperationQueue.push(operation);
   updateAiProgress();
   processAIQueueHelper();
@@ -629,13 +634,94 @@ async function classifyEmailPriority(emailId: string): Promise<void> {
   }
 }
 
+// Drop per-email AI analysis for emails no longer in the store, so the global
+// window.emailQuestionData Map can't grow unboundedly over time.
+function evictStaleQuestionData() {
+  if (typeof window === 'undefined') return;
+  const qd = (window as any).emailQuestionData as Map<string, unknown> | undefined;
+  if (!qd || qd.size === 0) return;
+  const st = getStoreState();
+  const ids = new Set<string>([...st.emails, ...st.sentEmails].map((e) => e.id));
+  for (const id of [...qd.keys()]) {
+    if (!ids.has(id)) qd.delete(id);
+  }
+}
+
+// --- Memory bounding -------------------------------------------------------
+// The heaviest per-email fields are body_html and attachment base64Data, and
+// both are only needed to render a rich view of an email you're actively
+// looking at. Old, already-read mail is reduced to its lightweight form
+// (body_text + metadata), which is all AI context, search, and the text-fallback
+// render need. Combined with hard caps, this keeps long-running memory bounded.
+const SLIM_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const MAX_INBOX_EMAILS = 8000;
+const MAX_SENT_EMAILS = 3000;
+
+function slimEmail(e: Email): Email {
+  const attHasData = !!e.attachments?.some((a) => a.base64Data);
+  if (!e.body_html && !attHasData) return e;
+  return {
+    ...e,
+    body_html: undefined,
+    attachments: attHasData
+      ? e.attachments!.map((a) => ({ ...a, base64Data: undefined }))
+      : e.attachments,
+  };
+}
+
+function pruneEmailStore() {
+  const now = Date.now();
+  const { emails, sentEmails, selectedEmail } = getStoreState();
+  const selId = selectedEmail?.id;
+  const isStale = (e: Email): boolean =>
+    e.id !== selId &&
+    !!e.is_read &&
+    !e.is_starred &&
+    e.status !== 'Saved' &&
+    now - new Date(e.date).getTime() > SLIM_AGE_MS;
+
+  let changed = false;
+  const slimAll = (arr: Email[]): Email[] =>
+    arr.map((e) => {
+      if (!isStale(e)) return e;
+      const s = slimEmail(e);
+      if (s !== e) changed = true;
+      return s;
+    });
+  let nextEmails = slimAll(emails);
+  let nextSent = slimAll(sentEmails);
+
+  // Hard cap (backstop): beyond the cap, drop the oldest read mail first —
+  // never unread, starred, or Saved items.
+  const cap = (arr: Email[], max: number): Email[] => {
+    if (arr.length <= max) return arr;
+    const sorted = [...arr].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+    );
+    const kept = sorted.filter(
+      (e, i) => i < max || !e.is_read || e.is_starred || e.status === 'Saved',
+    );
+    if (kept.length < arr.length) changed = true;
+    return kept;
+  };
+  nextEmails = cap(nextEmails, MAX_INBOX_EMAILS);
+  nextSent = cap(nextSent, MAX_SENT_EMAILS);
+
+  if (changed) useEmailStore.setState({ emails: nextEmails, sentEmails: nextSent });
+}
+
 // Persist emails to disk (fire-and-forget, non-blocking)
 async function persistEmailsToDisk() {
   try {
-    const state = getStoreState();
     // Don't persist empty state — would overwrite good cached data
-    if (state.emails.length === 0 && state.sentEmails.length === 0) return;
+    const pre = getStoreState();
+    if (pre.emails.length === 0 && pre.sentEmails.length === 0) return;
 
+    // Bound memory + disk: slim old/read emails, cap arrays, drop orphan AI analysis.
+    pruneEmailStore();
+    evictStaleQuestionData();
+
+    const state = getStoreState();
     const { invoke } = await import('@tauri-apps/api/core');
     const promises: Promise<void>[] = [];
     if (state.emails.length > 0) {
