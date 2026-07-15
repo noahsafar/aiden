@@ -74,3 +74,7 @@ token.pickle
 
 # Runtime logs (may contain email content / tokens — never commit)
 oauth_server.log
+
+# Python bytecode (never track)
+__pycache__/
+*.pyc
