@@ -78,3 +78,7 @@ oauth_server.log
 # Python bytecode (never track)
 __pycache__/
 *.pyc
+
+# Generated optimizer run artifacts
+services/ai-optimizer/reports/
+services/ai-optimizer/logs/
