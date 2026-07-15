@@ -328,8 +328,11 @@ export const useCrmStore = create<CrmState>((set, get) => ({
           }
         }
 
-        // Process recipients (outgoing emails)
-        if (email.recipients) {
+        // Credit recipients as "sent" ONLY on emails the user actually wrote.
+        // On incoming mail, To/Cc are peers on a thread (e.g. a mailing list) —
+        // counting them as "sent" inflates list peers and penalizes list senders.
+        const isOutgoing = senderAddr === userEmail;
+        if (isOutgoing && email.recipients) {
           // Robustly split the To/Cc value (JSON array or raw header) — handles
           // "Last, First <email>" without spawning a phantom "Last" recipient.
           const recipientList = parseRecipients(email.recipients);
@@ -384,9 +387,12 @@ export const useCrmStore = create<CrmState>((set, get) => ({
         // Mutuality score (30%)
         const sent = contact.total_emails_sent;
         const received = contact.total_emails_received;
-        const mutualityScore = (sent + received > 0)
+        const rawMutuality = (sent + received > 0)
           ? (sent > received ? received / sent : sent / received) * 100
           : 0;
+        // A single 1-in/1-out exchange is perfectly "mutual" but isn't yet
+        // evidence of a strong tie — discount mutuality until there's real history.
+        const mutualityScore = rawMutuality * Math.min(1, totalEmails / 4);
 
         const relationship_score = Math.min(100, recencyScore * 0.4 + frequencyScore * 0.3 + mutualityScore * 0.3);
         const priorContact = prior.get(contact.email_address);
@@ -409,7 +415,7 @@ export const useCrmStore = create<CrmState>((set, get) => ({
             priorContact && priorContact.category !== 'Other' ? priorContact.category : contact.category,
           notes: priorContact?.notes ?? contact.notes,
           // Auto-flag VIPs: anyone on the user's VIP-senders list, or a very strong relationship.
-          is_vip: vipSenders.has(contact.email_address.toLowerCase()) || relationship_score >= 85,
+          is_vip: vipSenders.has(contact.email_address.toLowerCase()) || relationship_score >= 75,
         };
       });
 

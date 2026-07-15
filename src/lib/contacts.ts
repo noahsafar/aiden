@@ -128,6 +128,11 @@ const NONPERSON_NAME_RE =
 const ORG_NAME_RE =
   /\b(?:air\s*lines?|airways|aviation|university|college|academy|institute|hospital|healthcare|clinic|pharmacy|insurance|mortgage|realty|realtors|motors|automotive|technologies|solutions|systems|logistics|ventures|holdings|enterprises|industries|manufacturing|telecom|wireless|utilities|networks|laborator(?:y|ies)|pharmaceuticals?|biotech|bancorp|savings|credit\s*union|supermarket|marketplace|outfitters|hotels?|resorts?|cruises?|vacations?|rentals?|leasing|brewing|distillery|winery|vineyards?|foods|beverages|fitness|wellness|dental|orthodontics|dermatology|veterinary|incorporated|corporation|company|inc|llc|ltd|corp|gmbh|plc)\b/i;
 
+// Well-known brand / bulk senders that aren't people (the org-name regex misses
+// single-word brands like "Fandango" or "Venmo").
+const BRAND_NAME_RE =
+  /\b(?:the\s+new\s+york\s+times|nyt|fandango|amtrak|coursera|venmo|cvs\s+photo|bank\s+of\s+america|google\s+cloud|substack|spotify|netflix|amazon|uber|lyft|doordash|instacart|delta\s+air)\b/i;
+
 /**
  * Whether a sender/recipient should be kept OUT of the relationship graph because
  * it's an automated, transactional, bulk, or role mailbox rather than a real person.
@@ -147,7 +152,14 @@ export function shouldSkipContact(address: string, name?: string): boolean {
   // Bounce tokens / tracking ids: long digit runs or absurdly long local-parts.
   if (/\d{6,}/.test(local) || local.length > 32) return true;
   if (BULK_SUBDOMAIN_RE.test(domain) || ESP_DOMAIN_RE.test(domain)) return true;
-  if (name && (NONPERSON_NAME_RE.test(name) || ORG_NAME_RE.test(name))) return true;
+  // Mailing-list infrastructure + envelope senders ('"Name" via List').
+  if (/(?:^|\.)(elilists|listserv|listserver|mailman|elist)\./.test(domain)) return true;
+  if (/^(?:emcom|ealerts|movies|learn|loyalty)\./.test(domain)) return true;
+  if (name) {
+    if (/\bvia\s+\S/i.test(name)) return true; // '"Araiya Casriel" via YUB Social'
+    if (BRAND_NAME_RE.test(name)) return true;
+    if (NONPERSON_NAME_RE.test(name) || ORG_NAME_RE.test(name)) return true;
+  }
   return false;
 }
 
@@ -189,7 +201,7 @@ export function computeTrajectory(input: TrajectoryInput, now: number = Date.now
   const spanDays = firstSeen && lastContacted ? (lastContacted - firstSeen) / DAY_MS : 0;
 
   // Too little history to read a trend honestly.
-  if (totalEmails < 3 || spanDays < 14 || daysSince === undefined) {
+  if (totalEmails < 2 || spanDays < 7 || daysSince === undefined) {
     return { trend: 'new', daysSince };
   }
 
