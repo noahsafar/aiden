@@ -1812,51 +1812,43 @@ class OAuthHandler(BaseHTTPRequestHandler):
             import email.mime.application
             import base64
 
-            # Create email message
-            if attachments:
-                # MIME multipart message with attachments
-                message = email.mime.multipart.MIMEMultipart()
-                message['To'] = to
-                message['Subject'] = subject
+            # Create email message.
+            # We use the modern EmailMessage API for BOTH plain and
+            # with-attachment emails, and always send the body with
+            # cte='8bit'. The default quoted-printable encoding soft-wraps
+            # every line around 76 chars with a trailing '=' continuation,
+            # which renders as broken mid-word line breaks in many clients.
+            # 8bit sends the UTF-8 text as-is; Gmail's API accepts it fine.
+            message = email.message.EmailMessage()
+            message['To'] = to
+            message['Subject'] = subject
+            message.set_content(body, cte='8bit')
 
-                # Add email body
-                mime_text = email.mime.text.MIMEText(body, 'plain')
-                message.attach(mime_text)
+            # Add any attachments (binary is base64-encoded automatically;
+            # this does NOT affect the body's line breaks).
+            for attachment in attachments:
+                import os
+                filename = attachment.get('name', os.path.basename(attachment.get('path', 'attachment')))
+                base64_data = attachment.get('base64', '')
+                print(f"[DEBUG] Processing attachment: filename={filename}, base64_length={len(base64_data)}")
 
-                # Add attachments
-                for attachment in attachments:
-                    import os
-                    filename = attachment.get('name', os.path.basename(attachment.get('path', 'attachment')))
-                    base64_data = attachment.get('base64', '')
-                    print(f"[DEBUG] Processing attachment: filename={filename}, base64_length={len(base64_data)}")
+                file_data = base64.b64decode(base64_data)
+                print(f"[DEBUG] Decoded data length: {len(file_data)} bytes")
 
-                    file_data = base64.b64decode(base64_data)
-                    print(f"[DEBUG] Decoded data length: {len(file_data)} bytes")
+                # Detect MIME type from filename, split into main/sub type
+                content_type = self._get_mime_type(filename)
+                print(f"[DEBUG] MIME type: {content_type}")
+                maintype, _, subtype = content_type.partition('/')
+                if not maintype or not subtype:
+                    maintype, subtype = 'application', 'octet-stream'
 
-                    # Detect MIME type from filename
-                    content_type = self._get_mime_type(filename)
-                    print(f"[DEBUG] MIME type: {content_type}")
-
-                    if content_type.startswith('text/'):
-                        # Text file
-                        mime_attachment = email.mime.text.MIMEText(file_data.read() if hasattr(file_data, 'read') else file_data.decode('utf-8'), _subtype=content_type.split('/')[1])
-                    else:
-                        # Binary file
-                        mime_attachment = email.mime.base.MIMEBase(*content_type.split('/', 1))
-                        mime_attachment.set_payload(file_data)
-
-                    # Set filename and encoding
-                    mime_attachment.add_header('Content-Disposition', 'attachment', filename=filename)
-                    email.encoders.encode_base64(mime_attachment)
-                    message.attach(mime_attachment)
-                    print(f"[DEBUG] Attached {filename} to message")
-
-            else:
-                # Simple email without attachments
-                message = email.message.EmailMessage()
-                message.set_content(body)
-                message['To'] = to
-                message['Subject'] = subject
+                message.add_attachment(
+                    file_data,
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=filename,
+                )
+                print(f"[DEBUG] Attached {filename} to message")
 
             # Add threading headers if replying to an existing email
             if in_reply_to:
@@ -4290,7 +4282,7 @@ View event details:
                 from email.message import EmailMessage
 
                 attendee_msg = EmailMessage()
-                attendee_msg.set_content(attendee_body)
+                attendee_msg.set_content(attendee_body, cte='8bit')
                 attendee_msg.set_to(attendee_email)
                 attendee_msg.set_subject(attendee_subject)
                 attendee_msg.set_from(owner_email)
@@ -4303,7 +4295,7 @@ View event details:
 
                 # Send to owner
                 owner_msg = EmailMessage()
-                owner_msg.set_content(owner_body)
+                owner_msg.set_content(owner_body, cte='8bit')
                 owner_msg.set_to(owner_email)
                 owner_msg.set_subject(owner_subject)
                 owner_msg.set_from(owner_email)
