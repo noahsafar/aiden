@@ -146,11 +146,6 @@ export const ThreadedEmailList: React.FC<ThreadedEmailListProps> = ({
     }
 
     const groups = groupEmailsByThread(allEmails);
-    console.log('[threadGroups] groups:', Array.from(groups.entries()).map(([tid, emails]) => [
-      tid,
-      emails.map((e: any) => ({ id: e.id, subject: e.subject?.substring(0, 30), isSent: !!sentEmails.find(se => se.id === e.id), status: (emails.find((em: any) => em.id === e.id) as any)?.status }))
-    ]));
-    console.log('[threadGroups] alreadyIncludesSent:', alreadyIncludesSent, 'emails:', emails.length, 'emailsWithSentLabel:', emailsWithSentLabel.length, 'sentEmails:', sentEmails.length, 'allEmails:', allEmails.length);
     return groups;
   }, [emails, groupEmailsByThread, sentEmails, allStoreEmails]);
 

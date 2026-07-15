@@ -557,6 +557,16 @@ export const EmailView: React.FC<EmailViewProps> = ({
     });
   }, []);
 
+  // Respect the "Mark as read when opened" user setting (Settings -> mark_as_read_on_view).
+  React.useEffect(() => {
+    if (!email?.id || email.is_read) return;
+    invoke<{ mark_as_read_on_view?: boolean }>('get_settings')
+      .then((s) => {
+        if (s?.mark_as_read_on_view) markAsRead(email.id);
+      })
+      .catch(() => {});
+  }, [email?.id, email?.is_read, markAsRead]);
+
   // Attachment warning state
   const [missingAttachmentWarning, setMissingAttachmentWarning] = React.useState<string | null>(null);
 
@@ -1204,10 +1214,12 @@ export const EmailView: React.FC<EmailViewProps> = ({
         }
       }
 
-      // Last resort: use a test email for sample emails
+      // No valid recipient address -> block the send instead of silently mailing a
+      // placeholder (which bounces, or worse, could reach a real address).
       if (!senderEmail || !senderEmail.includes('@')) {
-        console.warn('[handleSendReply] No valid email found, using test address');
-        senderEmail = 'test@example.com';
+        setIsSending(false);
+        alert('Cannot send reply: no valid recipient email address was found for this message.');
+        return;
       }
 
       console.log('[handleSendReply] Final recipient email:', senderEmail);
