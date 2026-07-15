@@ -20,7 +20,7 @@ import { PersonAvatar } from '@/components/aiden/primitives';
 import { CommandPalette } from '@/components/aiden/CommandPalette';
 import { StatusBanner } from '@/components/aiden/StatusBanner';
 import { useMorningBrief } from '@/components/aiden/useMorningBrief';
-import logo from '/aiden-wordmark.png';
+// Aiden wordmark is rendered inline (theme-aware) in the rail — no raster asset.
 
 interface NavItem {
   to: string;
@@ -96,7 +96,27 @@ export const AidenShell: React.FC<{ children: React.ReactNode; bleed?: boolean }
             so in dark mode invert lightness while keeping hue, or it disappears.
             Collapsed rail shows a compact mark instead of the wide wordmark. */}
         <div className="flex items-center justify-center px-3 py-4 lg:justify-start lg:px-5">
-          <img src={logo} alt="Aiden" className="hidden h-7 w-auto lg:block dark:[filter:invert(1)_hue-rotate(180deg)]" />
+          <span className="hidden items-center text-foreground lg:flex" aria-label="Aiden">
+            <svg viewBox="0 0 480 140" className="h-7 w-auto" role="img" aria-hidden="true">
+              <defs>
+                <linearGradient id="aidenWordmarkAi" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#38BDF8" />
+                  <stop offset="100%" stopColor="#6366F1" />
+                </linearGradient>
+              </defs>
+              <text
+                x="0"
+                y="105"
+                fontFamily="Inter, 'SF Pro Display', system-ui, -apple-system, sans-serif"
+                fontSize="120"
+                fontWeight="800"
+                letterSpacing="-4"
+              >
+                <tspan fill="url(#aidenWordmarkAi)">Ai</tspan>
+                <tspan fill="currentColor">den</tspan>
+              </text>
+            </svg>
+          </span>
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 lg:hidden" aria-hidden="true">
             <Sparkles className="h-4 w-4 text-white" />
           </div>

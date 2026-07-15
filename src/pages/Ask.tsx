@@ -286,16 +286,42 @@ export const Ask: React.FC = () => {
       'morning', 'afternoon', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
       'this', 'next', 'with', 'and', 'the', 'for',
     ]);
+    // The user's own identity must never count as an "attendee" for context
+    // matching — otherwise every email you've ever received matches (you're on
+    // the To: line of all of them) and the brief floods with unrelated threads.
+    const selfEmail = (user?.email || '').toLowerCase();
+    const selfName = (user?.name || '').toLowerCase();
+    const selfTokens = new Set(
+      [
+        selfEmail,
+        selfName,
+        ...(selfName ? selfName.split(/\s+/) : []),
+        ...(selfEmail ? selfEmail.split('@')[0].split(/[._+-]+/).filter(Boolean) : []),
+      ].filter(Boolean),
+    );
+    // Other attendees only (drop the user), lower-cased.
+    const otherAttendees = (ev.attendees || [])
+      .map((a) => a.toLowerCase().trim())
+      .filter((a) => a && !selfTokens.has(a) && ![...selfTokens].some((s) => a.includes(s)));
+    // Subject keywords must be DISTINCTIVE topic words — never the user's name,
+    // never an attendee's name, never a generic meeting word — or one meeting's
+    // brief cross-matches another (e.g. "Noah" / "Daniel" hitting every thread).
+    const attendeeNameTokens = new Set(
+      otherAttendees
+        .flatMap((a) => a.replace(/<[^>]+>/g, ' ').replace(/[^\p{L}\s]/gu, ' ').split(/\s+/))
+        .filter((t) => t.length >= 3),
+    );
     const keywords = ev.summary
       .toLowerCase()
       .split(/\W+/)
-      .filter((w) => w.length >= 4 && !STOP.has(w));
-    const attendeesLower = (ev.attendees || []).map((a) => a.toLowerCase()).filter(Boolean);
+      .filter(
+        (w) => w.length >= 4 && !STOP.has(w) && !selfTokens.has(w) && !attendeeNameTokens.has(w),
+      );
     const allEmails = [...emails, ...sentEmails];
     const relatedEmails = allEmails
       .filter((e) => {
         const people = `${e.sender || ''} ${e.recipients || ''}`.toLowerCase();
-        const involvesAttendee = attendeesLower.some((a) => people.includes(a));
+        const involvesAttendee = otherAttendees.some((a) => people.includes(a));
         if (involvesAttendee) return true;
         if (keywords.length === 0) return false;
         const sub = (e.subject || '').toLowerCase();
