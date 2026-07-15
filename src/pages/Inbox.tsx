@@ -27,6 +27,8 @@ function isActionable(m: UnifiedMessage): boolean {
     // Once you've replied or dismissed/handled it, it's no longer in "Needs you" —
     // even if it was Urgent/Important (matches how a handled channel message drops out).
     if (r?.status === 'Replied' || r?.status === 'Archived' || r?.attention_dismissed) return false;
+    // Read = seen/handled -> no longer "needs you" (read <-> handled <-> out of view).
+    if (r?.is_read) return false;
     // Transactional/automated/bulk mail (receipts, tickets, no-reply) is never a
     // "needs you" reply task — even if an early heuristic flagged requires_reply.
     if (isAutomatedSender(r?.sender || '')) return false;
@@ -44,6 +46,13 @@ function isHandledEmail(m: UnifiedMessage): boolean {
   if (m.channel !== 'email') return false;
   const r = m.raw as any;
   return r?.status === 'Replied' || r?.attention_dismissed === true;
+}
+
+/* An email you've already read — out of the active stream (read <-> handled),
+ * corralled into the "Done" group so the inbox stays clean while it's still
+ * browsable and retained in the store for AI context. */
+function isReadEmail(m: UnifiedMessage): boolean {
+  return m.channel === 'email' && (m.raw as any)?.is_read === true;
 }
 
 export const Inbox: React.FC = () => {
@@ -113,8 +122,8 @@ export const Inbox: React.FC = () => {
   // In "All", keep the active stream clean by corralling already-handled mail into a
   // collapsible "Done" group. ("Needs you" never contains handled items, so `done`
   // is empty there and the group simply doesn't render.)
-  const active = useMemo(() => list.filter((m) => !isHandledEmail(m)), [list]);
-  const done = useMemo(() => list.filter(isHandledEmail), [list]);
+  const active = useMemo(() => list.filter((m) => !isHandledEmail(m) && !isReadEmail(m)), [list]);
+  const done = useMemo(() => list.filter((m) => isHandledEmail(m) || isReadEmail(m)), [list]);
 
   const channelTabs: { id: ChannelId | 'all'; label: string; soon?: boolean }[] = [
     { id: 'all', label: 'All' },

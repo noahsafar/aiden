@@ -1278,6 +1278,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           ? { ...state.selectedEmail, status, ...(status === 'Deleted' ? { deleted_at } : {}) }
           : state.selectedEmail,
       }));
+      // Handling an email (archive/delete/reply) also marks it read, so "dealt
+      // with" always means it leaves the active inbox view (read <-> handled).
+      if (status === 'Archived' || status === 'Deleted' || status === 'Replied') {
+        void get().markAsRead(emailId);
+      }
       persistEmailsToDisk();
     } catch (error) {
       console.error('Failed to update email status:', error);
@@ -1325,6 +1330,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         return { ...e, attention_dismissed: true, category };
       }),
     }));
+    // Dismissing = handled -> mark read so it leaves the active inbox view.
+    void get().markAsRead(emailId);
     persistEmailsToDisk();
   },
 
@@ -1481,10 +1488,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // (consistent with how a replied channel message leaves the inbox).
         emails: inReplyTo
           ? state.emails.map((e) =>
-              e.id === inReplyTo ? { ...e, status: 'Replied' as const, requires_reply: false } : e,
+              e.id === inReplyTo ? { ...e, status: 'Replied' as const, requires_reply: false, is_read: true } : e,
             )
           : state.emails,
       }));
+      // Replying = handled -> mark the original read (Gmail + local) so it leaves the active view.
+      if (inReplyTo) void get().markAsRead(inReplyTo);
       persistEmailsToDisk();
 
       // Commitment tracking: (1) clear any promise you owed this person in this
