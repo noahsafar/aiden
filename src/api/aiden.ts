@@ -51,7 +51,7 @@ Question: ${question}
 Context (the user's relevant emails):
 ${context.slice(0, 6000)}
 
-Answer in 1–3 sentences, concrete and grounded. No preamble.`;
+Answer in 1–3 sentences, concrete and grounded. No preamble. Respond in PLAIN TEXT (no markdown — no **bold**, no headers). If the question is about commitments or open tasks, cover BOTH what the user owes others AND what others owe the user. If a decision or action has a deadline, restate it.`;
   try {
     const raw = await runAidenPrompt(prompt, 18000);
     return raw.trim();

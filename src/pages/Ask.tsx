@@ -299,13 +299,23 @@ export const Ask: React.FC = () => {
         ...(selfEmail ? selfEmail.split('@')[0].split(/[._+-]+/).filter(Boolean) : []),
       ].filter(Boolean),
     );
-    // Other attendees only (drop the user), lower-cased.
+    // Other attendees only (drop the user + distribution lists that would match
+    // every internal thread, e.g. all-hands/team lists), lower-cased.
+    const isListAddress = (a: string) => {
+      const local = a.split('@')[0];
+      return /(^|[-_.])(all|everyone|team|staff|group|company)([-_.]|$)/.test(local);
+    };
     const otherAttendees = (ev.attendees || [])
       .map((a) => a.toLowerCase().trim())
-      .filter((a) => a && !selfTokens.has(a) && ![...selfTokens].some((s) => a.includes(s)));
-    // Subject keywords must be DISTINCTIVE topic words — never the user's name,
-    // never an attendee's name, never a generic meeting word — or one meeting's
-    // brief cross-matches another (e.g. "Noah" / "Daniel" hitting every thread).
+      .filter(
+        (a) =>
+          !!a &&
+          !selfTokens.has(a) &&
+          ![...selfTokens].some((s) => a.includes(s)) &&
+          !isListAddress(a),
+      );
+    // Subject keywords must be DISTINCTIVE topic words — never names or generic
+    // meeting/topic nouns — or one meeting's brief cross-matches another's.
     const attendeeNameTokens = new Set(
       otherAttendees
         .flatMap((a) => a.replace(/<[^>]+>/g, ' ').replace(/[^\p{L}\s]/gu, ' ').split(/\s+/))
@@ -318,15 +328,29 @@ export const Ask: React.FC = () => {
         (w) => w.length >= 4 && !STOP.has(w) && !selfTokens.has(w) && !attendeeNameTokens.has(w),
       );
     const allEmails = [...emails, ...sentEmails];
-    const relatedEmails = allEmails
-      .filter((e) => {
-        const people = `${e.sender || ''} ${e.recipients || ''}`.toLowerCase();
-        const involvesAttendee = otherAttendees.some((a) => people.includes(a));
-        if (involvesAttendee) return true;
-        if (keywords.length === 0) return false;
-        const sub = (e.subject || '').toLowerCase();
-        return keywords.some((k) => sub.includes(k));
-      })
+    const attendeeOf = (e: { sender?: string; recipients?: string }): string | undefined => {
+      const people = `${e.sender || ''} ${e.recipients || ''}`.toLowerCase();
+      return otherAttendees.find((a) => people.includes(a));
+    };
+    // Attendee matches first, capped at 2 per attendee so a frequent correspondent
+    // (or a residual list address) can't crowd out the rest of the brief.
+    const perAttendeeCount = new Map<string, number>();
+    const attendeePicks = allEmails.filter((e) => {
+      const a = attendeeOf(e);
+      if (!a) return false;
+      const n = perAttendeeCount.get(a) ?? 0;
+      if (n >= 2) return false;
+      perAttendeeCount.set(a, n + 1);
+      return true;
+    });
+    // Subject-keyword matches are used ONLY when no attendee matched at all — a
+    // single topic noun (e.g. "design", "security") is too generic to mix safely
+    // into a meeting that already has real attendees.
+    const picks =
+      otherAttendees.length === 0 && keywords.length > 0
+        ? allEmails.filter((e) => keywords.some((k) => (e.subject || '').toLowerCase().includes(k)))
+        : attendeePicks;
+    const relatedEmails = picks
       .slice(0, 6)
       .map((e) => ({
         subject: e.subject || '',
