@@ -437,6 +437,11 @@ export interface EmailState {
 
 // Guard against overlapping fetchEmails calls
 let isFetchingEmails = false;
+// Throttled re-fetch of recent mail so read/starred state stays in sync with
+// Gmail — the incremental sync only pulls NEW mail, so without this, emails read
+// or starred directly in Gmail never update inside Aiden.
+let lastReadStateRefresh = 0;
+const READ_STATE_REFRESH_MS = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Persisted last-sync anchor.
