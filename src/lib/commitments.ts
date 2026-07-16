@@ -208,7 +208,7 @@ export function extractCommitmentsHeuristic(input: ExtractInput): Commitment[] {
   const results: Commitment[] = [];
   const seen = new Set<string>();
 
-  const TRIVIAL_RE = /\blet me know if you (have any )?(questions?|concerns?|issues?|feedback|thoughts?|need anything|need help)\b/i;
+  const TRIVIAL_RE = /\blet me know if you (have any )?(questions?|concerns?|issues?|feedback|thoughts?|need anything|need help|see anything|anything'?s?\s+(missing|needed|wrong|unclear))\b/i;
 
   for (const sentence of sentences) {
     if (NEGATIVE.test(sentence)) continue;
