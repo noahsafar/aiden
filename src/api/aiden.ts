@@ -64,6 +64,43 @@ Answer in 1–3 sentences, concrete and grounded. No preamble. Respond in PLAIN 
 }
 
 /**
+ * Fallback email classifier via the oauth_server /chat path — used when the
+ * gateway isn't running and Tauri has no API key (that path already has a key,
+ * which is why Ask/brief still work). Returns null on failure.
+ */
+export async function classifyEmailViaChat(email: {
+  sender: string;
+  subject: string;
+  body_text?: string;
+  snippet?: string;
+}): Promise<{ category: string; confidence: number; requires_reply: boolean; can_auto_archive: boolean } | null> {
+  const content = (email.body_text || email.snippet || '').slice(0, 2000);
+  const prompt = `Classify this email into EXACTLY ONE category: "urgent", "important", "normal", "newsletter", "promotional", "transactional", "social".
+Rules: requires_reply=true ONLY if a real person is directly asking the user to respond (always false for newsletter/promotional/transactional/social). can_auto_archive=true for newsletter/promotional/transactional/social needing no action. Prefer "normal" for real humans unless clearly urgent/important.
+
+From: ${email.sender}
+Subject: ${email.subject}
+Content: ${content}
+
+Return ONLY JSON: {"category": "...", "confidence": 0.0-1.0, "requires_reply": true|false, "can_auto_archive": true|false}`;
+  try {
+    const raw = await runAidenPrompt(prompt, 18000);
+    const parsed = parseJsonLoose<any>(raw);
+    if (parsed && typeof parsed.category === 'string') {
+      return {
+        category: parsed.category,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+        requires_reply: parsed.requires_reply === true,
+        can_auto_archive: parsed.can_auto_archive === true,
+      };
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+/**
  * 2–4 short, sensible context notes about a relationship, grounded in recent
  * emails. Returns [] on failure or when there's nothing concrete (better than
  * brittle, mislabeled regex fragments).

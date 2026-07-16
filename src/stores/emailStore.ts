@@ -3,6 +3,7 @@ import { fetchGmailEmails, convertGmailEmailToApp } from '@/api/gmail';
 import { useAuthStore } from '@/stores/authStore';
 import { serverURL } from '@/api/emails';
 import { analyzeEmail as analyzeEmailClaude, summarizeEmail as summarizeEmailClaude, generateReply as generateReplyClaude, classifyEmail as classifyEmailApi, getRecipientWritingStyle, analyzeAndSaveWritingStyle, type RecipientWritingStyle } from '@/api/claude';
+import { classifyEmailViaChat } from '@/api/aiden';
 import { useFeedbackStore } from './feedbackStore';
 import { useContactMemoryStore } from './contactMemoryStore';
 import { isAutomatedSender } from '@/lib/senders';
@@ -630,10 +631,38 @@ async function classifyEmailPriority(emailId: string): Promise<void> {
     // A successful classification is the clearest signal the AI pipeline is up.
     import('@/stores/systemStatusStore').then(({ systemStatus }) => systemStatus.ok('ai'));
   } catch (e) {
-    console.warn(`[AI Processing] Classification failed for ${emailId}:`, e);
-    import('@/stores/systemStatusStore').then(({ systemStatus }) =>
-      systemStatus.fail('ai', 'AI processing unavailable — organizing without summaries'),
-    );
+    // Primary path (gateway -> Tauri) failed. Fall back to the oauth_server /chat
+    // path, which has a working key even when the gateway isn't running.
+    let recovered = false;
+    try {
+      const fb = await classifyEmailViaChat(email);
+      if (fb) {
+        const CATEGORY_MAP: Record<string, Email['category']> = {
+          urgent: 'Urgent', important: 'Important', normal: 'Normal', low: 'Low',
+          newsletter: 'Low', promotional: 'Low', transactional: 'Low', social: 'Low',
+        };
+        const category = CATEGORY_MAP[(fb.category || '').toLowerCase()] ?? 'Normal';
+        useEmailStore.setState((state) => ({
+          emails: state.emails.map((em) =>
+            em.id === emailId ? { ...em, category, requires_reply: fb.requires_reply } : em,
+          ),
+          selectedEmail: state.selectedEmail?.id === emailId
+            ? { ...state.selectedEmail, category, requires_reply: fb.requires_reply }
+            : state.selectedEmail,
+        }));
+        persistEmailsToDisk();
+        import('@/stores/systemStatusStore').then(({ systemStatus }) => systemStatus.ok('ai'));
+        recovered = true;
+      }
+    } catch {
+      /* double failure — fall through to the banner */
+    }
+    if (!recovered) {
+      console.warn(`[AI Processing] Classification failed for ${emailId}:`, e);
+      import('@/stores/systemStatusStore').then(({ systemStatus }) =>
+        systemStatus.fail('ai', 'AI processing unavailable — organizing without summaries'),
+      );
+    }
   } finally {
     processingEmails.delete(key);
   }
