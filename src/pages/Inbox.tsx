@@ -91,7 +91,7 @@ export const Inbox: React.FC = () => {
 
   const all = useMemo<UnifiedMessage[]>(() => {
     const emailMsgs = emails
-      .filter((e) => !['Deleted', 'Archived', 'Saved'].includes(e.status))
+      .filter((e) => !['Deleted', 'Archived', 'Saved'].includes(e.status) && !e.is_read)
       .map((e) => emailToUnified(e));
     // The Inbox lists what others sent you. Your own replies are recorded in the
     // thread (and feed draft context + relationship history) but aren't listed as
