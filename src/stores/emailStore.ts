@@ -961,6 +961,40 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // Mark as initialized and fetched; advance the persisted sync anchor.
         set({ hasInitialized: true, hasFetchedFromGmail: true });
         setLastSyncTime(fetchStartedAt);
+
+        // Best-effort read/starred refresh: re-fetch a recent window WITHOUT the
+        // knownIds skip so emails read or starred directly in Gmail sync into Aiden.
+        // (The incremental query + knownIds above never re-fetches known mail.)
+        if (!isFirstGmailFetch && Date.now() - lastReadStateRefresh > READ_STATE_REFRESH_MS) {
+          lastReadStateRefresh = Date.now();
+          try {
+            const rResp = await fetch(
+              `${baseURL}/emails?q=${encodeURIComponent('in:inbox newer_than:7d')}&maxResults=120`,
+              { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } },
+            );
+            if (rResp.ok) {
+              const rData = await rResp.json();
+              const byId = new Map<string, { is_read: boolean; is_starred: boolean }>();
+              for (const e of rData.emails || []) {
+                byId.set(e.id, {
+                  is_read: e.isRead !== false,
+                  is_starred: e.labels?.includes('STARRED') || false,
+                });
+              }
+              if (byId.size) {
+                set((state) => ({
+                  emails: state.emails.map((e) => {
+                    const r = byId.get(e.id);
+                    return r ? { ...e, is_read: r.is_read, is_starred: r.is_starred } : e;
+                  }),
+                }));
+              }
+            }
+          } catch {
+            /* non-fatal — read-state sync is best-effort */
+          }
+        }
+
         // Python server delivered — the backbone is healthy (clears any stale "down").
         import('@/stores/systemStatusStore').then(({ systemStatus }) => systemStatus.ok('server'));
 
