@@ -994,11 +994,16 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         // Best-effort read/starred refresh: re-fetch a recent window WITHOUT the
         // knownIds skip so emails read or starred directly in Gmail sync into Aiden.
         // (The incremental query + knownIds above never re-fetches known mail.)
-        if (!isFirstGmailFetch && Date.now() - lastReadStateRefresh > READ_STATE_REFRESH_MS) {
+        // Wide on the first sync (re-syncs persisted emails whose is_read went stale
+        // on disk — e.g. emails read in Gmail weeks ago), narrow + throttled after.
+        const wideRefresh = isFirstGmailFetch;
+        if (wideRefresh || Date.now() - lastReadStateRefresh > READ_STATE_REFRESH_MS) {
           lastReadStateRefresh = Date.now();
           try {
+            const win = wideRefresh ? 'in:inbox newer_than:60d' : 'in:inbox newer_than:2d';
+            const max = wideRefresh ? 300 : 50;
             const rResp = await fetch(
-              `${baseURL}/emails?q=${encodeURIComponent('in:inbox newer_than:2d')}&maxResults=50`,
+              `${baseURL}/emails?q=${encodeURIComponent(win)}&maxResults=${max}`,
               { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } },
             );
             if (rResp.ok) {
