@@ -442,7 +442,7 @@ let isFetchingEmails = false;
 // Gmail — the incremental sync only pulls NEW mail, so without this, emails read
 // or starred directly in Gmail never update inside Aiden.
 let lastReadStateRefresh = 0;
-const READ_STATE_REFRESH_MS = 5 * 60 * 1000;
+const READ_STATE_REFRESH_MS = 60 * 1000; // refresh read state at most once per minute
 
 // ---------------------------------------------------------------------------
 // Persisted last-sync anchor.
@@ -998,7 +998,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           lastReadStateRefresh = Date.now();
           try {
             const rResp = await fetch(
-              `${baseURL}/emails?q=${encodeURIComponent('in:inbox newer_than:7d')}&maxResults=120`,
+              `${baseURL}/emails?q=${encodeURIComponent('in:inbox newer_than:2d')}&maxResults=50`,
               { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' } },
             );
             if (rResp.ok) {
