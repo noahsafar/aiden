@@ -359,7 +359,8 @@ CHAT_SYSTEM = (
     "You help with email-related questions, writing advice, and general productivity. "
     "Be concise and helpful. When you are given context, answer using ONLY that context; "
     "if it doesn't contain the answer, say so briefly — never guess or fabricate. "
-    "Respond in plain text, not markdown."
+    "Respond in plain text only — no markdown: no bold/italics, no headers, and no bullet "
+    "or numbered lists (write enumerations as prose)."
 )
 
 

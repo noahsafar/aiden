@@ -51,7 +51,7 @@ Question: ${question}
 Context (the user's relevant emails):
 ${context.slice(0, 6000)}
 
-Answer in 1–3 sentences, concrete and grounded. No preamble. Respond in PLAIN TEXT (no markdown — no **bold**, no headers). If the question is about commitments or open tasks, cover BOTH what the user owes others AND what others owe the user. If a decision or action has a deadline, restate it.`;
+Answer in 1–3 sentences, concrete and grounded. No preamble. Respond in PLAIN TEXT (no markdown — no **bold**, no headers, no bullet/numbered lists; write enumerations as prose). If the question has multiple parts, address each one. If it's about commitments or open tasks, cover BOTH what the user owes others AND what others owe the user; when nothing is owed in a direction, scope it to this context (e.g. "nothing in these emails"). If a decision or action has a deadline, restate it.`;
   try {
     const raw = await runAidenPrompt(prompt, 18000);
     return raw.trim();
