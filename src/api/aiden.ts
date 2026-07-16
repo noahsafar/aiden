@@ -32,7 +32,10 @@ async function runAidenPrompt(prompt: string, timeoutMs = 25000): Promise<string
     let data: any;
     try { data = JSON.parse(text); } catch { throw new Error(`Bad JSON from /chat: ${text.slice(0, 200)}`); }
     if (data.error) throw new Error(data.error);
-    return data.reply ?? data.message ?? data.text ?? '';
+    // Accept all field names the backends serialize: oauth_server /chat -> {reply},
+    // genai-gateway /chat -> {response}. Without `response`, every gateway-routed
+    // AI call (brief, Ask, commitments, meeting-prep) silently returned ''.
+    return data.reply ?? data.response ?? data.message ?? data.text ?? '';
   } finally {
     clearTimeout(timer);
   }
@@ -114,7 +117,9 @@ Message:
 """${input.body.slice(0, 2000)}"""
 
 RULES:
-- Only real, actionable commitments. IGNORE pleasantries and filler like "let me know if you have questions", "thanks", "looking forward", "feel free to reach out", "hope you're well".
+- Only real, actionable commitments. IGNORE pleasantries and filler like "let me know if you have questions", "thanks", "looking forward", "feel free to reach out", "hope you're well", "touch base", "catch up", "chat soon", "reconnect".
+- IGNORE negated or declining statements ("I can't review", "won't be able to send", "no longer", "unable to") — these are NOT commitments.
+- For a CONDITIONAL promise ("if the budget approves, I'll hire"), set confidence <= 0.4 so it is filtered out unless it is firm.
 - "due" must be null UNLESS the message states an explicit time reference (a date, weekday, "by EOD", "next week", etc.). Never invent a deadline.
 - "confidence" 0–1: how sure you are this is a genuine commitment (not a vague intention or social nicety).
 
@@ -123,12 +128,20 @@ Return ONLY a JSON array. Each item: {"text": short imperative action, "directio
     const parsed = parseJsonLoose<Array<{ text: string; direction: string; due?: string | null; confidence?: number }>>(raw);
     if (!parsed || !Array.isArray(parsed)) return heuristic;
 
+    const NEGATIVE_RE = /\b(no longer|don['’]t|won['’]t|can['’]t|cannot|unable to|not able)\b/i;
     return parsed
       .filter((p) => p.text && (p.direction === 'you_owe' || p.direction === 'they_owe'))
+      .filter((p) => !NEGATIVE_RE.test(p.text)) // ignore negated / declining statements
       .filter((p) => (typeof p.confidence === 'number' ? p.confidence >= 0.5 : true))
       .slice(0, 4)
       .map((p, i) => {
         const due = p.due ? resolveDueDate(p.due, input.timestamp ? new Date(input.timestamp) : new Date()) : {};
+        // The model often returns a bare weekday ("Friday") as the deadline, but
+        // resolveDueDate needs a cue word (by/on/this/next) — retry with one.
+        if (p.due && !(due as any).iso) {
+          const retry = resolveDueDate(`by ${p.due}`, input.timestamp ? new Date(input.timestamp) : new Date());
+          if ((retry as any).iso) Object.assign(due, retry);
+        }
         return {
           id: `cmt-ai-${input.id}-${i}`,
           direction: p.direction as Commitment['direction'],
@@ -177,9 +190,14 @@ export async function synthesizeDayBrief(ctx: DayBriefContext): Promise<string> 
       ctx.mostOverdue ? `Most pressing commitment: ${ctx.mostOverdue}.` : '',
       ctx.nextMeeting ? `Next meeting: ${ctx.nextMeeting}.` : '',
     ].filter(Boolean).join(' ');
-    const prompt = `You are the user's calm, sharp chief of staff. Write ONE concise sentence (max 24 words) that orients them to their day and names the single most important thing specifically — not just counts. No greeting, no emoji, no "you have".
-Counts: ${ctx.attentionCount} need attention, ${ctx.opportunityCount} opportunities, ${ctx.meetingsToday} meetings, ${ctx.openCommitments} open loops.
-${specifics || 'Nothing specific is pressing.'}`;
+    const prompt = `You are the user's calm, sharp chief of staff. Write ONE concise sentence (max 24 words) that orients the user to their day and names the single most important thing to do, specifically.
+Rules:
+- Lead with the single most important thing (from Specifics), named specifically — never as a raw count.
+- Never quote counts, and never frame the day by what's absent (no "clear inbox", "nothing pending", "zero items"). If nothing specific is pressing, just say the day looks light — do not mention email or the inbox.
+- Do not prescribe how to spend free time (no "deep work" suggestions). Only tie an action to a meeting if they are genuinely related.
+- No greeting, no emoji.
+Day load: ${ctx.attentionCount} attention, ${ctx.opportunityCount} opportunities, ${ctx.meetingsToday} meetings, ${ctx.openCommitments} open loops.
+${specifics ? `Specifics: ${specifics}` : 'Nothing specific is pressing today.'}`;
     const raw = await runAidenPrompt(prompt, 8000);
     const line = raw.trim().split('\n')[0];
     if (line) return line.replace(/^["']|["']$/g, '');

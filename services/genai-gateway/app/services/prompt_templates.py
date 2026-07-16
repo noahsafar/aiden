@@ -136,7 +136,7 @@ From: Mike <mike@partner.com> | Subject: thoughts on the proposal whenever you g
 # ── Summarize email ────────────────────────────────────────────
 
 def summarize_email_prompt(email_content: str, style_context: str = "") -> str:
-    return f"""Please analyze this email and provide a concise summary and key points.
+    return f"""Analyze this email and provide a concise summary and key points.
 
 Email Content:
 {email_content}
@@ -144,14 +144,18 @@ Email Content:
 Additional Context about recipient's preferences:
 {style_context}
 
-Please respond in the following JSON format:
+Respond in this JSON format:
 {{
   "summary": "A brief 2-3 sentence summary of the email",
   "key_points": ["Key point 1", "Key point 2", "Key point 3"],
   "action_items": ["Action item 1 if any"]
 }}
 
-Focus on the most important information and action items."""
+Rules:
+- If the email contains specific figures, dollar amounts, percentages, dates, counts, or measurements, PRESERVE THEM EXACTLY in key_points — do not round, do not drop. For data-dense emails, prefer a complete enumerated key_points list over a narrative summary.
+- action_items must be concrete tasks the RECIPIENT owns, drawn from an explicit request. Do NOT include informational updates, third-party actions, optional suggestions, restatements of "no action needed", or marketing CTAs (claim now, subscribe, renew). Return an empty array for purely informational or promotional emails.
+- Match the summary's register to the email. For personal or emotional content, keep it plain and warm; do not add interpretive words the sender did not use.
+- Be concise (2-3 sentence summary); never fabricate numbers, names, or dates."""
 
 
 # ── Generate reply ─────────────────────────────────────────────
