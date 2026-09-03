@@ -153,12 +153,12 @@ pub async fn process_chat_message(request: ChatRequest) -> Result<ChatResponse, 
     };
 
     // Use the AI helper functions directly
-    let api_key = crate::commands::ai::get_api_key().await?;
+    let (auth_header, auth_value) = crate::commands::ai::resolve_auth_header().await?;
     let client = reqwest::Client::new();
 
     let response = client
         .post(format!("{}/v1/messages", crate::commands::ai::resolve_ai_base()))
-        .header("x-api-key", api_key)
+        .header(auth_header, auth_value)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
         .json(&claude_request)

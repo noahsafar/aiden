@@ -296,6 +296,19 @@ def fetch_slack_messages(token, channel_limit=30, history_limit=15):
 # AI API Keys
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
+# Anthropic-compatible endpoint + model, overridable so a different-shaped key
+# (e.g. a proxy token that isn't literally an Anthropic key) still works.
+# Defaults preserve the original behavior (direct z.ai passthrough to Claude).
+ZAI_ENDPOINT = os.getenv('ZAI_ENDPOINT', 'https://api.z.ai/api/anthropic/v1/messages')
+ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL_DRAFT', 'claude-sonnet-4-20250514')
+# Some gateways in front of the Anthropic API (e.g. a Z.ai-style proxy) issue
+# tokens that authenticate via a Bearer Authorization header rather than the
+# direct-API x-api-key header. Prefer it when set; falls back to x-api-key.
+ANTHROPIC_AUTH_TOKEN = os.getenv('ANTHROPIC_AUTH_TOKEN')
+# Anthropic's Zero-Data-Retention beta header — only meaningful when hitting
+# api.anthropic.com directly; third-party gateways don't honour it.
+ANTHROPIC_ZDR = os.getenv('ANTHROPIC_ZDR', '').strip().lower() in ('1', 'true', 'yes')
+
 # Rate limiting retry configuration
 MAX_RETRIES = 0  # No retries - immediately fall back to Ollama on rate limit
 INITIAL_RETRY_DELAY = 5  # seconds
@@ -458,19 +471,26 @@ def call_openai_with_retry(messages, max_tokens=300, temperature=0.7, timeout=5,
 
 
 def call_anthropic_with_retry(messages, max_tokens=300, temperature=0.7, timeout=30):
-    """Call Anthropic-compatible API (z.ai) with retry logic."""
+    """Call the configured Anthropic-compatible API (z.ai by default, or
+    another gateway via ZAI_ENDPOINT) with retry logic."""
     import requests
 
-    api_key = os.getenv('ANTHROPIC_API_KEY')
-    if not api_key:
+    if not ANTHROPIC_AUTH_TOKEN and not os.getenv('ANTHROPIC_API_KEY'):
         return None, "ANTHROPIC_API_KEY not configured"
 
-    # Build request for Anthropic-compatible API
+    # Build request for Anthropic-compatible API. Prefer Bearer auth via
+    # ANTHROPIC_AUTH_TOKEN (what some gateway-issued tokens require); fall
+    # back to the direct-API x-api-key header, unchanged from before.
     headers = {
         "Content-Type": "application/json",
-        "x-api-key": api_key.strip(),
-        "anthropic-version": "2023-06-01"
+        "anthropic-version": "2023-06-01",
     }
+    if ANTHROPIC_AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {ANTHROPIC_AUTH_TOKEN.strip()}"
+    else:
+        headers["x-api-key"] = os.getenv('ANTHROPIC_API_KEY').strip()
+    if ANTHROPIC_ZDR and "api.anthropic.com" in ZAI_ENDPOINT:
+        headers["anthropic-beta"] = "prompt-caching-2024-07-31"
 
     # Convert messages to Anthropic format
     content = ""
@@ -487,7 +507,7 @@ def call_anthropic_with_retry(messages, max_tokens=300, temperature=0.7, timeout
 
     # Build the request
     body = {
-        "model": "claude-sonnet-4-20250514",
+        "model": ANTHROPIC_MODEL,
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": content.strip()}]
     }
@@ -497,7 +517,7 @@ def call_anthropic_with_retry(messages, max_tokens=300, temperature=0.7, timeout
 
     try:
         response = requests.post(
-            "https://api.z.ai/api/anthropic/v1/messages",
+            ZAI_ENDPOINT,
             headers=headers,
             json=body,
             timeout=timeout
@@ -2465,7 +2485,7 @@ Return ONLY valid JSON."""
             requested_approach = data.get('approach')  # If unspecified, dispatcher picks the default
             compare_mode = bool(data.get('compare'))   # When true, return two responses from different approaches
 
-            if not os.getenv('ANTHROPIC_API_KEY'):
+            if not ANTHROPIC_AUTH_TOKEN and not os.getenv('ANTHROPIC_API_KEY'):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 response = {'success': False, 'error': 'ANTHROPIC_API_KEY not configured'}
@@ -2752,7 +2772,7 @@ Return ONLY valid JSON."""
             current_reply = data.get('current_reply', '')
             edit_prompt = data.get('edit_prompt', '')
 
-            if not os.getenv('ANTHROPIC_API_KEY'):
+            if not ANTHROPIC_AUTH_TOKEN and not os.getenv('ANTHROPIC_API_KEY'):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 response = {'success': False, 'error': 'ANTHROPIC_API_KEY not configured'}

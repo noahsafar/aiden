@@ -211,14 +211,31 @@ pub(crate) fn resolve_ai_base() -> String {
     base.trim_end_matches('/').to_string()
 }
 
+/// Some Anthropic-compatible gateways (e.g. a proxy issuing non-Anthropic
+/// tokens) authenticate with `Authorization: Bearer <token>` rather than the
+/// direct-API `x-api-key` header. Prefer ANTHROPIC_AUTH_TOKEN when set; fall
+/// back to the regular API key otherwise (unchanged default behavior).
+pub(crate) async fn resolve_auth_header() -> Result<(&'static str, String), String> {
+    if let Ok(token) = std::env::var("ANTHROPIC_AUTH_TOKEN") {
+        if !token.is_empty() {
+            return Ok(("Authorization", format!("Bearer {}", token)));
+        }
+    }
+    if let Some(token) = read_app_setting("anthropic_auth_token") {
+        return Ok(("Authorization", format!("Bearer {}", token)));
+    }
+    let api_key = get_api_key().await?;
+    Ok(("x-api-key", api_key))
+}
+
 // Helper function to call Claude API
 async fn call_claude_api(prompt: String) -> Result<String, String> {
     call_claude_api_with_system(prompt, None).await
 }
 
 pub(crate) async fn call_claude_api_with_system(prompt: String, system: Option<String>) -> Result<String, String> {
-    let api_key = get_api_key().await?;
-    eprintln!("DEBUG: Using API key with length: {}, starts with: {}", api_key.len(), &api_key[..8.min(api_key.len())]);
+    let (auth_header, auth_value) = resolve_auth_header().await?;
+    eprintln!("DEBUG: Using {} auth, length: {}", auth_header, auth_value.len());
 
     let client = reqwest::Client::new();
     let request = ClaudeRequest {
@@ -236,7 +253,7 @@ pub(crate) async fn call_claude_api_with_system(prompt: String, system: Option<S
     // Anthropic-compatible endpoint (configurable; defaults to z.ai)
     let response = client
         .post(format!("{}/v1/messages", resolve_ai_base()))
-        .header("x-api-key", api_key)
+        .header(auth_header, auth_value)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
         .json(&request)
@@ -265,7 +282,7 @@ pub(crate) async fn call_claude_api_with_system(prompt: String, system: Option<S
 
 // Helper function to call Claude API with vision (for images)
 async fn call_claude_vision_api(prompt: String, base64_image: String, media_type: String, system: Option<String>) -> Result<String, String> {
-    let api_key = get_api_key().await?;
+    let (auth_header, auth_value) = resolve_auth_header().await?;
 
     let client = reqwest::Client::new();
 
@@ -300,7 +317,7 @@ async fn call_claude_vision_api(prompt: String, base64_image: String, media_type
     // Anthropic-compatible endpoint (configurable; defaults to z.ai)
     let response = client
         .post(format!("{}/v1/messages", resolve_ai_base()))
-        .header("x-api-key", api_key)
+        .header(auth_header, auth_value)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
         .json(&request)
