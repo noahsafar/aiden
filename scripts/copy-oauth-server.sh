@@ -36,4 +36,15 @@ echo "Added NSAppTransportSecurity to Info.plist"
 plutil -lint "$INFO_PLIST"
 echo "Info.plist is valid"
 
+# `tauri build` already ad-hoc-signed the bundle, but we just modified its
+# Resources and Info.plist — that invalidates the seal (codesign records
+# exactly which resource files must be present). An app with a broken
+# signature can behave erratically (subprocess spawns / network entitlement
+# checks fail unpredictably) without a clear error, so re-sign after every
+# change here.
+echo "Re-signing app bundle (resources changed after tauri's own signing)..."
+codesign --force --deep --sign - "$APP_BUNDLE"
+codesign -dv "$APP_BUNDLE"
+echo "Re-signed."
+
 echo "Done!"
